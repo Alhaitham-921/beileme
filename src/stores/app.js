@@ -1,254 +1,308 @@
 import { defineStore } from 'pinia'
-import { WORDS } from '../data/words'
-import { grade, reviewItem } from '../utils/srs'
-import { todayKey } from '../utils/dates'
-import { shuffle } from '../utils/shuffle'
+import api from '../api'
 
-export const STORAGE_KEY = 'beileme:v1'
+/** 进行中的会话 id 存这里，刷新页面后可以接着背同一组题 */
+const ACTIVE_SESSION_KEY = 'beileme:activeSession'
 
-const DAY_MS = 24 * 60 * 60 * 1000
-
-// 词频优先级：高频词优先进入新词学习，组内乱序，避免按字母顺序背词
-const FREQ_ORDER = { high: 0, med: 1, low: 2 }
-
-function sortNewWords(words) {
-  const buckets = { high: [], med: [], low: [] }
-  for (const w of words) {
-    const key = FREQ_ORDER[w.freq] != null ? w.freq : 'med'
-    buckets[key].push(w)
-  }
-  return ['high', 'med', 'low'].flatMap((k) => shuffle(buckets[k]))
-}
-
-function defaultState() {
-  return {
-    profile: {
-      goal: '',
-      dailyTime: '',
-      level: '',
-      newPerDay: 15,
-      onboarded: false,
-      onboardedAt: null,
-    },
-    progress: {},
-    stats: { daily: {} },
+function readActiveSessionId() {
+  try {
+    const raw = sessionStorage.getItem(ACTIVE_SESSION_KEY)
+    return raw ? Number(raw) : null
+  } catch {
+    return null
   }
 }
 
+function writeActiveSessionId(id) {
+  try {
+    if (id) sessionStorage.setItem(ACTIVE_SESSION_KEY, String(id))
+    else sessionStorage.removeItem(ACTIVE_SESSION_KEY)
+  } catch {
+    // 忽略存储不可用
+  }
+}
+
+/**
+ * 学习数据。所有内容都来自后端，前端不再自己算 SRS 与统计。
+ *
+ * 这样做的意义：换台设备/换个浏览器登录，进度和错题本都在；
+ * 而且对错由服务端判定，前端拿不到答案，也就无法「作弊」。
+ */
 export const useAppStore = defineStore('app', {
-  state: () => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        const saved = JSON.parse(raw)
-        const def = defaultState()
-        return {
-          ...def,
-          ...saved,
-          profile: { ...def.profile, ...(saved.profile || {}) },
-          stats: { ...def.stats, ...(saved.stats || {}) },
-        }
-      }
-    } catch (e) {
-      /* 忽略损坏数据，回退到默认状态 */
-    }
-    return defaultState()
-  },
+  state: () => ({
+    // 首页
+    plan: null,
+    overview: null,
+    adjustmentPrompt: null,
+
+    // 背词会话
+    session: null,
+    items: [],
+    currentIndex: 0,
+    /** 最近一次作答的完整结果（含错因分析、易混词卡片） */
+    lastAnswer: null,
+    sessionSummary: null,
+    newBadges: [],
+
+    // 看板
+    trend: [],
+    strengthDistribution: {},
+    errorDistribution: null,
+    weakSummary: null,
+    calendar: [],
+    badges: null,
+
+    // 主页气泡彩蛋
+    recentWords: [],
+
+    loading: { home: false, session: false, dashboard: false, answering: false },
+    error: '',
+  }),
 
   getters: {
-    isOnboarded: (s) => s.profile.onboarded === true,
+    /** 今日任务（新词/复习/可选任务） */
+    todayNew: (state) => ({
+      done: state.plan?.newDone ?? 0,
+      target: state.plan?.newTarget ?? 0,
+      percent: state.plan?.newPercent ?? 0,
+    }),
+    todayReview: (state) => ({
+      done: state.plan?.reviewDone ?? 0,
+      target: state.plan?.reviewTarget ?? 0,
+      percent: state.plan?.reviewPercent ?? 0,
+    }),
+    allDoneToday: (state) => state.plan?.allDone === true,
 
-    allWords: () => WORDS,
-
-    learnedWords: (s) => WORDS.filter((w) => s.progress[w.id]?.learned),
-
-    totalLearned: (s) => WORDS.filter((w) => s.progress[w.id]?.learned).length,
-
-    totalSeen: (s) => Object.values(s.progress).reduce((n, p) => n + (p.timesSeen || 0), 0),
-
-    totalCorrect: (s) => Object.values(s.progress).reduce((n, p) => n + (p.timesCorrect || 0), 0),
-
-    totalWrong: (s) => Object.values(s.progress).reduce((n, p) => n + (p.timesWrong || 0), 0),
-
-    accuracy() {
-      const t = this.totalSeen
-      return t ? Math.round((this.totalCorrect / t) * 100) : 0
+    currentItem: (state) => state.items[state.currentIndex] || null,
+    totalItems: (state) => state.items.length,
+    answeredCount: (state) => state.items.filter((item) => item.answered).length,
+    sessionCorrect: (state) => state.items.filter((item) => item.correct === true).length,
+    sessionWrong: (state) => state.items.filter((item) => item.correct === false).length,
+    sessionAccuracy() {
+      const total = this.sessionCorrect + this.sessionWrong
+      return total ? Math.round((this.sessionCorrect / total) * 100) : 0
     },
+    isLastItem: (state) => state.currentIndex >= state.items.length - 1,
 
-    todayStats: (s) => s.stats.daily[todayKey()] || { new: 0, review: 0, correct: 0, wrong: 0 },
-
-    newPerDay: (s) => s.profile.newPerDay || 15,
-
-    dueWords: (s) => {
-      const now = Date.now()
-      return WORDS.filter((w) => {
-        const p = s.progress[w.id]
-        return p && p.learned && p.nextReviewAt <= now
-      })
-    },
-
-    dueCount() {
-      return this.dueWords.length
-    },
-
-    streak() {
-      const daily = this.stats.daily
-      const keys = Object.keys(daily)
-      if (!keys.length) return 0
-      let count = 0
-      let d = new Date()
-      // 今天还没学则从昨天开始算
-      if (!daily[todayKey(d)]) d = new Date(d.getTime() - DAY_MS)
-      while (daily[todayKey(d)]) {
-        count += 1
-        d = new Date(d.getTime() - DAY_MS)
-      }
-      return count
-    },
-
-    last7Days() {
-      const daily = this.stats.daily
-      const out = []
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date(Date.now() - i * DAY_MS)
-        const key = todayKey(d)
-        const rec = daily[key]
-        const correct = rec?.correct || 0
-        const wrong = rec?.wrong || 0
-        const total = correct + wrong
-        out.push({
-          key,
-          label: `${d.getMonth() + 1}/${d.getDate()}`,
-          correct,
-          wrong,
-          total,
-          accuracy: total ? Math.round((correct / total) * 100) : null,
-        })
-      }
-      return out
-    },
-
-    strengthDistribution() {
-      const buckets = { 新学: 0, 巩固中: 0, 较熟: 0, 已掌握: 0 }
-      for (const w of WORDS) {
-        const p = this.progress[w.id]
-        if (!p || !p.learned) continue
-        const r = p.repetitions || 0
-        if (r === 0) buckets['新学'] += 1
-        else if (r === 1) buckets['巩固中'] += 1
-        else if (r <= 3) buckets['较熟'] += 1
-        else buckets['已掌握'] += 1
-      }
-      return buckets
-    },
+    totalLearned: (state) => state.overview?.totalLearned ?? 0,
+    accuracy: (state) => state.overview?.accuracy ?? 0,
+    streak: (state) => state.overview?.streak ?? 0,
+    dueCount: (state) => state.overview?.dueCount ?? 0,
   },
 
   actions: {
-    completeOnboarding({ goal, dailyTime, level }) {
-      const map = { '5-10': 10, '15-20': 20, '30+': 30 }
-      this.profile = {
-        ...this.profile,
-        goal,
-        dailyTime,
-        level,
-        newPerDay: map[dailyTime] || 15,
-        onboarded: true,
-        onboardedAt: new Date().toISOString(),
+    /** 首页：今日计划 + 总览 + 是否该弹自适应难度询问 */
+    async loadHome() {
+      this.loading.home = true
+      this.error = ''
+      try {
+        const [planData, overview, prompt] = await Promise.all([
+          api.plan.today(),
+          api.stats.overview(),
+          api.plan.adjustmentPrompt(),
+        ])
+        this.plan = planData.plan
+        this.overview = overview
+        this.adjustmentPrompt = prompt?.shouldPrompt ? prompt : null
+        return planData
+      } catch (error) {
+        this.error = error.message
+        throw error
+      } finally {
+        this.loading.home = false
       }
     },
 
-    // 首次进入首页时固化「今日待复习」目标数，避免背完后数字跳变
-    ensureTodayPlan() {
-      const key = todayKey()
-      if (!this.stats.daily[key]) {
-        this.stats.daily[key] = { new: 0, review: 0, correct: 0, wrong: 0 }
-      }
-      const day = this.stats.daily[key]
-      if (day.reviewTarget == null) {
-        day.reviewTarget = this.dueCount
+    async adjustPlan(reason) {
+      const data = await api.plan.adjust(reason)
+      this.plan = data.plan
+      this.adjustmentPrompt = null
+      return data
+    },
+
+    /**
+     * 开始一轮学习。
+     * @param {'daily'|'extra'} kind daily=按今日计划，extra=再学一组
+     */
+    async startSession(kind = 'daily') {
+      this.loading.session = true
+      this.error = ''
+      this.lastAnswer = null
+      this.sessionSummary = null
+      try {
+        const data = await api.study.createSession(kind)
+        this.session = data.session
+        this.items = data.items
+        this.currentIndex = 0
+        this.plan = data.plan || this.plan
+        if (data.items.length) writeActiveSessionId(data.session.id)
+        else writeActiveSessionId(null)
+        return data
+      } catch (error) {
+        this.error = error.message
+        throw error
+      } finally {
+        this.loading.session = false
       }
     },
 
-    buildSessionQueue() {
-      const day = this.todayStats
-      const now = Date.now()
-      const due = this.dueWords.map((w) => ({ word: w, kind: 'review' }))
-      due.sort((a, b) => this.progress[a.word.id].nextReviewAt - this.progress[b.word.id].nextReviewAt)
+    /** 刷新页面后恢复进行中的会话 */
+    async restoreSession() {
+      const sessionId = readActiveSessionId()
+      if (!sessionId || this.session?.id === sessionId) return null
 
-      const quota = Math.max(0, this.newPerDay - day.new)
-      const fresh = sortNewWords(WORDS.filter((w) => !this.progress[w.id]?.learned))
-        .slice(0, quota)
-        .map((w) => ({ word: w, kind: 'new' }))
-
-      return [...due, ...fresh]
-    },
-
-    // 「再学一组」：不受每日计划限制，提前复习 + 补充新词
-    buildExtraSession() {
-      const fresh = sortNewWords(WORDS.filter((w) => !this.progress[w.id]?.learned))
-        .slice(0, 10)
-        .map((w) => ({ word: w, kind: 'new' }))
-      const reviewSoon = WORDS.filter((w) => this.progress[w.id]?.learned)
-        .sort((a, b) => this.progress[a.id].nextReviewAt - this.progress[b.id].nextReviewAt)
-        .slice(0, 10)
-        .map((w) => ({ word: w, kind: 'review' }))
-      return shuffle([...fresh, ...reviewSoon]).slice(0, 10)
-    },
-
-    submitAnswer(wordId, isCorrect, hesitationMs) {
-      const now = Date.now()
-      const key = todayKey()
-      if (!this.stats.daily[key]) {
-        this.stats.daily[key] = { new: 0, review: 0, correct: 0, wrong: 0 }
+      this.loading.session = true
+      try {
+        const data = await api.study.getSession(sessionId)
+        this.session = data.session
+        this.items = data.items
+        // 跳过已作答的题
+        const nextIndex = data.items.findIndex((item) => !item.answered)
+        this.currentIndex = nextIndex === -1 ? Math.max(0, data.items.length - 1) : nextIndex
+        return data
+      } catch {
+        // 会话已失效就安静地放弃恢复
+        writeActiveSessionId(null)
+        return null
+      } finally {
+        this.loading.session = false
       }
-      const day = this.stats.daily[key]
-
-      const existing = this.progress[wordId]
-      const isNew = !existing || !existing.learned
-      const q = grade(hesitationMs, isCorrect)
-
-      const base =
-        existing && existing.learned
-          ? existing
-          : {
-              ef: 2.5,
-              intervalDays: 0,
-              repetitions: 0,
-              nextReviewAt: 0,
-              learned: true,
-              timesSeen: 0,
-              timesCorrect: 0,
-              timesWrong: 0,
-              firstLearnedAt: now,
-              history: [],
-            }
-
-      const upd = reviewItem(base, q, now)
-
-      this.progress[wordId] = {
-        ...base,
-        ...upd,
-        learned: true,
-        timesSeen: (base.timesSeen || 0) + 1,
-        timesCorrect: (base.timesCorrect || 0) + (isCorrect ? 1 : 0),
-        timesWrong: (base.timesWrong || 0) + (isCorrect ? 0 : 1),
-        lastResult: isCorrect,
-        lastHesitationMs: hesitationMs,
-        history: [
-          ...(base.history || []),
-          { ts: now, result: isCorrect, hesitationMs, quality: q },
-        ],
-      }
-
-      if (isNew) day.new += 1
-      else day.review += 1
-      if (isCorrect) day.correct += 1
-      else day.wrong += 1
     },
 
-    resetAll() {
-      localStorage.removeItem(STORAGE_KEY)
-      this.$reset()
+    /**
+     * 提交作答。对错由服务端判定，这里只上报选项下标与犹豫时长。
+     * @returns {Promise<object>} 含 isCorrect / analysis / confusableCard / progress
+     */
+    async submitAnswer({ wordId, optionIndex, hesitationMs, source = 'study', spellingMistake = false }) {
+      if (!this.session) throw new Error('当前没有进行中的学习会话')
+
+      this.loading.answering = true
+      try {
+        const data = await api.study.answer(this.session.id, {
+          wordId,
+          optionIndex,
+          hesitationMs,
+          source,
+          spellingMistake,
+        })
+
+        this.lastAnswer = data
+        if (data.plan) this.plan = data.plan
+        if (data.unlockedBadges?.length) this.newBadges = data.unlockedBadges
+
+        // 同步本地题目状态，让进度与结果统计立刻反映出来
+        const item = this.items.find((entry) => entry.wordId === wordId)
+        if (item) {
+          item.answered = true
+          item.correct = data.isCorrect
+        }
+        return data
+      } finally {
+        this.loading.answering = false
+      }
+    },
+
+    nextQuestion() {
+      if (this.currentIndex < this.items.length - 1) {
+        this.currentIndex += 1
+        this.lastAnswer = null
+      }
+    },
+
+    async finishSession() {
+      if (!this.session) return null
+      const data = await api.study.finish(this.session.id)
+      this.sessionSummary = data.summary
+      writeActiveSessionId(null)
+      return data
+    },
+
+    /** 结束本轮并清空本地会话状态 */
+    clearSession() {
+      this.session = null
+      this.items = []
+      this.currentIndex = 0
+      this.lastAnswer = null
+      this.sessionSummary = null
+      writeActiveSessionId(null)
+    },
+
+    /** 看板：一次性把各图表需要的数据取回来 */
+    async loadDashboard() {
+      this.loading.dashboard = true
+      this.error = ''
+      try {
+        const [overview, trend, strength, errors, weak, calendar, badges] = await Promise.all([
+          api.stats.overview(),
+          api.stats.trend({ days: 7 }),
+          api.stats.strength(),
+          api.stats.errors({ days: 30 }),
+          api.stats.weakSummary({ days: 7 }),
+          api.plan.calendar(),
+          api.stats.badges(),
+        ])
+
+        this.overview = overview
+        this.trend = trend.items
+        this.strengthDistribution = strength.distribution
+        this.errorDistribution = errors
+        this.weakSummary = weak
+        this.calendar = calendar.items
+        this.badges = badges
+        this.plan = overview.today || this.plan
+        return { overview, trend, strength, errors, weak, calendar, badges }
+      } catch (error) {
+        this.error = error.message
+        throw error
+      } finally {
+        this.loading.dashboard = false
+      }
+    },
+
+    /** 主界面气泡彩蛋：最近学过的单词 */
+    async loadRecentWords(limit = 8) {
+      try {
+        const data = await api.words.recent({ limit })
+        this.recentWords = data.items
+        return data
+      } catch {
+        this.recentWords = []
+        return { items: [], empty: true, emptyHint: '先去背几个单词吧~' }
+      }
+    },
+
+    async markArticleDone(done = true) {
+      const data = await api.plan.markArticleDone(done)
+      this.plan = data.plan
+      return data.plan
+    },
+
+    async markGameDone(done = true) {
+      const data = await api.plan.markGameDone(done)
+      this.plan = data.plan
+      return data.plan
+    },
+
+    /** 上报一局小游戏结果（不消耗 AI 额度） */
+    async recordGame(payload) {
+      const data = await api.games.record(payload)
+      if (data.plan) this.plan = data.plan
+      if (data.unlockedBadge) this.newBadges = [data.unlockedBadge]
+      return data
+    },
+
+    /** 生成易混词对比卡片（纯算法，不需要 AI） */
+    async loadWordContrast(wordId) {
+      const data = await api.words.contrast(wordId)
+      return data.card
+    },
+
+    clearNewBadges() {
+      this.newBadges = []
+    },
+
+    clearError() {
+      this.error = ''
     },
   },
 })

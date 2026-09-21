@@ -1,9 +1,17 @@
 # 依赖
 node_modules/
 
+# npm 本地缓存（沙箱环境下使用 --cache .npm-cache 安装）
+.npm-cache/
+
+# 开源词库的下载缓存（可重新下载，不入库）
+server/data/wordlists/
+
 # 构建产物
 dist/
 dist-ssr/
+# 单文件构建产物（npm run build 生成，内容已过时，不入库）
+背了么.html
 
 # 本地 Claude Code 设置（不提交）
 .claude/settings.local.json
