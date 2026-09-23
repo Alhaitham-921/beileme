@@ -1,15 +1,32 @@
 /**
- * AI 生成的 Prompt 模板（PRD 4.3 / 4.4）
+ * AI 生成的 Prompt 模板（PRD 4.3 / 4.4）。
  *
  * 所有生成请求都必须经过这里的模板，这是「预设约束」的落地点：
  * 无论使用官方额度还是用户自带 Key，都不能绕过模板变成通用聊天工具（PRD 4.8）。
+ *
+ * ── 关于「省 token」的设计取舍 ─────────────────────────────
+ * Prompt 里的每个字都要花钱，因此这里刻意做了几件事：
+ *  1. 目标词用单行紧凑格式 `adapt(v. 适应/改编)`，**不带例句**——
+ *     例句对「写一篇新文章」帮助很小，却往往占掉输入 token 的一半
+ *  2. 释义只取前 2 条，够模型判断词义即可
+ *  3. 用户画像压成一行摘要，而不是把字段逐条铺开
+ *  4. 多个易错词合并成一次请求（buildErrorCardBatchPrompt），
+ *     避免「一个词一次调用」这种最烧钱的写法
+ *  5. 输出结构尽量扁平，并要求不输出解释性文字，减少无效的输出 token
  */
 
 /** 话题池随机抽取是「相同词表不同用户/不同时间生成结果不同」的保证之一（PRD 4.4 第 2 条） */
 export const TOPIC_POOL = ['科技', '环保', '校园', '旅行', '职场', '健康', '文化', '生活']
 
+/** 提示词里最多出现的释义条数：再多只增加 token，不提升质量 */
+const MAX_DEFINITIONS_IN_PROMPT = 2
+
+/** 单次请求里最多合并多少个错词的卡片 */
+export const MAX_CARDS_PER_REQUEST = 6
+
 /** 学习目标 → 文章体裁风格（PRD 4.3.1） */
 const GOAL_STYLES = {
+  小学: '简短对话或图文式短文，句子极短，全部使用最基础的词汇',
   中考: '贴近校园生活的记叙文或应用文（如日记、通知、书信），句子简短，多用具体场景',
   高考: '叙事与议论结合，允许出现少量定语从句和状语从句',
   四级: '说明文或议论文，结构清晰，允许使用常见的连接词与举例论证',
@@ -23,25 +40,27 @@ const GOAL_STYLES = {
 
 /** 难度分级 → 句式与用词约束（PRD 4.4：可略高于当前水平，但不可断层） */
 const DIFFICULTY_GUIDES = {
-  1: '句子平均 8-10 词，只使用简单句，全部为高频基础词',
-  2: '句子平均 10-14 词，以简单句为主，可少量使用并列句',
+  1: '句子平均 8-10 词，只用简单句，全部高频基础词',
+  2: '句子平均 10-14 词，以简单句为主，可少量并列句',
   3: '句子平均 14-18 词，可适度使用定语从句、状语从句',
-  4: '句子平均 18-22 词，允许使用名词性从句与非谓语结构',
-  5: '句子平均 22-26 词，允许长难句与较多抽象词汇，但仍需逻辑清晰',
+  4: '句子平均 18-22 词，允许名词性从句与非谓语结构',
+  5: '句子平均 22-26 词，允许长难句与较多抽象词，但逻辑仍需清晰',
 }
 
 /**
  * System Prompt：内容规范的强约束，对所有生成类型生效。
+ * 它每次请求都会发送，所以写得紧凑——但这几条约束一条都不能省，
+ * 它们正是「不跑题、不超纲、不被当成通用聊天工具」的保证。
  */
-export const SYSTEM_PROMPT = `你是「背了么」英语学习产品的内容生成引擎，只负责按固定结构填充学习内容，不提供任何与英语学习无关的服务。
+export const SYSTEM_PROMPT = `你是「背了么」英语学习产品的内容生成引擎，只按固定结构填充学习内容，不提供任何与英语学习无关的服务。
 
-必须严格遵守以下约定：
-1. 内容必须服务于当前学习目标与给定词表，不得跑题、不得发散到无关话题。
-2. 用词难度必须与给定难度等级匹配：可略高于学习者当前水平，但不可断层，不得出现严重超纲词。
-3. 内容必须健康、积极、适合学习场景；不得涉及暴力、色情、政治敏感、歧视等不适宜内容。
-4. 输出结构为固定格式，你只负责填充内容，不得增删或改变结构。
-5. 请勿与常见范文雷同，尽量原创，避免模板化表达；相同词表也要在具体场景、人物、细节上做出差异化。
-6. 只输出要求的 JSON，不要输出任何解释性文字、不要使用 Markdown 代码块包裹。`
+约定：
+1. 内容必须服务于给定词表与学习目标，不得跑题发散。
+2. 用词难度与给定难度等级匹配：可略高于学习者水平，但不可断层、不可大量超纲。
+3. 内容健康、积极、适合学习场景，不得涉及暴力、色情、政治敏感或歧视。
+4. 输出结构固定，你只填充内容，不得增删字段。
+5. 请勿与常见范文雷同，尽量原创，相同词表也要在场景与细节上做出差异化。
+6. 只输出要求的 JSON，不要解释性文字，不要用 Markdown 代码块包裹。`
 
 /** 按学习目标取体裁风格 */
 export function styleForGoal(goal) {
@@ -71,21 +90,37 @@ export function pickTopic(topicWeights = {}, random = Math.random) {
   return topics[topics.length - 1]
 }
 
-function wordsBlock(words) {
+/**
+ * 目标词 → 紧凑单行文本。输入 token 的大头就在这里，所以：
+ * 不带例句、释义最多 2 条、用 `; ` 分隔。
+ * 例：`adapt(v. 适应/改编); ability(n. 能力/才能)`
+ */
+export function wordsBlockCompact(words = []) {
   return words
     .map((word) => {
-      const definitions = (word.definitions || []).join('；')
-      const example = word.example ? `　例：${word.example}` : ''
-      return `- ${word.spelling}（${word.pos || '—'}，${definitions}）${example}`
+      const pos = word.pos ? `${word.pos} ` : ''
+      const definitions = (word.definitions || []).slice(0, MAX_DEFINITIONS_IN_PROMPT).join('/')
+      return `${word.spelling}(${pos}${definitions})`
     })
-    .join('\n')
+    .join('; ')
 }
 
-function weakWordsBlock(weakWords = []) {
-  if (!weakWords.length) return '（暂无历史易混词记录）'
+/** 易混词 → 只给拼写与一个释义，用于在文中制造对比语境（PRD 4.3.1） */
+export function confusableBlockCompact(weakWords = []) {
+  if (!weakWords.length) return ''
   return weakWords
-    .map((item) => `- ${item.spelling}：${(item.definitions || []).join('；')}`)
-    .join('\n')
+    .map((item) => `${item.spelling}(${(item.definitions || [])[0] || ''})`)
+    .join('; ')
+}
+
+/** 用户画像 → 一行摘要，避免把字段逐条铺开占 token（PRD 4.4 第 1 条） */
+export function profileLineCompact(profile = {}) {
+  const parts = [`目标:${profile.goal || '未指定'}`]
+  if (profile.selfLevel) parts.push(`词汇量:${profile.selfLevel}`)
+  if (Array.isArray(profile.memoryPrefs) && profile.memoryPrefs.length) {
+    parts.push(`记忆偏好:${profile.memoryPrefs.join('/')}`)
+  }
+  return parts.join(' ')
 }
 
 /**
@@ -97,43 +132,22 @@ export function buildArticlePrompt({
   topic,
   difficulty = 3,
   weakWords = [],
-  memoryPrefs = [],
   minWords = 150,
   maxWords = 250,
 } = {}) {
-  const prefsHint = memoryPrefs.length
-    ? `学习者的记忆偏好：${memoryPrefs.join('、')}，请相应地调整内容侧重（例如偏好语境阅读则加强上下文线索，偏好词根词缀则尽量使用同根词）。`
-    : ''
+  const confusables = confusableBlockCompact(weakWords)
 
-  const user = `【任务】为英语学习者撰写一篇巩固短文。
+  const user = `写一篇英语巩固短文。
+话题：${topic}
+体裁：${styleForGoal(profile.goal)}
+难度：${guideForDifficulty(difficulty)}
+篇幅：${minWords}-${maxWords} 个英文单词
+目标词（必须全部自然出现，文中用 ** 加粗）：${wordsBlockCompact(words)}
+${confusables ? `易混词（如能制造对比语境更好）：${confusables}\n` : ''}学习者：${profileLineCompact(profile)}
 
-【话题】${topic}
-【体裁风格】${styleForGoal(profile.goal)}
-【难度要求】${guideForDifficulty(difficulty)}
-【篇幅】${minWords}-${maxWords} 个英文单词
-
-【必须自然融入的目标词】
-${wordsBlock(words)}
-
-【学习者历史易混词（若能在文中制造对比语境，将显著提升辨析效果）】
-${weakWordsBlock(weakWords)}
-
-【学习者画像摘要】目标：${profile.goal || '未指定'}；自评词汇量：${profile.selfLevel || '不确定'}；每日投入：${profile.dailyTime || '未指定'}
-${prefsHint}
-
-【硬性要求】
-1. 目标词必须全部出现在文中，形式自然，不得生硬堆砌；如确有个别词无法自然融入，最多允许 1 个词替换为其同根词。
-2. 文中每个目标词都用 Markdown 加粗包裹，例如 **abandon**。
-3. 文章要有一个具体、独特的场景或叙事视角，避免泛泛而谈的模板化开头。
-4. 文末附生词表，与文中出现的词一一对应。
-
-只输出如下 JSON：
-{
-  "title": "英文标题",
-  "body": "正文，目标词用 ** 加粗",
-  "glossary": [{"spelling": "单词", "definition": "中文释义"}],
-  "topicUsed": "${topic}"
-}`
+要求：场景具体独特，避免模板化开头；不得生硬堆砌目标词；文末附生词表。
+只输出 JSON：
+{"title":"英文标题","body":"正文，目标词用 ** 加粗","glossary":[{"spelling":"单词","definition":"中文释义"}],"topicUsed":"${topic}"}`
 
   return { system: SYSTEM_PROMPT, user }
 }
@@ -142,129 +156,111 @@ ${prefsHint}
  * 阅读理解练习题生成（PRD 4.3.2）
  */
 export function buildQuizPrompt({ article = {}, words = [], profile = {}, difficulty = 3, count = 3 } = {}) {
-  const user = `【任务】基于下面这篇短文，生成 ${count} 道阅读理解题。
+  const academic = ['四级', '六级', '雅思', '托福', '考研'].includes(profile.goal)
 
-【短文标题】${article.title || ''}
-【短文正文】
+  const user = `基于下面这篇短文出 ${count} 道阅读理解题。
+
+标题：${article.title || ''}
+正文：
 ${article.body || ''}
 
-【考查目标词】
-${wordsBlock(words)}
+考查词：${wordsBlockCompact(words)}
+难度：${guideForDifficulty(difficulty)}　学习者：${profileLineCompact(profile)}
 
-【难度要求】${guideForDifficulty(difficulty)}
-【学习目标】${profile.goal || '未指定'}
+题型分布：至少 1 道词汇题（考查目标词在文中的含义）、1 道细节理解题（答案可在文中直接定位）、1 道推理判断题。
+${academic ? '再加 1 道长难句理解或翻译题。' : ''}
+要求：每题 4 个选项、只有 1 个正确答案、干扰项合理；每题都要给解析，说明正确项依据与错误项的问题。
 
-【题型分布要求】
-1. 至少 1 道词汇题：考查目标词在文中的具体含义。
-2. 至少 1 道细节理解题：答案必须能在文中直接定位。
-3. 至少 1 道推理判断题：需要结合上下文推断。
-${['四级', '六级', '雅思', '托福', '考研'].includes(profile.goal) ? '4. 另加 1 道长难句理解或翻译题。' : ''}
-
-【硬性要求】
-1. 每题 4 个选项，只有一个正确答案，干扰项必须合理且不与原文矛盾。
-2. 每题都要给出解析，说明正确选项的依据，并指出错误选项的问题。
-3. 词汇题必须直接对应上面的目标词。
-
-只输出如下 JSON：
-{
-  "questions": [
-    {
-      "type": "vocabulary | detail | inference | translation",
-      "stem": "题干",
-      "options": ["A 选项", "B 选项", "C 选项", "D 选项"],
-      "answerIndex": 0,
-      "explanation": "解析",
-      "targetWord": "对应的目标词，没有则为空字符串"
-    }
-  ]
-}`
+只输出 JSON：
+{"questions":[{"type":"vocabulary|detail|inference|translation","stem":"题干","options":["A","B","C","D"],"answerIndex":0,"explanation":"解析","targetWord":"对应目标词，没有则为空"}]}`
 
   return { system: SYSTEM_PROMPT, user }
 }
 
 /**
- * 错因巩固内容生成（PRD 4.3.3）：针对易混词生成对比记忆卡片
+ * 错因巩固卡片 · 批量版（PRD 4.2.3 / 4.3.3）
+ *
+ * 这是成本控制里最关键的一处：把 N 个易错词合并进一次请求。
+ * 逐词调用会产生 N 倍的 system prompt 与固定开销，合并后固定成本只付一次。
+ *
+ * @param {{words?:Array, profile?:object}} params
+ *   words 元素形如：
+ *   { spelling, pos, definitions, relatedWords:[{spelling, relationType}],
+ *     errorBreakdown:{ guess, vague, formConfusion, meaningConfusion, spellingWeak } }
  */
-export function buildErrorCardPrompt({ word, relatedWords = [], errorBreakdown = {}, profile = {} } = {}) {
-  const related = relatedWords
-    .map(
-      (item) =>
-        `- ${item.spelling}（${item.pos || '—'}，${(item.definitions || []).join('；')}）　关系：${
-          item.relationType === 'form' ? '形近' : '近义'
-        }，相似度 ${item.score}`
-    )
+export function buildErrorCardBatchPrompt({ words = [], profile = {} } = {}) {
+  const list = words.slice(0, MAX_CARDS_PER_REQUEST)
+
+  const items = list
+    .map((word, index) => {
+      const related = (word.relatedWords || [])
+        .slice(0, 3)
+        .map((item) => `${item.spelling}(${item.relationType === 'form' ? '形近' : '近义'})`)
+        .join(' ')
+
+      const breakdown = word.errorBreakdown || {}
+      const errors = [
+        breakdown.guess ? `盲猜 ${breakdown.guess} 次` : '',
+        breakdown.vague ? `记忆模糊 ${breakdown.vague} 次` : '',
+        breakdown.formConfusion ? `形近混淆 ${breakdown.formConfusion} 次` : '',
+        breakdown.meaningConfusion ? `近义混淆 ${breakdown.meaningConfusion} 次` : '',
+        breakdown.spellingWeak ? `拼写薄弱 ${breakdown.spellingWeak} 次` : '',
+      ]
+        .filter(Boolean)
+        .join('、')
+
+      const glossary = (word.definitions || []).slice(0, MAX_DEFINITIONS_IN_PROMPT).join('/')
+      return (
+        `${index + 1}. ${word.spelling}(${word.pos ? `${word.pos} ` : ''}${glossary})` +
+        `${related ? ` 易混:${related}` : ''}${errors ? ` 历史错因:${errors}` : ''}`
+      )
+    })
     .join('\n')
 
-  const user = `【任务】为一个容易混淆的单词生成对比记忆卡片。
+  const user = `为下列易错词各生成一张对比记忆卡片。这些词是学习者反复混淆或记不住的。
+${items}
+学习者：${profileLineCompact(profile)}
 
-【目标词】${word.spelling}（${word.pos || '—'}，${(word.definitions || []).join('；')}）
-【例句】${word.example || '（无）'}
+每个词都要给出：一句话点明核心区别、各词的核心语义与用法差异、能体现区别的英文例句及中文翻译、
+一句好记的记忆口诀（要结合上面的错因，不要空泛）。错因以形近为主就重点讲词形差异，以语义为主就重点讲使用场景。
 
-【容易与它混淆的词】
-${related || '（无）'}
-
-【该词的历史错因统计】盲猜 ${errorBreakdown.guess || 0} 次；记忆模糊 ${errorBreakdown.vague || 0} 次；形近混淆 ${errorBreakdown.formConfusion || 0} 次；近义混淆 ${errorBreakdown.meaningConfusion || 0} 次；拼写薄弱 ${errorBreakdown.spellingWeak || 0} 次
-【学习目标】${profile.goal || '未指定'}
-【难度要求】${guideForDifficulty(profile.selfLevel ? 3 : 3)}
-
-【硬性要求】
-1. 明确说明这几个词在含义和用法上的核心区别。
-2. 为每个词各给一个能体现区别的英文例句，并附中文翻译。
-3. 给出一句简短好记的记忆口诀或联想（中文即可），要贴近错因，不要空泛。
-4. 若错因以形近为主，重点讲词形差异；若以语义为主，重点讲使用场景差异。
-
-只输出如下 JSON：
-{
-  "headline": "一句话点明核心区别",
-  "distinctions": [{"spelling": "单词", "coreMeaning": "核心语义", "usage": "用法差异说明", "example": "英文例句", "translation": "中文翻译"}],
-  "mnemonic": "记忆口诀或联想",
-  "formTip": "词形差异提示"
-}`
+只输出 JSON：
+{"cards":[{"spelling":"单词","headline":"一句话核心区别","distinctions":[{"spelling":"单词","coreMeaning":"核心语义","usage":"用法差异","example":"英文例句","translation":"中文翻译"}],"mnemonic":"记忆口诀","formTip":"词形差异提示"}]}`
 
   return { system: SYSTEM_PROMPT, user }
 }
 
 /**
- * 本周薄弱点小结（PRD 4.3.3）：把统计数据交给模型写成自然语言结论
+ * 本周薄弱点小结（PRD 4.3.3）：统计数据由服务端算好，模型只负责表述
  */
 export function buildWeakSummaryPrompt({ stats = {}, profile = {} } = {}) {
   const distribution = (stats.errorDistribution?.items || [])
-    .map((item) => `- ${item.label}：${item.count} 次（${item.percent}%）`)
-    .join('\n')
+    .map((item) => `${item.label} ${item.count}次(${item.percent}%)`)
+    .join('、')
 
   const topWords = (stats.topWrongWords || [])
-    .map((item) => `- ${item.spelling}（${(item.definitions || []).join('；')}）：错 ${item.wrongTimes} 次，错因 ${item.errorTypes.join('、')}`)
-    .join('\n')
+    .slice(0, 5)
+    .map((item) => `${item.spelling}(${(item.definitions || [])[0] || ''}) 错${item.wrongTimes}次`)
+    .join('; ')
 
-  const user = `【任务】根据下面的学习数据，写一份本周薄弱点小结，直接对学习者说话。
+  const user = `根据下列学习数据写一份最近 ${stats.days || 7} 天的薄弱点小结，直接对学习者说话。
 
-【统计周期】最近 ${stats.days || 7} 天
-【错因分布】
-${distribution || '（本周无错题）'}
+错因分布：${distribution || '本周无错题'}
+高频错词：${topWords || '无'}
+学习者：${profileLineCompact(profile)}
 
-【错误最多的单词】
-${topWords || '（无）'}
+要求：用第二人称，语气鼓励但不空洞；结论必须基于上面的数据，不得编造统计里没有的现象；
+给出 2-3 条具体可执行的下一步建议。
 
-【学习目标】${profile.goal || '未指定'}
-
-【硬性要求】
-1. 用第二人称，语气鼓励但不空洞，不要堆砌夸奖。
-2. 必须基于数据给出结论，不得编造统计里没有的现象。
-3. 给出 2-3 条具体、可执行的下一步建议。
-
-只输出如下 JSON：
-{
-  "headline": "一句话总结本周状态",
-  "observations": ["观察 1", "观察 2"],
-  "suggestions": ["建议 1", "建议 2", "建议 3"]
-}`
+只输出 JSON：
+{"headline":"一句话总结本周状态","observations":["观察1","观察2"],"suggestions":["建议1","建议2"]}`
 
   return { system: SYSTEM_PROMPT, user }
 }
 
 /**
  * 解析模型返回的 JSON。模型偶尔会用 ```json 包裹，这里统一剥离后再解析。
- * @throws {Error} 内容不是合法 JSON 时抛出，由上层决定是否重试
+ * @throws {Error} 内容不是合法 JSON 时抛出，由上层决定是否降级
  */
 export function parseJsonResponse(content) {
   if (typeof content !== 'string') throw new Error('AI 返回内容不是字符串')
@@ -288,12 +284,16 @@ export function parseJsonResponse(content) {
 export default {
   SYSTEM_PROMPT,
   TOPIC_POOL,
+  MAX_CARDS_PER_REQUEST,
   pickTopic,
   styleForGoal,
   guideForDifficulty,
+  wordsBlockCompact,
+  confusableBlockCompact,
+  profileLineCompact,
   buildArticlePrompt,
   buildQuizPrompt,
-  buildErrorCardPrompt,
+  buildErrorCardBatchPrompt,
   buildWeakSummaryPrompt,
   parseJsonResponse,
 }

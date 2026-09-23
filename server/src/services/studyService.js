@@ -1,9 +1,9 @@
-import { query, queryOne, execute, withTransaction } from '../db/pool.js'
+﻿import { query, queryOne, execute, withTransaction } from '../db/pool.js'
 import { parseJson, toJson, clamp } from '../utils/json.js'
-import { todayKey } from '../utils/time.js'
+import { todayKey, businessDayStartUtc } from '../utils/time.js'
 import { badRequest, conflict, notFound } from '../utils/errors.js'
 import { grade, reviewItem, computeMemoryStrength } from './srs.js'
-import { classifyError, CONFUSION_INTERVAL_FACTOR } from './errorAnalysis.js'
+import { classifyError, CONFUSION_INTERVAL_FACTOR, ERROR_TYPE_LABELS } from './errorAnalysis.js'
 import {
   buildOptionsFor,
   getRelatedWords,
@@ -58,6 +58,8 @@ function buildQueueItem(wordRow, kind, options) {
     options: options.map((option, index) => ({
       index,
       text: option.text,
+      // 词表里的第一条释义，前端据此加粗（是排序位置，不是词频标注）
+      primary: option.primary || '',
       correct: Boolean(option.correct),
       wordId: option.wordId ?? null,
     })),
@@ -84,7 +86,11 @@ function publicWord(row) {
 
 /** 去掉 correct 标记，答案只留在服务端 */
 function publicOptions(options) {
-  return options.map((option) => ({ index: option.index, text: option.text }))
+  return options.map((option) => ({
+    index: option.index,
+    text: option.text,
+    primary: option.primary || '',
+  }))
 }
 
 /** 一次性把队列中的单词查出来，避免逐题查询造成 N+1 */
@@ -455,7 +461,8 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
         definitions: word.definitions,
         example: word.example,
       },
-      correctText: word.definitions[0],
+      // 与选项文本保持一致，前端才能靠它反查哪个选项是正确项
+      correctText: word.definitions.join('；'),
       wrongOption,
       analysis,
       confusion,
@@ -533,6 +540,122 @@ export async function finishSession(userId, sessionId) {
 }
 
 /**
+ * 「错词重练」：针对指定的一批词再开一轮，不受每日计划限制。
+ *
+ * 用途是「今日错词回顾」里的「再练一遍」按钮。
+ * 与每日会话的区别：只做这批词、不扣新词额度，但仍会正常更新 SRS——
+ * 重练的结果本来就该影响下次复习时间。
+ *
+ * @param {number} userId
+ * @param {number[]} wordIds
+ */
+export async function createReviewSession(userId, wordIds = []) {
+  const ids = [...new Set(wordIds.map((id) => Number(id)).filter(Number.isFinite))]
+  if (!ids.length) throw badRequest('请先指定要重练的单词')
+
+  const cap = Math.min(ids.length, MAX_SESSION_SIZE)
+  const queue = []
+
+  for (const wordId of ids.slice(0, cap)) {
+    const row = await queryOne('SELECT * FROM words WHERE id = ?', [wordId])
+    if (!row) continue
+    const word = mapWordRow(row)
+    // 已经学过的记为复习，没学过的记为新词，统计口径与每日会话一致
+    const progress = await queryOne(
+      'SELECT 1 AS learned FROM user_word_progress WHERE user_id = ? AND word_id = ?',
+      [userId, wordId]
+    )
+    queue.push(
+      buildQueueItem(row, progress ? 'review' : 'new', await buildOptionsFor(word))
+    )
+  }
+
+  if (!queue.length) throw badRequest('这些单词都不存在')
+
+  const result = await execute(
+    `INSERT INTO study_sessions (user_id, kind, status, planned_count, queue)
+     VALUES (?, 'extra', 'active', ?, ?)`,
+    [userId, queue.length, toJson(queue)]
+  )
+
+  const session = await queryOne('SELECT * FROM study_sessions WHERE id = ?', [result.insertId])
+  return {
+    session: mapSessionRow(session),
+    plan: await getOrCreateDailyPlan(userId, todayKey()),
+    items: await materializeItems(queue),
+  }
+}
+
+/**
+ * 今日回顾：今天答错的词 + 今天生成的短文。
+ *
+ * 放在一个接口里，因为界面上就是同一个页面的两个分区，
+ * 分开请求只会让用户多等一次往返。
+ */
+export async function getTodayReview(userId) {
+  const dayKey = todayKey()
+  const since = businessDayStartUtc(dayKey)
+
+  const [wrongWords, articles, answeredRow] = await Promise.all([
+    query(
+      `SELECT w.id AS word_id, w.spelling, w.phonetic, w.pos, w.definitions, w.examples,
+              COUNT(*) AS wrong_times,
+              GROUP_CONCAT(DISTINCT a.error_type) AS error_types,
+              MAX(a.created_at) AS last_wrong_at
+         FROM answer_logs a
+         JOIN words w ON w.id = a.word_id
+        WHERE a.user_id = ? AND a.result = 0 AND a.created_at >= ?
+        GROUP BY w.id
+        ORDER BY wrong_times DESC, last_wrong_at DESC
+        LIMIT 30`,
+      [userId, since]
+    ),
+    query(
+      `SELECT id, title, topic, difficulty, target_words, model, created_at
+         FROM generated_contents
+        WHERE user_id = ? AND type = 'article' AND created_at >= ?
+        ORDER BY created_at DESC
+        LIMIT 10`,
+      [userId, since]
+    ),
+    queryOne(
+      `SELECT COUNT(*) AS total, SUM(result = 0) AS wrong
+         FROM answer_logs WHERE user_id = ? AND created_at >= ?`,
+      [userId, since]
+    ),
+  ])
+
+  return {
+    date: dayKey,
+    answered: Number(answeredRow?.total || 0),
+    wrongCount: Number(answeredRow?.wrong || 0),
+    wrongWords: wrongWords.map((row) => ({
+      wordId: Number(row.word_id),
+      spelling: row.spelling,
+      phonetic: row.phonetic || '',
+      pos: row.pos || '',
+      definitions: parseJson(row.definitions, []),
+      example: parseJson(row.examples, [])[0] || '',
+      wrongTimes: Number(row.wrong_times),
+      errorTypes: String(row.error_types || '')
+        .split(',')
+        .filter(Boolean)
+        .map((type) => ERROR_TYPE_LABELS[type] || type),
+      lastWrongAt: row.last_wrong_at,
+    })),
+    articles: articles.map((row) => ({
+      id: Number(row.id),
+      title: row.title,
+      topic: row.topic,
+      difficulty: Number(row.difficulty),
+      targetWords: parseJson(row.target_words, []),
+      model: row.model,
+      createdAt: row.created_at,
+    })),
+  }
+}
+
+/**
  * 错因巩固包素材：汇总近期错词、错因分布与易混词组（PRD 4.3.3）
  */
 export async function getErrorDigest(userId, { days = 7, limit = 20 } = {}) {
@@ -592,6 +715,8 @@ export async function getErrorDigest(userId, { days = 7, limit = 20 } = {}) {
 
 export default {
   createSession,
+  createReviewSession,
+  getTodayReview,
   getSession,
   submitAnswer,
   finishSession,

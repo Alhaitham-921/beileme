@@ -5,6 +5,8 @@ import { requireAuth } from '../middleware/auth.js'
 import { asyncHandler, ok, created } from '../utils/http.js'
 import {
   createSession,
+  createReviewSession,
+  getTodayReview,
   getSession,
   submitAnswer,
   finishSession,
@@ -77,6 +79,32 @@ router.post(
   validate({ params: sessionParam }),
   asyncHandler(async (req, res) => {
     return ok(res, await finishSession(req.user.id, req.valid.params.id))
+  })
+)
+
+/**
+ * POST /api/v1/study/review-sessions
+ * 针对指定单词开一轮「错词重练」，不受每日计划限制。
+ * 用途是「今日错词回顾」里的「再练一遍」。
+ */
+router.post(
+  '/review-sessions',
+  validate({
+    body: z.object({
+      wordIds: z.array(z.coerce.number().int().positive()).min(1, '至少选一个单词').max(60),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const result = await createReviewSession(req.user.id, req.valid.body.wordIds)
+    return created(res, result)
+  })
+)
+
+/** GET /api/v1/study/review/today —— 今日错词 + 今日生成的短文 */
+router.get(
+  '/review/today',
+  asyncHandler(async (req, res) => {
+    return ok(res, await getTodayReview(req.user.id))
   })
 )
 

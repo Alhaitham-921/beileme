@@ -33,6 +33,10 @@ export const words = {
 
 export const study = {
   createSession: (kind = 'daily') => http.post('/study/sessions', { body: { kind } }),
+  /** 针对指定单词开一轮「错词重练」，不受每日计划限制 */
+  createReviewSession: (wordIds) => http.post('/study/review-sessions', { body: { wordIds } }),
+  /** 今日错词 + 今日生成的短文（回顾页用） */
+  reviewToday: () => http.get('/study/review/today'),
   getSession: (id) => http.get(`/study/sessions/${id}`),
   /**
    * 提交作答。只上报所选选项下标，由服务端判定对错，
@@ -64,11 +68,39 @@ export const stats = {
 
 export const content = {
   quota: () => http.get('/content/quota'),
+  /** 生成前预估：本地算 token，不调用模型，成本为 0 */
+  preflight: (body) => http.post('/content/preflight', { body }),
   generateArticle: (body) => http.post('/content/articles', { body }),
   generateQuiz: (body) => http.post('/content/quizzes', { body }),
-  generateErrorCard: (body) => http.post('/content/error-cards', { body }),
+  /** 批量生成易错词卡片：一次请求覆盖多个词，比逐词调用省得多 */
+  generateErrorCards: (body) => http.post('/content/error-cards', { body }),
   list: (query) => http.get('/content', { query }),
   detail: (id) => http.get(`/content/${id}`),
+}
+
+/**
+ * AI 设置与用量。
+ * Key 的明文永远不会回传，列表里只有打码值，用于确认「我填过哪一个」。
+ */
+export const ai = {
+  status: () => http.get('/ai/status'),
+  usage: (query) => http.get('/ai/usage', { query }),
+  providers: () => http.get('/ai/providers'),
+  listKeys: () => http.get('/ai/keys'),
+  /** 拉取账号可用模型列表（只调 /models，不消耗 token），用于做模型下拉选择 */
+  listModels: (body) => http.post('/ai/models', { body }),
+  /** 只校验不保存：可以在不留下记录的前提下反复调试 Key / 地址 / 模型名 */
+  verifyKey: (body) => http.post('/ai/keys/verify', { body }),
+  /** 保存前服务端会先分步校验；填错了会返回 400 AI_KEY_UNVERIFIED，details 里含诊断过程 */
+  saveKey: (body) => http.put('/ai/keys', { body }),
+  deleteKey: (id) => http.del(`/ai/keys/${id}`),
+  /** 用最小请求测试当前生效的 Key，成本几乎为 0 */
+  testKey: () => http.post('/ai/keys/test'),
+  /** token 额度：读取当前生效值 + 可选档位 + 实测参考值 */
+  limits: () => http.get('/ai/limits'),
+  /** 套用档位。可直接传 { preset: 'frugal' | 'balanced' | 'quality' } */
+  saveLimits: (body) => http.put('/ai/limits', { body }),
+  resetLimits: () => http.post('/ai/limits/reset'),
 }
 
 export const games = {
@@ -79,4 +111,4 @@ export const games = {
 
 export const health = () => http.get('/health', { auth: false })
 
-export default { auth, profile, words, study, plan, stats, content, games, health }
+export default { auth, profile, words, study, plan, stats, content, ai, games, health }

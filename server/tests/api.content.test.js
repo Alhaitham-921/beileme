@@ -22,7 +22,7 @@ describe('AI 额度与 provider 状态（PRD 4.3.6）', () => {
 
     assert.equal(response.status, 200)
     assert.equal(response.data.provider.configured, false, '测试环境不应配置真实 Key')
-    assert.equal(response.data.provider.model, 'deepseek-v4')
+    assert.equal(response.data.provider.model, 'deepseek-v4-pro')
     assert.equal(response.data.provider.cacheHours, 72)
 
     assert.deepEqual(Object.keys(response.data.usage).sort(), [
@@ -36,7 +36,7 @@ describe('AI 额度与 provider 状态（PRD 4.3.6）', () => {
     assert.equal(response.data.usage.article.cached, 0)
   })
 
-  test('未配置 Key 时生成短文返回 503 与明确提示，而不是 500', async () => {
+  test('未配置 Key 时生成短文自动降级为本地复习清单，而不是报错', async () => {
     const user = await createOnboardedUser(client)
     await playSession(client, user, { strategy: 'all-correct', maxAnswers: 3 })
 
@@ -45,14 +45,29 @@ describe('AI 额度与 provider 状态（PRD 4.3.6）', () => {
       body: { wordCount: 5 },
     })
 
-    assert.equal(response.status, 503)
-    assert.equal(response.error.code, 'AI_NOT_CONFIGURED')
-    assert.match(response.error.message, /AI API Key/)
-    // 提示里应给出降级路径，保证背词主链路可用
-    assert.match(response.error.message, /预置例句|历史生成/)
+    // 降级而不是失败：背词主链路必须始终可用（PRD 4.3.6 第 3 条）
+    assert.equal(response.status, 201)
+    assert.equal(response.data.source, 'template')
+    assert.equal(response.data.degradedReason, 'not_configured')
+    assert.match(response.data.message, /AI API Key/)
+    assert.match(response.data.message, /设置/, '应告诉用户去哪里解决问题')
+
+    // 内容本体是本地组装的结构化清单，而不是假装生成的文章
+    assert.equal(response.data.content.meta.template, true)
+    assert.ok(Array.isArray(response.data.content.meta.items))
+    assert.ok(response.data.content.meta.items.length > 0)
+    for (const item of response.data.content.meta.items) {
+      assert.ok(item.spelling)
+      assert.ok(Array.isArray(item.definitions) && item.definitions.length > 0)
+      assert.ok(Array.isArray(item.confusables), '应带上本地算法算出的易混词')
+      assert.ok(item.hint, '应给出本地记忆提示')
+    }
+
+    // 降级路径不产生任何 AI 成本
+    assert.equal(response.data.usage, null)
   })
 
-  test('未配置 Key 时生成对比卡片同样返回 503', async () => {
+  test('未配置 Key 时错因卡片降级为算法对比结果，成本为 0', async () => {
     const user = await createOnboardedUser(client)
     const words = await client.get('/api/v1/words/books/fixture-demo/words?size=1')
 
@@ -60,8 +75,16 @@ describe('AI 额度与 provider 状态（PRD 4.3.6）', () => {
       token: user.token,
       body: { wordId: words.data.items[0].id },
     })
-    assert.equal(response.status, 503)
-    assert.equal(response.error.code, 'AI_NOT_CONFIGURED')
+
+    assert.equal(response.status, 201)
+    assert.equal(response.data.source, 'template')
+    assert.equal(response.data.degradedReason, 'not_configured')
+    assert.ok(Array.isArray(response.data.cards))
+    assert.equal(response.data.cards.length, 1)
+    assert.equal(response.data.cards[0].wordId, words.data.items[0].id)
+    // 兜底卡片的结构与 AI 版一致，前端不需要写两套渲染
+    assert.ok('headline' in response.data.cards[0])
+    assert.ok(Array.isArray(response.data.cards[0].distinctions))
   })
 
   test('没有学习记录时不调用 AI，直接提示先去背词', async () => {

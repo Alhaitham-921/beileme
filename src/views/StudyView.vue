@@ -2,8 +2,10 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
+import { useAiStore } from '../stores/ai'
 
 const app = useAppStore()
+const ai = useAiStore()
 const router = useRouter()
 
 const booting = ref(true)
@@ -129,6 +131,36 @@ function speak() {
   speechSynthesis.cancel()
   speechSynthesis.speak(utterance)
 }
+
+/** 本组答错的词，用于生成错词卡片 */
+const wrongWordIds = computed(() =>
+  app.items.filter((entry) => entry.correct === false).map((entry) => entry.wordId)
+)
+
+/** 本组所有词，用于生成巩固短文 */
+const sessionWordIds = computed(() => app.items.map((entry) => entry.wordId))
+
+const generating = ref(false)
+const generateError = ref('')
+
+/** 生成巩固短文：只做跳转，真正的生成由用户在下一页点击触发（避免意外花钱） */
+function goToArticle() {
+  router.push({ name: 'article', query: { words: sessionWordIds.value.join(',') } })
+}
+
+/** 批量生成错词卡片：一次请求覆盖本组所有错词 */
+async function makeErrorCards() {
+  if (generating.value || !wrongWordIds.value.length) return
+  generating.value = true
+  generateError.value = ''
+  try {
+    await ai.generateErrorCards({ wordIds: wrongWordIds.value.slice(0, 6) })
+  } catch (error) {
+    generateError.value = error.message
+  } finally {
+    generating.value = false
+  }
+}
 </script>
 
 <template>
@@ -189,7 +221,14 @@ function speak() {
             @click="choose(option.index)"
           >
             <span class="opt-key">{{ String.fromCharCode(65 + option.index) }}</span>
-            <span>{{ option.text }}</span>
+            <span class="opt-text">
+              <!-- 完整释义，第一条（词表里的主释义）加粗 -->
+              <b v-if="option.primary">{{ option.primary }}</b>
+              <template v-if="option.primary && option.text.startsWith(option.primary)">
+                {{ option.text.slice(option.primary.length) }}
+              </template>
+              <template v-else>{{ option.text }}</template>
+            </span>
           </button>
         </div>
 
@@ -287,6 +326,56 @@ function speak() {
         <span v-for="badge in app.newBadges" :key="badge.code" class="badge-item">
           {{ badge.icon }} 解锁徽章「{{ badge.name }}」
         </span>
+      </div>
+
+      <!-- AI 巩固内容：只有点击才会调用模型，不自动生成 -->
+      <div class="ai-block">
+        <p class="ai-title">要不要巩固一下？</p>
+        <div class="ai-actions">
+          <button class="btn btn-ghost" @click="goToArticle">
+            📖 生成巩固短文
+          </button>
+          <button
+            v-if="wrongWordIds.length"
+            class="btn btn-ghost"
+            :disabled="generating"
+            @click="makeErrorCards"
+          >
+            {{ generating ? '生成中…' : `🃏 错词对比卡片（${wrongWordIds.length} 个）` }}
+          </button>
+        </div>
+        <p class="ai-hint">
+          生成前会先显示预估用量；错词卡片支持一次生成多个，比分次调用省得多。
+        </p>
+        <p v-if="generateError" class="ai-error">{{ generateError }}</p>
+
+        <!-- 降级提示：如实告知这是本地算法结果而不是 AI 生成 -->
+        <p v-if="ai.cardsSource === 'template' && ai.cardsMessage" class="ai-notice">
+          {{ ai.cardsMessage }}
+        </p>
+
+        <!-- 本次消耗：把 token 与估算成本直接摆出来 -->
+        <p v-if="ai.lastUsage" class="usage-line">
+          本次消耗：{{ ai.lastUsage.promptTokens }} 输入 + {{ ai.lastUsage.completionTokens }} 输出
+          = {{ ai.lastUsage.totalTokens }} token，约 {{ ai.lastUsage.estimatedCostText }}
+          <span v-if="ai.lastUsage.source === 'user'" class="usage-note">（你自己的 Key）</span>
+          <span v-else-if="ai.lastUsage.source === 'server'" class="usage-note">（官方额度）</span>
+        </p>
+
+        <div v-if="ai.cards.length" class="card-list">
+          <div v-for="card in ai.cards" :key="card.spelling" class="mini-card">
+            <div class="mc-head">
+              <span class="mc-word">{{ card.spelling }}</span>
+              <span class="mc-headline">{{ card.headline }}</span>
+            </div>
+            <div v-for="d in card.distinctions || []" :key="d.spelling" class="mc-row">
+              <span class="mc-spell">{{ d.spelling }}</span>
+              <span class="mc-mean">{{ d.coreMeaning }}</span>
+            </div>
+            <p v-if="card.mnemonic" class="mc-mnemonic">💡 {{ card.mnemonic }}</p>
+            <p v-if="card.formTip" class="mc-tip">{{ card.formTip }}</p>
+          </div>
+        </div>
       </div>
 
       <div class="result-actions">
@@ -447,6 +536,19 @@ function speak() {
 
 .choice.dim {
   opacity: 0.55;
+}
+
+.opt-text {
+  line-height: 1.6;
+}
+
+.opt-text b {
+  color: var(--accent-deep);
+}
+
+.choice.correct .opt-text b,
+.choice.wrong .opt-text b {
+  color: inherit;
 }
 
 .feedback {
@@ -678,5 +780,126 @@ function speak() {
   display: flex;
   justify-content: center;
   gap: 12px;
+}
+
+/* AI 巩固内容 */
+.ai-block {
+  text-align: left;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  padding: 18px;
+  margin-bottom: 24px;
+}
+
+.ai-title {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ai-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ai-actions .btn {
+  padding: 10px 18px;
+  font-size: 14px;
+}
+
+.ai-hint {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+  line-height: 1.7;
+}
+
+.ai-error {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: var(--bad);
+}
+
+.ai-notice {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--accent-deep);
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+}
+
+.usage-line {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  line-height: 1.7;
+}
+
+.usage-note {
+  opacity: 0.8;
+}
+
+.card-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.mini-card {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+}
+
+.mc-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.mc-word {
+  font-family: var(--serif);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.mc-headline {
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.mc-row {
+  display: flex;
+  gap: 10px;
+  font-size: 13px;
+  padding: 3px 0;
+}
+
+.mc-spell {
+  font-family: var(--serif);
+  font-weight: 600;
+  min-width: 86px;
+}
+
+.mc-mean {
+  color: var(--ink-soft);
+}
+
+.mc-mnemonic {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--accent-deep);
+}
+
+.mc-tip {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-soft);
 }
 </style>

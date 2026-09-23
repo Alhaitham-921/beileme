@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 前后端接口契约测试。
  *
  * 这个文件测试的是 src/api/ 这一层（前端真正调用的封装），而不是后端本身：
@@ -271,11 +271,15 @@ describe('契约：背词会话（前端最核心的链路）', () => {
     assert.ok(Array.isArray(item.word.definitions) && item.word.definitions.length > 0)
     assert.ok(Number.isInteger(item.word.difficulty))
 
-    // 选项只有 index 与 text，答案不下发
-    assert.ok(item.options.length >= 2)
+    // 选项带 index / text / primary（完整释义 + 主释义），但答案不下发
     for (const option of item.options) {
-      assert.deepEqual(Object.keys(option).sort(), ['index', 'text'])
+      assert.deepEqual(Object.keys(option).sort(), ['index', 'primary', 'text'])
       assert.equal(typeof option.text, 'string')
+      assert.ok(option.primary.length > 0, 'primary 用于把主释义加粗')
+      assert.ok(
+        option.text.startsWith(option.primary),
+        'primary 必须是完整释义的开头，前端才能靠截断来加粗'
+      )
     }
   })
 
@@ -546,20 +550,114 @@ describe('契约：AI 内容与游戏', () => {
     }
   })
 
-  test('未配置 AI 时生成短文抛出 503，前端可据 code 做降级提示', async () => {
+  test('未配置 AI 时生成短文自动降级，前端据 source 字段切换渲染', async () => {
     await freshUser()
     const created = await api.study.createSession('daily')
     await api.study.answer(created.session.id, { wordId: created.items[0].wordId, optionIndex: 0 })
 
+    // 不再抛错：接口保证有可用内容，前端只需要看 source 决定怎么渲染
+    const result = await api.content.generateArticle({ wordCount: 5 })
+
+    assert.equal(result.source, 'template')
+    assert.equal(result.degradedReason, 'not_configured')
+    assert.match(result.message, /AI API Key/)
+    assert.equal(result.usage, null, '降级路径不产生 AI 用量')
+    assert.equal(result.content.meta.template, true)
+    assert.ok(Array.isArray(result.content.meta.items))
+    // 兜底清单里的每条都要有前端渲染所需字段
+    for (const item of result.content.meta.items) {
+      assert.equal(typeof item.spelling, 'string')
+      assert.ok(Array.isArray(item.definitions))
+      assert.ok(Array.isArray(item.confusables))
+      assert.equal(typeof item.hint, 'string')
+    }
+  })
+
+  test('AI 状态接口提供设置页所需的全部字段', async () => {
+    await freshUser()
+    const status = await api.ai.status()
+
+    assert.equal(status.mode, 'none', '测试环境既没有官方额度也没有用户 Key')
+    assert.equal(status.activeProvider, null)
+    assert.equal(status.serverProvider.configured, false)
+    assert.ok(Array.isArray(status.providers))
+    assert.ok(status.providers.length >= 4, '应提供多个可选服务商预设')
+    for (const provider of status.providers) {
+      assert.ok(provider.id)
+      assert.ok(provider.label)
+      assert.ok('baseUrl' in provider)
+      assert.ok('model' in provider)
+    }
+    assert.deepEqual(status.keys, [])
+    assert.ok(status.usage.article)
+    assert.ok(status.summary.totals)
+    assert.ok(status.pricing.pricePerMillion)
+    // 明确告知哪些能力不花钱
+    assert.ok(Array.isArray(status.zeroCostFeatures))
+    assert.ok(status.zeroCostFeatures.some((item) => item.includes('错因分析')))
+  })
+
+  test('校验失败的 Key 不会被保存', async () => {
+    await freshUser()
+
+    // 指向一个不存在的本地端口，必然连不上
     await assert.rejects(
-      () => api.content.generateArticle({ wordCount: 5 }),
+      () =>
+        api.ai.saveKey({
+          provider: 'custom',
+          apiKey: 'sk-definitely-invalid-key',
+          baseUrl: 'http://127.0.0.1:9/v1',
+          model: 'any-model',
+        }),
       (error) => {
-        assert.equal(error.status, 503)
-        assert.equal(error.code, 'AI_NOT_CONFIGURED')
-        assert.match(error.message, /AI API Key/)
+        assert.equal(error.status, 400)
+        assert.equal(error.code, 'AI_KEY_UNVERIFIED')
         return true
       }
     )
+
+    const keys = await api.ai.listKeys()
+    assert.deepEqual(keys.items, [], '未通过校验的 Key 不应入库')
+  })
+
+  test('生成前预估接口返回前端提示所需的字段，且不产生任何调用', async () => {
+    await freshUser()
+    const created = await api.study.createSession('daily')
+    await api.study.answer(created.session.id, { wordId: created.items[0].wordId, optionIndex: 0 })
+
+    const preflight = await api.content.preflight({ type: 'article', wordCount: 5 })
+
+    assert.equal(preflight.type, 'article')
+    assert.equal(typeof preflight.wordCount, 'number')
+    assert.ok(preflight.wordCount > 0)
+    assert.ok(Array.isArray(preflight.words))
+    assert.equal(typeof preflight.estimatedInputTokens, 'number')
+    assert.equal(typeof preflight.maxOutputTokens, 'number')
+    assert.equal(typeof preflight.worstCaseCostText, 'string')
+    assert.equal(typeof preflight.willCallModel, 'boolean')
+    assert.equal(typeof preflight.cacheAvailable, 'boolean')
+    assert.equal(typeof preflight.note, 'string')
+    assert.ok(preflight.callCount >= 1)
+
+    // 未配置 AI 时预估应明确告知「不产生费用」
+    assert.equal(preflight.zeroCost, true)
+    assert.match(preflight.note, /不产生费用|未配置/)
+
+    // 预估是纯本地计算，不应产生任何用量
+    const usage = await api.ai.usage({ days: 30 })
+    assert.equal(usage.totals.used, 0)
+  })
+
+  test('错词卡片预估体现「合批后只调一次」', async () => {
+    await freshUser()
+    const preflight = await api.content.preflight({ type: 'error_card', limit: 6 })
+
+    assert.equal(preflight.type, 'error_card')
+    assert.equal(typeof preflight.callCount, 'number')
+    // 6 个词以内只应产生 1 次调用
+    if (preflight.wordCount > 0) {
+      assert.equal(preflight.callCount, Math.ceil(preflight.wordCount / 6))
+    }
   })
 
   test('games.record 返回更新后的计划与可能的徽章', async () => {

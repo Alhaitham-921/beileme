@@ -267,7 +267,8 @@ describe('薄弱点小结（PRD 4.3.3）', () => {
     assert.ok(response.data.summary, '规则版结论必须仍然可用')
     assert.equal(response.data.ai, null)
     assert.equal(response.data.aiUnavailableReason, 'not_configured')
-    assert.match(response.data.aiErrorMessage, /AI API Key/)
+    assert.equal(response.data.aiSource, 'template')
+    assert.match(response.data.aiMessage, /AI API Key/)
   })
 })
 

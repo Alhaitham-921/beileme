@@ -55,7 +55,10 @@ export const useAppStore = defineStore('app', {
     // 主页气泡彩蛋
     recentWords: [],
 
-    loading: { home: false, session: false, dashboard: false, answering: false },
+    /** 今日回顾：当天答错的词 + 当天生成的短文 */
+    todayReview: null,
+
+    loading: { home: false, session: false, dashboard: false, answering: false, review: false },
     error: '',
   }),
 
@@ -143,6 +146,45 @@ export const useAppStore = defineStore('app', {
         throw error
       } finally {
         this.loading.session = false
+      }
+    },
+
+    /**
+     * 开一轮「错词重练」：只做指定的一批词，不受每日计划限制。
+     * 今日回顾页的「再练一遍」用它。
+     */
+    async startReviewSession(wordIds) {
+      this.loading.session = true
+      this.error = ''
+      this.lastAnswer = null
+      this.sessionSummary = null
+      try {
+        const data = await api.study.createReviewSession(wordIds)
+        this.session = data.session
+        this.items = data.items
+        this.currentIndex = 0
+        this.plan = data.plan || this.plan
+        writeActiveSessionId(data.session.id)
+        return data
+      } catch (error) {
+        this.error = error.message
+        throw error
+      } finally {
+        this.loading.session = false
+      }
+    },
+
+    /** 今日回顾：今天答错的词 + 今天生成的短文 */
+    async loadTodayReview() {
+      this.loading.review = true
+      try {
+        this.todayReview = await api.study.reviewToday()
+        return this.todayReview
+      } catch (error) {
+        this.error = error.message
+        throw error
+      } finally {
+        this.loading.review = false
       }
     },
 

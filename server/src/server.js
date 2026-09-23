@@ -21,8 +21,16 @@ async function main() {
   const app = createApp()
   const server = app.listen(config.port, () => {
     console.log(`[server] 背了么 API 已启动：http://127.0.0.1:${config.port}/api/v1`)
-    if (!config.ai.apiKey) {
-      console.log('[ai] 未配置 AI_API_KEY，AI 生成接口将返回 503，背词主链路不受影响')
+    if (config.ai.apiKey) {
+      console.log(`[ai] 已配置服务端官方额度（模型 ${config.ai.defaultModel}）`)
+    } else {
+      console.log(
+        '[ai] 未配置 AI_API_KEY：AI 生成接口会降级为本地复习清单（不产生费用）；' +
+          '用户也可以在设置页填入自己的 Key 来获得 AI 生成内容'
+      )
+    }
+    if (!config.security.keyEncryptionSecret) {
+      console.log('[ai] 未设置 AI_KEY_ENCRYPTION_SECRET，用户 Key 将用 JWT_SECRET 派生密钥加密')
     }
   })
 

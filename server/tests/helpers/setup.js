@@ -175,10 +175,12 @@ export async function playSession(client, user, { kind = 'daily', strategy = 'al
   const results = []
 
   for (const item of items.slice(0, maxAnswers)) {
+    // 两个分支都必须 await：漏掉 await 会把 Promise 传进请求体，
+    // 表现为「optionIndex 不是数字」这种看起来毫不相关的报错
     const optionIndex =
       strategy === 'all-correct'
         ? await correctOptionIndex(session.id, item.wordId)
-        : wrongOptionIndex(session.id, item.wordId)
+        : await wrongOptionIndex(session.id, item.wordId)
 
     const answer = await client.post(`/api/v1/study/sessions/${session.id}/answers`, {
       token: user.token,

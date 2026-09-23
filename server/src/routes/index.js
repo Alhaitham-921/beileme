@@ -6,6 +6,7 @@ import studyRoutes from './study.js'
 import planRoutes from './plan.js'
 import statsRoutes from './stats.js'
 import contentRoutes from './content.js'
+import aiRoutes from './ai.js'
 import gameRoutes from './games.js'
 import healthRoutes from './health.js'
 
@@ -23,6 +24,7 @@ router.use('/study', studyRoutes)
 router.use('/plan', planRoutes)
 router.use('/stats', statsRoutes)
 router.use('/content', contentRoutes)
+router.use('/ai', aiRoutes)
 router.use('/games', gameRoutes)
 
 export default router

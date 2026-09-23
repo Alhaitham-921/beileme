@@ -93,14 +93,19 @@ router.get(
               model: result.content.model,
             }
           : null,
+        aiSource: result.source,
         aiUnavailableReason: result.content ? null : (result.reason || 'no_content'),
+        aiMessage: result.message || null,
+        usage: result.usage || null,
       })
     } catch (error) {
+      // generateWeakSummary 内部已对 AI 失败做过降级，走到这里一般是统计或数据库问题
       return ok(res, {
         ...ruleBased,
         ai: null,
-        aiUnavailableReason: error.code === 'AI_NOT_CONFIGURED' ? 'not_configured' : 'ai_error',
-        aiErrorMessage: error.message,
+        aiSource: 'template',
+        aiUnavailableReason: 'ai_error',
+        aiMessage: error.message,
       })
     }
   })

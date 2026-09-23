@@ -230,10 +230,17 @@ export async function getRelationBetween(wordId, relatedWordId) {
 /**
  * 生成选择题选项：1 个正确释义 + 若干个干扰项。
  * 干扰项优先取形近/近义词（更有训练价值），不足时用同词书其他词随机补齐。
+ *
+ * 选项文本用**完整释义**（`丢弃；放弃，抛弃`）而不是只取第一条：
+ * 只给两个字的选项会让题目退化成「认字形」，看不出用户是否真的理解词义。
+ * 同时单列 `primary`（词表里的第一条释义）供前端加粗——
+ * 需要说明的是：这是「来源词表里的第一条」，属于排序位置，不是真实的词频标注，
+ * 词库本身没有重点/高频释义字段。
  */
 export async function buildOptionsFor(word, { count = 4 } = {}) {
   const optionCount = Math.max(2, Math.min(6, count))
-  const correctText = word.definitions[0]
+  const fullText = (definitions) => (definitions || []).join('；')
+  const correctText = fullText(word.definitions)
 
   const rows = await query(
     `SELECT w.id, w.definitions, w.pos, COALESCE(r.score, 0) AS relation_score
@@ -251,11 +258,11 @@ export async function buildOptionsFor(word, { count = 4 } = {}) {
 
   for (const row of rows) {
     const definitions = parseJson(row.definitions, [])
-    const text = definitions[0]
+    const text = fullText(definitions)
     if (!text || seen.has(text)) continue
     seen.add(text)
 
-    const option = { text, correct: false, wordId: Number(row.id) }
+    const option = { text, primary: definitions[0] || '', correct: false, wordId: Number(row.id) }
     if (Number(row.relation_score) > 0 && related.length < optionCount - 1) related.push(option)
     else others.push(option)
   }
@@ -263,7 +270,7 @@ export async function buildOptionsFor(word, { count = 4 } = {}) {
   const distractors = [...related, ...others].slice(0, optionCount - 1)
 
   return shuffle([
-    { text: correctText, correct: true, wordId: word.id },
+    { text: correctText, primary: word.definitions[0] || '', correct: true, wordId: word.id },
     ...distractors,
   ])
 }

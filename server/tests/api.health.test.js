@@ -18,7 +18,7 @@ describe('健康检查', () => {
     assert.equal(response.data.database.status, 'ok')
     assert.equal(typeof response.data.uptimeSeconds, 'number')
     assert.equal(response.data.ai.configured, false)
-    assert.equal(response.data.ai.model, 'deepseek-v4')
+    assert.equal(response.data.ai.model, 'deepseek-v4-pro')
   })
 
   test('根路径返回服务标识', async () => {

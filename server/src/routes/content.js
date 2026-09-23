@@ -7,13 +7,15 @@ import {
   CONTENT_TYPES,
   generateArticle,
   generateQuiz,
-  generateErrorCard,
+  generateErrorCards,
   generateWeakSummary,
+  preflightContent,
   listContents,
   getContent,
   getUsage,
   getProviderStatus,
 } from '../services/ai/contentService.js'
+import { MAX_CARDS_PER_REQUEST } from '../services/ai/promptTemplates.js'
 import { MAX_SESSION_SIZE } from '../services/studyService.js'
 
 const router = Router()
@@ -34,6 +36,11 @@ const articleSchema = z.object({
   minWords: z.coerce.number().int().min(80).max(400).optional(),
   maxWords: z.coerce.number().int().min(100).max(500).optional(),
   forceNew: z.boolean().optional(),
+  /**
+   * 「重新生成并用更大额度」：倍数会乘到该类型的基础额度上。
+   * 上限 4 倍，避免用户误操作把单次成本抬得过高。
+   */
+  boost: z.coerce.number().min(1).max(4).optional(),
 })
 
 const quizSchema = z.object({
@@ -43,8 +50,14 @@ const quizSchema = z.object({
 })
 
 const errorCardSchema = z.object({
-  wordId: z.coerce.number().int().positive(),
+  /** 不传则自动取最近错得最多的若干个词 */
+  wordIds: z.array(z.coerce.number().int().positive()).max(MAX_CARDS_PER_REQUEST).optional(),
+  /** 与 wordIds 二选一，兼容只生成单个词的场景 */
+  wordId: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_CARDS_PER_REQUEST).optional(),
   forceNew: z.boolean().optional(),
+  /** 与短文一致：「重新生成并用更大额度」 */
+  boost: z.coerce.number().min(1).max(4).optional(),
 })
 
 const idParam = z.object({ id: z.coerce.number().int().positive() })
@@ -54,6 +67,29 @@ router.get(
   '/quota',
   asyncHandler(async (req, res) => {
     return ok(res, { usage: await getUsage(req.user.id), provider: getProviderStatus() })
+  })
+)
+
+/**
+ * POST /api/v1/content/preflight
+ * 生成前预估：本地组装 Prompt 并算 token，**不调用模型**，因此成本为 0。
+ * 前端用它实现「点之前先告诉用户这次要花多少、会不会命中缓存」。
+ */
+router.post(
+  '/preflight',
+  validate({
+    body: z.object({
+      type: z.enum(['article', 'error_card']).optional(),
+      wordIds: z.array(z.coerce.number().int().positive()).max(MAX_SESSION_SIZE).optional(),
+      wordCount: z.coerce.number().int().min(4).max(15).optional(),
+      limit: z.coerce.number().int().min(1).max(MAX_CARDS_PER_REQUEST).optional(),
+      difficulty: z.coerce.number().int().min(1).max(5).optional(),
+      /** 预估「加大额度重新生成」的价格时传这个 */
+      boost: z.coerce.number().min(1).max(4).optional(),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    return ok(res, await preflightContent(req.user.id, req.valid.body))
   })
 )
 
@@ -80,12 +116,25 @@ router.post(
   })
 )
 
-/** POST /api/v1/content/error-cards —— 易混词对比记忆卡片 */
+/**
+ * POST /api/v1/content/error-cards
+ * 易错词的对比记忆卡片，**批量生成**（一次请求覆盖多个词）。
+ *
+ * 这是成本控制的关键接口：逐词调用会把 system prompt 与固定开销乘以 N，
+ * 合批后无论几个词都只付一次固定成本。不传 wordIds 时默认取最近错得最多的词。
+ */
 router.post(
   '/error-cards',
   validate({ body: errorCardSchema }),
   asyncHandler(async (req, res) => {
-    const result = await generateErrorCard(req.user.id, req.valid.body)
+    const body = req.valid.body
+    // wordId 是单词场景的便捷写法，统一成数组后交给批量接口
+    const wordIds = body.wordIds || (body.wordId ? [body.wordId] : undefined)
+    const result = await generateErrorCards(req.user.id, {
+      wordIds,
+      limit: body.limit,
+      forceNew: body.forceNew,
+    })
     return created(res, result)
   })
 )

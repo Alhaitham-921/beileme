@@ -93,8 +93,28 @@ describe('创建学习会话', () => {
 
     for (const item of response.data.items) {
       for (const option of item.options) {
-        assert.deepEqual(Object.keys(option).sort(), ['index', 'text'])
+        // 只有 index / text / primary，绝不含 correct —— 答案留在服务端
+        assert.deepEqual(Object.keys(option).sort(), ['index', 'primary', 'text'])
       }
+    }
+  })
+
+  test('选项显示完整释义，并单列主释义供前端加粗', async () => {
+    const user = await createOnboardedUser(client)
+    const response = await client.post('/api/v1/study/sessions', {
+      token: user.token,
+      body: { kind: 'daily' },
+    })
+
+    const item = response.data.items[0]
+    // 正确选项的文本应是完整释义（「A；B」形式），而不是只取第一条
+    const fullFromWord = item.word.definitions.join('；')
+    const correctOption = item.options.find((option) => option.text === fullFromWord)
+    assert.ok(correctOption, '正确选项的文本应是完整释义')
+    assert.equal(correctOption.primary, item.word.definitions[0], 'primary 取词表第一条释义')
+
+    for (const option of item.options) {
+      assert.ok(option.text.startsWith(option.primary), 'primary 应是 text 的前缀')
     }
   })
 

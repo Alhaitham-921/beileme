@@ -27,7 +27,9 @@ async function logout() {
       <nav class="nav">
         <router-link to="/" class="nav-link" active-class="active">首页</router-link>
         <router-link to="/study" class="nav-link" active-class="active">学习</router-link>
+        <router-link to="/review" class="nav-link" active-class="active">回顾</router-link>
         <router-link to="/dashboard" class="nav-link" active-class="active">看板</router-link>
+        <router-link to="/settings" class="nav-link" active-class="active">AI</router-link>
       </nav>
 
       <button class="user-btn" :title="`退出登录（${auth.displayName}）`" @click="logout">

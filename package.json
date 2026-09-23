@@ -13,7 +13,9 @@
     "db:seed": "node server/src/db/seed.js",
     "db:import": "node server/src/db/importWordlists.js",
     "db:setup": "node server/src/db/migrate.js && node server/src/db/importWordlists.js",
-    "test:server": "node --test --test-isolation=none --test-force-exit \"server/tests/*.test.js\""
+    "test:server": "node --test --test-isolation=none --test-force-exit \"server/tests/*.test.js\"",
+    "start:all": "concurrently \"npm run dev\" \"npm run server:dev\"",
+    "ai:calibrate": "node server/src/db/calibrateAi.js"
   },
   "dependencies": {
     "cors": "^2.8.6",
@@ -27,6 +29,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
+    "concurrently": "^10.0.5",
     "vite": "^6.0.7",
     "vite-plugin-singlefile": "^2.3.3"
   }
