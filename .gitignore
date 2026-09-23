@@ -8,10 +8,9 @@ node_modules/
 server/data/wordlists/
 
 # 构建产物
+# npm run build 的输出是 dist/index.html（单文件插件会把 JS/CSS 全部内联进去）
 dist/
 dist-ssr/
-# 单文件构建产物（npm run build 生成，内容已过时，不入库）
-背了么.html
 
 # 本地 Claude Code 设置（不提交）
 .claude/settings.local.json
