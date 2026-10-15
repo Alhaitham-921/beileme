@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useAiStore } from '../stores/ai'
+import ThemePicker from '../components/ThemePicker.vue'
 
 const ai = useAiStore()
 
@@ -83,20 +84,27 @@ async function toggleThinking() {
 }
 
 onMounted(() => {
-  ai.loadStatus().catch(() => {})
+  ai.loadStatus().then(() => {
+    if (ai.key) form.value.provider = ai.key.provider
+    onProviderChange()
+  }).catch(() => {})
   ai.loadLimits().then(syncLimitDraft).catch(() => {})
 })
 
 const selectedPreset = computed(() =>
   ai.providers.find((provider) => provider.id === form.value.provider)
 )
+const savedKey = computed(() => ai.keys.find(key => key.provider === form.value.provider && key.decryptable))
 
 /** 切换服务商时带出预设地址与模型，用户仍可改 */
 function onProviderChange() {
   const preset = selectedPreset.value
   if (!preset) return
-  form.value.baseUrl = preset.baseUrl || ''
-  form.value.model = preset.model || ''
+  const saved = savedKey.value
+  form.value.apiKey = ''
+  form.value.baseUrl = saved?.baseUrl || preset.baseUrl || ''
+  form.value.model = saved?.model || preset.model || ''
+  form.value.label = saved?.label || ''
   // 换服务商后旧的模型列表不再适用
   ai.availableModels = []
   ai.modelsError = ''
@@ -109,7 +117,7 @@ async function fetchModels() {
   formError.value = ''
   formOk.value = ''
 
-  if (form.value.apiKey.trim().length < 8) {
+  if (!savedKey.value && form.value.apiKey.trim().length < 8) {
     formError.value = '请先填写 API Key，再获取可用模型'
     return
   }
@@ -161,7 +169,7 @@ async function verifyOnly() {
   formError.value = ''
   formOk.value = ''
 
-  if (form.value.apiKey.trim().length < 8) {
+  if (!savedKey.value && form.value.apiKey.trim().length < 8) {
     formError.value = '请先填写 API Key'
     return
   }
@@ -187,7 +195,7 @@ async function saveKey() {
   formError.value = ''
   formOk.value = ''
 
-  if (form.value.apiKey.trim().length < 8) {
+  if (!savedKey.value && form.value.apiKey.trim().length < 8) {
     formError.value = '请填写完整的 API Key'
     return
   }
@@ -261,11 +269,13 @@ const typeLabels = {
 
 <template>
   <div class="settings">
-    <h1 class="section-title">AI 设置</h1>
+    <h1 class="section-title">偏好设置</h1>
+    <ThemePicker />
     <p class="section-sub">不配置也能用：错因分析与易混词对比完全免费</p>
 
     <div v-if="!ai.status" class="card">
-      <p class="muted">正在加载…</p>
+      <p class="muted">{{ ai.error || '正在恢复账号的 API 设置…' }}</p>
+      <button v-if="ai.error" class="btn" @click="ai.loadStatus().then(onProviderChange)">重新读取</button>
     </div>
 
     <template v-else>
@@ -453,9 +463,9 @@ const typeLabels = {
 
       <!-- 我的 Key -->
       <div class="card block">
-        <h2 class="block-title">接入我自己的 API Key</h2>
+        <h2 class="block-title">账号绑定的 API 配置</h2>
         <p class="block-sub">
-          Key 会加密后保存，只用于你自己的请求；接口从不回传明文，你也可以随时删除。
+          保存后会加密绑定当前账号，刷新或重新登录会自动恢复。空白输入框不表示未保存；修改模型时留空即可沿用已绑定的 Key。
         </p>
 
         <div v-if="ai.keys.length" class="key-list">
@@ -466,6 +476,8 @@ const typeLabels = {
               <span class="key-model">{{ key.model }}</span>
             </div>
             <div class="key-actions">
+              <span v-if="key.isActive && key.decryptable" class="field-label-ok">当前账号已绑定 · 生效中</span>
+              <button class="btn-mini" @click="form.provider = key.provider; onProviderChange()">编辑</button>
               <span v-if="!key.decryptable" class="key-warn">需重填</span>
               <button class="btn-mini" @click="removeKey(key.id)">删除</button>
             </div>
@@ -488,10 +500,11 @@ const typeLabels = {
               v-model="form.apiKey"
               type="password"
               class="input"
-              placeholder="sk-..."
+              :placeholder="savedKey ? '已绑定 ' + savedKey.maskedKey + '，留空保留' : '首次使用请填写 sk-...'"
               autocomplete="off"
             />
           </label>
+          <p v-if="savedKey" class="form-hint">该服务商已绑定当前账号，无需再次粘贴 Key。只有更换密钥时才填写。</p>
 
           <div class="field-row">
             <label class="field">
@@ -1014,7 +1027,7 @@ const typeLabels = {
   width: 40px;
   height: 22px;
   border-radius: 999px;
-  background: #cfccdd;
+  background: var(--line);
   transition: background 0.18s ease;
   flex: none;
 }
@@ -1026,7 +1039,7 @@ const typeLabels = {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--bg-card);
   box-shadow: 0 1px 3px rgb(0 0 0 / 18%);
   transition: transform 0.18s ease;
 }
@@ -1158,8 +1171,8 @@ const typeLabels = {
 }
 
 .msg.warn {
-  color: #8a6d1f;
-  background: #fdf6e3;
+  color: var(--warn-ink);
+  background: var(--warn-bg);
   display: grid;
   gap: 6px;
 }

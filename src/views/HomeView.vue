@@ -18,7 +18,7 @@ onMounted(() => {
 })
 
 const newTask = computed(() => app.todayNew)
-const reviewTask = computed(() => app.todayReview)
+const reviewTask = computed(() => app.todayReviewProgress)
 
 const adjustment = computed(() => app.adjustmentPrompt)
 

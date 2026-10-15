@@ -161,7 +161,7 @@ async function finish() {
 }
 
 function startLearning() {
-  router.replace('/')
+  router.replace('/assessment')
 }
 </script>
 
@@ -195,7 +195,8 @@ function startLearning() {
 
       <p class="pp-note">词书：{{ prepared.wordbook.name }}</p>
 
-      <button class="btn btn-primary btn-lg btn-full" @click="startLearning">开始学习</button>
+      <p class="pp-note">接下来用约 3–5 分钟的小测了解当前词书掌握情况，自评仅用于选择起始难度。</p>
+      <button class="btn btn-primary btn-lg btn-full" @click="startLearning">开始词汇测评</button>
     </div>
 
     <template v-else>

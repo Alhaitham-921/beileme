@@ -63,7 +63,10 @@ export async function ensureProfile(userId) {
 export async function getProfile(userId) {
   const row = await queryOne('SELECT * FROM user_profiles WHERE user_id = ?', [userId])
   if (!row) return ensureProfile(userId)
-  return mapProfileRow(row)
+  const profile = mapProfileRow(row)
+  const latest = await queryOne('SELECT state, completed_at FROM assessment_sessions WHERE user_id = ? AND completed_at IS NOT NULL ORDER BY id DESC LIMIT 1', [userId])
+  profile.assessment = latest ? { ...parseJson(latest.state, {}).result, takenAt: latest.completed_at } : null
+  return profile
 }
 
 /**

@@ -257,7 +257,7 @@ describe('词库来源配置', () => {
     for (const book of BOOK_SOURCES) {
       assert.ok(book.repo.includes('/'), `${book.code} 缺少仓库`)
       assert.ok(book.file, `${book.code} 缺少文件名`)
-      assert.ok(['rich', 'tab', 'bare'].includes(book.format), `${book.code} 格式声明不合法`)
+      assert.ok(['rich', 'tab', 'bare', 'ielts-pipe'].includes(book.format), `${book.code} 格式声明不合法`)
     }
   })
 })

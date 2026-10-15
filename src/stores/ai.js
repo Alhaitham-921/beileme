@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import api from '../api'
+import api from '../api/index.js'
 
 /**
  * AI 内容与设置。
@@ -12,6 +12,7 @@ export const useAiStore = defineStore('ai', {
   state: () => ({
     /** GET /ai/status 的结果：模式、额度、Key 列表、用量、定价 */
     status: null,
+    accountRevision: 0,
     /** 生成前的本地预估 */
     preflight: null,
     /** 当前展示的短文 */
@@ -51,6 +52,7 @@ export const useAiStore = defineStore('ai', {
     isConfigured: (state) => (state.status?.mode || 'none') !== 'none',
     activeLabel: (state) => state.status?.activeProvider?.label || '未配置',
     keys: (state) => state.status?.keys || [],
+    key: (state) => state.status?.keys?.find(key => key.isActive && key.decryptable) || null,
     providers: (state) => state.status?.providers || [],
     todayUsage: (state) => state.status?.usage || {},
     monthTotals: (state) => state.status?.summary?.totals || { used: 0, cached: 0, promptTokens: 0, completionTokens: 0, costUsd: 0 },
@@ -75,17 +77,25 @@ export const useAiStore = defineStore('ai', {
   },
 
   actions: {
+    resetAccount() {
+      const revision = this.accountRevision + 1
+      this.$reset()
+      this.accountRevision = revision
+    },
     async loadStatus() {
+      const revision = this.accountRevision
       this.loading.status = true
       this.error = ''
       try {
-        this.status = await api.ai.status()
+        const status = await api.ai.status()
+        if (revision !== this.accountRevision) return null
+        this.status = status
         return this.status
       } catch (error) {
-        this.error = error.message
+        if (revision === this.accountRevision) this.error = error.message
         throw error
       } finally {
-        this.loading.status = false
+        if (revision === this.accountRevision) this.loading.status = false
       }
     },
 
@@ -171,9 +181,11 @@ export const useAiStore = defineStore('ai', {
 
     /** 读取当前生效的 token 额度与可选项 */
     async loadLimits() {
+      const revision = this.accountRevision
       this.loading.limits = true
       try {
         const data = await api.ai.limits()
+        if (revision !== this.accountRevision) return null
         this.limits = data.limits
         this.limitOptions = {
           recommended: data.recommended,
@@ -184,7 +196,7 @@ export const useAiStore = defineStore('ai', {
         }
         return data
       } finally {
-        this.loading.limits = false
+        if (revision === this.accountRevision) this.loading.limits = false
       }
     },
 

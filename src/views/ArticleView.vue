@@ -626,8 +626,8 @@ const quizStats = computed(() => {
 }
 
 .sconf-item {
-  color: #6a6485;
-  background: #e8e6f0;
+  color: var(--hint-ink);
+  background: var(--hint-bg);
   border-radius: 999px;
   padding: 1px 10px;
 }

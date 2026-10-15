@@ -18,7 +18,7 @@ import {
   resetLimits,
   describeLimitOptions,
 } from '../services/ai/contentService.js'
-import { PROVIDER_IDS, PROVIDER_PRESETS } from '../services/ai/apiKeyService.js'
+import { PROVIDER_IDS, PROVIDER_PRESETS, resolveSavedKeyPayload } from '../services/ai/apiKeyService.js'
 import { describePricing } from '../services/ai/costEstimate.js'
 import { notFound } from '../utils/errors.js'
 
@@ -30,7 +30,7 @@ const keyIdParam = z.object({ id: z.coerce.number().int().positive() })
 
 const saveKeySchema = z.object({
   provider: z.enum(PROVIDER_IDS),
-  apiKey: z.string().min(8, 'API Key 至少 8 位').max(512),
+  apiKey: z.string().min(8, 'API Key 至少 8 位').max(512).or(z.literal('')).optional(),
   baseUrl: z.string().url('接口地址必须是合法 URL').max(255).optional().or(z.literal('')),
   model: z.string().max(64).optional(),
   label: z.string().max(64).optional(),
@@ -39,7 +39,7 @@ const saveKeySchema = z.object({
 /** 试连不需要 label，其余与保存一致 */
 const verifyKeySchema = z.object({
   provider: z.enum(PROVIDER_IDS),
-  apiKey: z.string().min(8, 'API Key 至少 8 位').max(512),
+  apiKey: z.string().min(8, 'API Key 至少 8 位').max(512).or(z.literal('')).optional(),
   baseUrl: z.string().url('接口地址必须是合法 URL').max(255).optional().or(z.literal('')),
   model: z.string().max(64).optional(),
 })
@@ -47,7 +47,7 @@ const verifyKeySchema = z.object({
 /** 拉模型列表同样只需要 Key 与地址 */
 const modelListSchema = z.object({
   provider: z.enum(PROVIDER_IDS),
-  apiKey: z.string().min(8, 'API Key 至少 8 位').max(512),
+  apiKey: z.string().min(8, 'API Key 至少 8 位').max(512).or(z.literal('')).optional(),
   baseUrl: z.string().url('接口地址必须是合法 URL').max(255).optional().or(z.literal('')),
   model: z.string().max(64).optional(),
 })
@@ -123,7 +123,7 @@ router.put(
   '/keys',
   validate({ body: saveKeySchema }),
   asyncHandler(async (req, res) => {
-    const body = req.valid.body
+    const body = await resolveSavedKeyPayload(req.user.id, req.valid.body)
     const result = await saveKeyWithVerification(req.user.id, {
       provider: body.provider,
       apiKey: body.apiKey,
@@ -223,10 +223,7 @@ router.post(
     return ok(
       res,
       await listAvailableModels(req.user.id, {
-        provider: body.provider,
-        apiKey: body.apiKey,
-        baseUrl: body.baseUrl || '',
-        model: body.model || '',
+        ...await resolveSavedKeyPayload(req.user.id, body),
       })
     )
   })
@@ -244,10 +241,7 @@ router.post(
     return ok(
       res,
       await verifyKeyOnly(req.user.id, {
-        provider: body.provider,
-        apiKey: body.apiKey,
-        baseUrl: body.baseUrl || '',
-        model: body.model || '',
+        ...await resolveSavedKeyPayload(req.user.id, body),
       })
     )
   })

@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import { useAiStore } from '../stores/ai'
+import MorphologyCard from '../components/MorphologyCard.vue'
 
 const app = useAppStore()
 const ai = useAiStore()
@@ -154,6 +155,7 @@ function errorTagClass() {
               </p>
 
               <p v-if="item.example" class="item-example">{{ item.example }}</p>
+              <MorphologyCard :word="item.spelling" />
 
               <div v-if="item.errorTypes.length" class="item-tags">
                 <span v-for="type in item.errorTypes" :key="type" :class="errorTagClass()">
@@ -380,8 +382,8 @@ function errorTagClass() {
 
 .err-tag {
   font-size: 11.5px;
-  color: #6a6485;
-  background: #e8e6f0;
+  color: var(--hint-ink);
+  background: var(--hint-bg);
   border-radius: 999px;
   padding: 1px 10px;
 }

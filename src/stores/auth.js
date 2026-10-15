@@ -1,6 +1,15 @@
 import { defineStore } from 'pinia'
-import api from '../api'
+import api from '../api/index.js'
 import { setTokens, clearTokens, isLoggedIn } from '../api/client.js'
+import { useAiStore } from './ai.js'
+import { useAppStore } from './app.js'
+
+function resetAccountStores() {
+  useAiStore().resetAccount()
+  useAppStore().clearSession()
+  useAppStore().$reset()
+}
+function restoreAiSettings() { useAiStore().loadStatus().catch(() => {}) }
 
 /**
  * 登录态与用户画像。
@@ -41,6 +50,7 @@ export const useAuthStore = defineStore('auth', {
         const data = await api.auth.me()
         this.user = data.user
         this.profile = data.profile
+        restoreAiSettings()
       } catch (error) {
         if (error.isAuthError || error.isNetworkError) {
           // 令牌已失效，或后端暂时连不上：都不该让用户卡在空白页
@@ -61,9 +71,11 @@ export const useAuthStore = defineStore('auth', {
       this.error = ''
       try {
         const data = await api.auth.login({ account, password })
+        resetAccountStores()
         setTokens(data.tokens)
         this.user = data.user
         this.profile = data.profile
+        restoreAiSettings()
         return data
       } catch (error) {
         this.error = error.message
@@ -78,9 +90,11 @@ export const useAuthStore = defineStore('auth', {
       this.error = ''
       try {
         const data = await api.auth.register({ email, password, nickname })
+        resetAccountStores()
         setTokens(data.tokens)
         this.user = data.user
         this.profile = data.profile
+        restoreAiSettings()
         return data
       } catch (error) {
         this.error = error.message
@@ -98,6 +112,7 @@ export const useAuthStore = defineStore('auth', {
         // 忽略
       } finally {
         clearTokens()
+        resetAccountStores()
         this.user = null
         this.profile = null
         this.error = ''
@@ -107,6 +122,7 @@ export const useAuthStore = defineStore('auth', {
     /** 登录态失效时由 api 客户端回调触发 */
     handleExpired() {
       clearTokens()
+      resetAccountStores()
       this.user = null
       this.profile = null
     },

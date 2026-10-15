@@ -1,4 +1,4 @@
-import { query, queryOne, execute } from '../../db/pool.js'
+import { query, queryOne, execute, withTransaction } from '../../db/pool.js'
 import { config } from '../../config.js'
 import { badRequest, notFound } from '../../utils/errors.js'
 import { encryptSecret, decryptSecret, maskSecret, isDecryptable } from './cryptoKeys.js'
@@ -90,6 +90,16 @@ export function resolveKeyTarget({ provider, baseUrl, model }) {
   }
 }
 
+/** 空白 Key 表示复用该登录账号已保存的同服务商密钥，绝不从客户端取账号 id。 */
+export async function resolveSavedKeyPayload(userId, payload) {
+  if (normalizeApiKey(payload.apiKey || '')) return payload
+  const saved = await queryOne('SELECT * FROM user_api_keys WHERE user_id = ? AND provider = ?', [userId, payload.provider])
+  if (!saved) throw badRequest('这个账号尚未保存该服务商的 API Key，请先填写一次')
+  const plain = decryptSecret(saved.key_cipher)
+  if (!plain) throw badRequest('已保存的 API Key 无法解密，请重新填写；请勿更换服务器加密配置')
+  return { ...payload, apiKey: plain, baseUrl: payload.baseUrl || saved.base_url, model: payload.model || saved.model, label: payload.label ?? saved.label }
+}
+
 /**
  * 新增或更新一把 Key。同一 provider 只保留一把，避免界面上出现多个「生效中」的困惑。
  * @returns {Promise<object>} 打码后的记录
@@ -109,6 +119,11 @@ export async function saveUserKey(userId, { provider, apiKey, baseUrl, model, la
   if (!target.model) throw badRequest('请填写模型名称')
 
   const cipher = encryptSecret(trimmedKey)
+  return withTransaction(async conn => {
+  // 串行化同一账号的保存，确保只存在一把当前生效的 Key。
+  await conn.execute('SELECT id FROM users WHERE id = ? FOR UPDATE', [userId])
+  const execute = async (sql, params) => (await conn.execute(sql, params))[0]
+  const queryOne = async (sql, params) => (await conn.execute(sql, params))[0][0] || null
 
   const existing = await queryOne(
     'SELECT id FROM user_api_keys WHERE user_id = ? AND provider = ?',
@@ -144,6 +159,7 @@ export async function saveUserKey(userId, { provider, apiKey, baseUrl, model, la
     [userId, provider]
   )
   return mapKeyRow(row)
+  })
 }
 
 export async function deleteUserKey(userId, id) {

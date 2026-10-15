@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import api from '../api'
+import api from '../api/index.js'
 
 /** 进行中的会话 id 存这里，刷新页面后可以接着背同一组题 */
 const ACTIVE_SESSION_KEY = 'beileme:activeSession'
@@ -69,7 +69,7 @@ export const useAppStore = defineStore('app', {
       target: state.plan?.newTarget ?? 0,
       percent: state.plan?.newPercent ?? 0,
     }),
-    todayReview: (state) => ({
+    todayReviewProgress: (state) => ({
       done: state.plan?.reviewDone ?? 0,
       target: state.plan?.reviewTarget ?? 0,
       percent: state.plan?.reviewPercent ?? 0,

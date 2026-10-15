@@ -299,6 +299,13 @@ function mergeEntry(target, incoming) {
  * @returns {{entries:Array, skipped:number, merged:number, format:string}}
  */
 export function parseWordlist(text, format = 'auto') {
+  if (format === 'ielts-pipe') {
+    text = String(text).split(/\r?\n/).flatMap(line => {
+      const [word, pos, definition] = line.split('|')
+      return word && definition && /^[A-Za-z][A-Za-z'-]*$/.test(word.trim()) ? [`${word.trim()}\t${pos || ''} ${definition.trim()}`] : []
+    }).join('\n')
+    format = 'tab'
+  }
   const resolved = format === 'auto' ? detectFormat(text) : format
   const parser =
     resolved === 'tab' ? parseTabLine : resolved === 'bare' ? parseBareLine : parseEntryLine

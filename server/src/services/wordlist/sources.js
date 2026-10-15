@@ -5,7 +5,7 @@
  *  - mahavivo/english-wordlists：考研/托福/GRE/四六级等权威大纲词表，另含 COCA 词频表
  *  - KyleBing/english-vocabulary：初中/高中词表，采用制表符分隔、释义更完整
  *
- * 雅思词表在两个仓库里都没有，因此映射到托福学术词表（见 IELTS_FALLBACK_CODE）。
+ * 雅思另使用 hefengxian/ielts-vocabulary 的 MIT 词表，原文及许可证保存在 third_party/ielts。
  */
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -21,6 +21,7 @@ const KYLEBING = 'KyleBing/english-vocabulary'
  * 词书定义。每本书对应一个源文件，导入后成为词库里的一本词书。
  */
 export const BOOK_SOURCES = [
+  { code: 'ielts', name: '雅思社区核心词汇', scope: '雅思', description: 'hefengxian/ielts-vocabulary，MIT；社区整理，非官方考纲', repo: 'hefengxian/ielts-vocabulary', file: 'vocabulary.txt', format: 'ielts-pipe' },
   {
     code: 'primary',
     name: '小学英语大纲词汇',
@@ -79,7 +80,7 @@ export const BOOK_SOURCES = [
     code: 'toefl',
     name: '托福核心词汇',
     scope: '托福',
-    description: '托福词汇表（mahavivo/english-wordlists）。雅思无开源词表，暂以此替代',
+    description: '托福词汇表（mahavivo/english-wordlists）。仅用于托福学习',
     repo: MAHAVIVO,
     file: 'TOEFL.txt',
     format: 'rich',
@@ -110,7 +111,7 @@ export const GOAL_TO_BOOK = {
   六级: 'cet6',
   考研: 'npee',
   托福: 'toefl',
-  雅思: 'toefl', // 缺少开源雅思词表，用学术类托福词表替代
+  雅思: 'ielts',
   GRE: 'gre',
   纯兴趣: 'cet4',
   自定义: 'cet4',
@@ -219,6 +220,7 @@ export async function downloadSource(repo, file, { tries = 3, logger = console }
  * @returns {Promise<{text:string, source:'cache'|'network', bytes?:number, encoding?:string}>}
  */
 export async function loadSource(repo, file, { refresh = false, logger = console } = {}) {
+  if (repo === 'hefengxian/ielts-vocabulary' && !refresh) return { text: await fs.readFile(path.join(SERVER_ROOT, '..', 'third_party', 'ielts', 'vocabulary.txt'), 'utf8'), source: 'cache' }
   if (!refresh) {
     const cached = await readCache(repo, file)
     if (cached != null) return { text: cached, source: 'cache' }

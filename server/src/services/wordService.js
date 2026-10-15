@@ -2,6 +2,7 @@ import { query, queryOne } from '../db/pool.js'
 import { parseJson } from '../utils/json.js'
 import { notFound } from '../utils/errors.js'
 import { GOAL_TO_BOOK, FALLBACK_BOOK_CODE } from './wordlist/sources.js'
+import { getMorphology } from '../../../src/data/morphology.js'
 
 /** LIMIT 参数经过整数校验后内联，规避驱动对 LIMIT 占位符的兼容问题 */
 export function safeLimit(value, { fallback = 20, max = 100 } = {}) {
@@ -26,6 +27,7 @@ export function mapWordRow(row) {
     id: Number(row.id),
     wordbookId: row.wordbook_id != null ? Number(row.wordbook_id) : null,
     spelling: row.spelling,
+    morphology: getMorphology(row.spelling),
     phonetic: row.phonetic || '',
     pos: row.pos || '',
     freq: row.freq || 'med',

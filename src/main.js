@@ -6,6 +6,8 @@ import { useAuthStore } from './stores/auth'
 import { onAuthExpired } from './api/client.js'
 import logoUrl from './assets/logo.png'
 import './styles/main.css'
+import { initializeTheme } from './stores/theme'
+initializeTheme()
 
 // 单文件部署（file://）下 favicon 无法用绝对路径，改为运行时从内联资源设置
 const favicon = document.createElement('link')

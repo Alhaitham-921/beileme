@@ -6,6 +6,8 @@ node_modules/
 
 # 开源词库的下载缓存（可重新下载，不入库）
 server/data/wordlists/
+third_party/morpholex/project-words.json
+.workbuddy-ai/
 
 # 构建产物
 # npm run build 的输出是 dist/index.html（单文件插件会把 JS/CSS 全部内联进去）

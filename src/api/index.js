@@ -3,6 +3,15 @@
  * 这样后端调整路径时只需改一处。
  */
 import http from './client.js'
+export const practice = {
+  list: () => http.get('/practice'),
+  submit: (body) => http.post('/practice', { body }),
+}
+export const assessment = {
+  history: () => http.get('/assessment', { timeoutMs: 8000 }),
+  start: () => http.post('/assessment', { timeoutMs: 8000 }),
+  answer: (id, body) => http.post(`/assessment/${id}/answers`, { body, timeoutMs: 8000 }),
+}
 
 export const auth = {
   register: (body) => http.post('/auth/register', { body, auth: false }),

@@ -1,5 +1,7 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { studyKey } from '../utils/studyKeyboard'
+import MorphologyCard from '../components/MorphologyCard.vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import { useAiStore } from '../stores/ai'
@@ -12,6 +14,8 @@ const booting = ref(true)
 const bootError = ref('')
 const selectedIndex = ref(null)
 const cardShownAt = ref(Date.now())
+const advancing = ref(false)
+let continueRequested = false
 
 const item = computed(() => app.currentItem)
 const word = computed(() => item.value?.word)
@@ -66,7 +70,19 @@ async function boot() {
   }
 }
 
-onMounted(boot)
+function onKey(event) {
+  const key = studyKey(event)
+  if (key === null || advancing.value) return
+  if (key === 'next' && (status.value === 'answered' || app.loading.answering)) {
+    event.preventDefault()
+    if (app.loading.answering) continueRequested = true
+    else advance()
+  } else if (typeof key === 'number' && status.value === 'question' && !app.loading.answering && options.value[key]) {
+    event.preventDefault(); choose(options.value[key].index)
+  }
+}
+onMounted(() => { boot(); window.addEventListener('keydown', onKey) })
+onUnmounted(() => window.removeEventListener('keydown', onKey))
 
 // 每翻到新题都重置计时起点，犹豫时长才有意义
 watch(
@@ -86,7 +102,9 @@ async function choose(index) {
 
   try {
     await app.submitAnswer({ wordId: item.value.wordId, optionIndex: index, hesitationMs })
+    if (continueRequested) { continueRequested = false; await advance() }
   } catch (error) {
+    continueRequested = false
     if (error.status === 409) {
       // 这一题服务端已记过（例如刷新前答过），直接跳到下一题
       advance()
@@ -97,6 +115,9 @@ async function choose(index) {
 }
 
 async function advance() {
+  if (advancing.value) return
+  advancing.value = true
+  try {
   if (app.isLastItem) {
     try {
       await app.finishSession()
@@ -107,6 +128,7 @@ async function advance() {
   }
   app.nextQuestion()
   cardShownAt.value = Date.now()
+  } finally { advancing.value = false }
 }
 
 async function startExtra() {
@@ -209,18 +231,18 @@ async function makeErrorCards() {
           </span>
         </p>
 
-        <p class="q-prompt">选择正确的中文释义</p>
+        <p class="q-prompt">选择正确的中文释义 · 数字键 1–4 选择，空格继续</p>
 
         <div class="option-grid">
           <button
             v-for="option in options"
             :key="option.index"
             class="option choice"
-            :class="optionClass(option.index)"
-            :disabled="status === 'answered'"
+            :class="[optionClass(option.index), { selected: app.loading.answering && selectedIndex === option.index }]"
+            :disabled="status === 'answered' || app.loading.answering"
             @click="choose(option.index)"
           >
-            <span class="opt-key">{{ String.fromCharCode(65 + option.index) }}</span>
+            <span class="opt-key">{{ option.index + 1 }}</span>
             <span class="opt-text">
               <!-- 完整释义，第一条（词表里的主释义）加粗 -->
               <b v-if="option.primary">{{ option.primary }}</b>
@@ -251,6 +273,7 @@ async function makeErrorCards() {
               <span class="ex-label">例句</span>{{ word.example }}
             </p>
             <p class="def-line">释义：{{ word.definitions.join('；') }}</p>
+            <MorphologyCard :key="word.spelling" :word="word.spelling" />
 
             <!-- 易混词对比记忆卡片 -->
             <div v-if="answer.confusableCard" class="contrast-card">
@@ -291,9 +314,10 @@ async function makeErrorCards() {
         <button
           v-if="status === 'answered'"
           class="btn btn-primary btn-lg btn-full"
+          :disabled="advancing"
           @click="advance"
         >
-          {{ app.isLastItem ? '查看结果' : '下一个' }}
+          {{ app.isLastItem ? '查看结果' : '下一个' }} · 空格
         </button>
       </div>
     </template>
@@ -397,6 +421,7 @@ async function makeErrorCards() {
 </template>
 
 <style scoped>
+.choice.selected { outline: 2px solid var(--accent); background: var(--accent-soft); opacity: 1; }
 .study-head {
   display: flex;
   justify-content: space-between;
@@ -421,8 +446,8 @@ async function makeErrorCards() {
 }
 
 .badge.review {
-  background: #e8e6f0;
-  color: #6a6485;
+  background: var(--hint-bg);
+  color: var(--hint-ink);
 }
 
 .progress-text {
@@ -496,8 +521,8 @@ async function makeErrorCards() {
 }
 
 .freq-tag.low {
-  background: #e8e6f0;
-  color: #6a6485;
+  background: var(--hint-bg);
+  color: var(--hint-ink);
 }
 
 .diff {
@@ -678,8 +703,8 @@ async function makeErrorCards() {
 .cw-tag {
   font-size: 11px;
   font-weight: 600;
-  color: #6a6485;
-  background: #e8e6f0;
+  color: var(--hint-ink);
+  background: var(--hint-bg);
   border-radius: 999px;
   padding: 1px 8px;
 }

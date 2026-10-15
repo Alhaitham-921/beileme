@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import logo from './assets/logo.png'
+import { theme, themes, setTheme } from './stores/theme'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -28,8 +29,9 @@ async function logout() {
         <router-link to="/" class="nav-link" active-class="active">首页</router-link>
         <router-link to="/study" class="nav-link" active-class="active">学习</router-link>
         <router-link to="/review" class="nav-link" active-class="active">回顾</router-link>
+        <router-link to="/practice" class="nav-link" active-class="active">情境</router-link>
         <router-link to="/dashboard" class="nav-link" active-class="active">看板</router-link>
-        <router-link to="/settings" class="nav-link" active-class="active">AI</router-link>
+        <router-link to="/settings" class="nav-link" active-class="active">设置</router-link>
       </nav>
 
       <button class="user-btn" :title="`退出登录（${auth.displayName}）`" @click="logout">
@@ -37,6 +39,7 @@ async function logout() {
       </button>
     </header>
 
+    <div class="theme-shortcut"><label>外观 <select :value="theme" aria-label="界面主题" @change="setTheme($event.target.value)"><option v-for="item in themes" :key="item.id" :value="item.id">{{ item.name }}</option></select></label></div>
     <main class="main">
       <router-view />
     </main>
@@ -44,6 +47,7 @@ async function logout() {
 </template>
 
 <style scoped>
+.theme-shortcut { max-width: 760px; margin: 0 auto; padding: 8px 20px 0; text-align: right; font-size: 12px; color: var(--ink-soft); }.theme-shortcut select { font: inherit; color: var(--ink); background: var(--bg-card); border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; margin-left: 6px; }
 .topbar {
   position: relative;
 }

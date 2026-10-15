@@ -42,6 +42,8 @@ async function logout() {
 <template>
   <div class="dashboard">
     <h1 class="section-title">学习看板</h1>
+    <router-link class="btn btn-secondary" to="/roots">词根词缀记忆库</router-link>
+    <router-link class="btn btn-secondary" to="/assessment">词汇测评 / 查看结果</router-link>
     <p class="section-sub">你的每一步，都算数</p>
 
     <!-- 首次渲染时 overview 还是 null，统一走加载态，避免闪出全 0 的假数据 -->
@@ -375,8 +377,8 @@ async function logout() {
 }
 
 .cal-day.mid {
-  background: #e6bda8;
-  border-color: #e6bda8;
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .cal-day.high {

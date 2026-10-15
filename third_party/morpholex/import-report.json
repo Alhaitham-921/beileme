@@ -1,0 +1,12 @@
+{
+  "uniqueProjectWords": 13190,
+  "morphemeGroups": 2435,
+  "importedGroups": 3995,
+  "exactDecompositions": 3068,
+  "skippedNormalizedOrSinglePart": 9621,
+  "ambiguousWordsExcluded": 0,
+  "sources": {
+    "third_party/morphemes/morphemes.json": "2911f1791b8f769c70d6474f6cb92e64ce528f09c50ec9c14008b3b096b7c127",
+    "third_party/morpholex/MorphoLEX_en.xlsx": "5bc425fbb710f3d63cab69e77ee731fa466653ed0ace94937cac6c1fd6de52c6"
+  }
+}

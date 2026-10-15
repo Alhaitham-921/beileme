@@ -9,6 +9,8 @@ import contentRoutes from './content.js'
 import aiRoutes from './ai.js'
 import gameRoutes from './games.js'
 import healthRoutes from './health.js'
+import assessmentRoutes from './assessment.js'
+import practiceRoutes from './practice.js'
 
 /**
  * API 版本前缀统一为 /api/v1。
@@ -17,6 +19,8 @@ import healthRoutes from './health.js'
 const router = Router()
 
 router.use('/health', healthRoutes)
+router.use('/assessment', assessmentRoutes)
+router.use('/practice', practiceRoutes)
 router.use('/auth', authRoutes)
 router.use('/profile', profileRoutes)
 router.use('/words', wordRoutes)
