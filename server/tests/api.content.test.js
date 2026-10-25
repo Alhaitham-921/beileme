@@ -27,6 +27,7 @@ describe('AI 额度与 provider 状态（PRD 4.3.6）', () => {
 
     assert.deepEqual(Object.keys(response.data.usage).sort(), [
       'article',
+      'dialogue',
       'error_card',
       'quiz',
       'weak_summary',

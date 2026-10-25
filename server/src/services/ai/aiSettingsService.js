@@ -48,6 +48,7 @@ function numericOnly(values) {
  *   薄弱点小结       419 输入 +  349 输出 ≈ ¥0.0036
  */
 export const RECOMMENDED_LIMITS = {
+  unlimited: false,
   articleTokens: 1000,
   quizTokens: 2000,
   errorCardTokens: 3200,
@@ -77,6 +78,11 @@ export const LIMIT_BOUNDS = {
 
 /** 界面上的快捷档位：点一下就把下面几个数字填好，避免用户面对一堆输入框发懵 */
 export const LIMIT_PRESETS = {
+  unlimited: {
+    label: '不限额度',
+    description: '不设应用内输入、输出 token 与每日调用额度；仍受模型上下文、服务商余额及限流约束，按实际消耗计费。',
+    values: { ...numericOnly(RECOMMENDED_LIMITS), unlimited: true },
+  },
   frugal: {
     label: '省钱',
     description: '贴着实测值走，够用但余量小；偶尔遇到话多的模型可能截断后自动重试',
@@ -110,6 +116,7 @@ export const LIMIT_PRESETS = {
 }
 
 const COLUMN_BY_FIELD = {
+  unlimited: 'unlimited',
   articleTokens: 'article_tokens',
   quizTokens: 'quiz_tokens',
   errorCardTokens: 'error_card_tokens',
@@ -135,6 +142,7 @@ export async function resolveLimits(userId) {
   }
 
   return {
+    unlimited: Number(row?.unlimited) === 1,
     articleTokens: pick('articleTokens'),
     quizTokens: pick('quizTokens'),
     errorCardTokens: pick('errorCardTokens'),
@@ -191,11 +199,11 @@ export async function saveLimits(userId, patch = {}) {
     const raw = patch[field]
     if (raw === null) {
       // 布尔字段的列是 NOT NULL，用推荐值而不是 NULL
-      values[field] = field === 'allowThinking' ? (RECOMMENDED_LIMITS.allowThinking ? 1 : 0) : null
+      values[field] = ['allowThinking', 'unlimited'].includes(field) ? (RECOMMENDED_LIMITS[field] ? 1 : 0) : null
       continue
     }
-    if (field === 'allowThinking') {
-      if (typeof raw !== 'boolean') throw badRequest('allowThinking 必须是 true 或 false')
+    if (['allowThinking', 'unlimited'].includes(field)) {
+      if (typeof raw !== 'boolean') throw badRequest(`${field} 必须是 true 或 false`)
       values[field] = raw ? 1 : 0
       continue
     }
@@ -229,7 +237,7 @@ export async function saveLimits(userId, patch = {}) {
 export async function applyPreset(userId, presetId) {
   const preset = LIMIT_PRESETS[presetId]
   if (!preset) throw badRequest(`未知的档位：${presetId}`)
-  return saveLimits(userId, preset.values)
+  return saveLimits(userId, { ...preset.values, unlimited: presetId === 'unlimited' })
 }
 
 /** 恢复成系统推荐值 */

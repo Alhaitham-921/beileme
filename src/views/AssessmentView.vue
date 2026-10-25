@@ -57,6 +57,7 @@ function advance() {
 </script>
 <template>
   <main class="assessment">
+    <p class="page-eyebrow">FIND YOUR STARTING POINT</p>
     <h1 class="section-title">了解你的词汇起点</h1>
     <p class="section-sub">约 3–5 分钟 · 30–35 题 · 不消耗 AI 额度</p>
     <p v-if="error" role="alert" class="error">{{ error }} <button class="btn" :disabled="busy" @click="load">恢复测评</button></p>
@@ -97,7 +98,7 @@ function advance() {
   </main>
 </template>
 <style scoped>
-.assessment { max-width: 680px; margin: auto; padding: 32px 20px 80px; }
+.assessment { max-width: 800px; margin: auto; padding: 0 0 28px; }
 .word { font-family: var(--serif); text-align: center; font-size: 38px; margin: 30px 0; }
 .choices { display: grid; gap: 12px; }
 .choices button { white-space: normal; text-align: left; min-height: 48px; }

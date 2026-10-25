@@ -4,6 +4,7 @@ import { useAiStore } from '../stores/ai'
 import ThemePicker from '../components/ThemePicker.vue'
 
 const ai = useAiStore()
+const settingsSection = ref('appearance')
 
 const form = ref({ provider: 'deepseek', apiKey: '', model: '', baseUrl: '', label: '' })
 const formError = ref('')
@@ -27,8 +28,10 @@ const limitMessage = ref('')
 
 /** 当前额度与哪个档位一致（用来高亮按钮，不额外存状态） */
 const activePresetGuess = computed(() => {
+  if (ai.limits?.unlimited) return 'unlimited'
   if (!ai.limitOptions || !ai.limits) return ai.activePreset
   for (const preset of ai.limitOptions.presets) {
+    if (preset.id === 'unlimited') continue
     const same = Object.entries(preset.values).every(
       ([key, value]) => Number(ai.limits[key]) === Number(value)
     )
@@ -259,7 +262,7 @@ function formatCost(usd) {
   return `¥${cny.toFixed(3)}`
 }
 
-const typeLabels = {
+const typeLabels = { dialogue: '情境对话（含复盘与重试）',
   article: '巩固短文',
   quiz: '阅读理解题',
   error_card: '错词卡片',
@@ -269,8 +272,15 @@ const typeLabels = {
 
 <template>
   <div class="settings">
+    <p class="page-eyebrow">MAKE IT YOURS</p>
     <h1 class="section-title">偏好设置</h1>
-    <ThemePicker />
+    <p class="section-sub">给学习，留一个喜欢的空间。所有环境设置都在这里。</p>
+    <div class="settings-sections" role="group" aria-label="设置分组">
+      <button :class="{ active: settingsSection === 'appearance' }" :aria-pressed="settingsSection === 'appearance'" @click="settingsSection = 'appearance'">学习环境 <span>外观与个性化</span></button>
+      <button :class="{ active: settingsSection === 'ai' }" :aria-pressed="settingsSection === 'ai'" @click="settingsSection = 'ai'">AI 服务 <span>连接与用量</span></button>
+    </div>
+    <ThemePicker v-show="settingsSection === 'appearance'" />
+    <section v-show="settingsSection === 'ai'" aria-label="AI 服务设置">
     <p class="section-sub">不配置也能用：错因分析与易混词对比完全免费</p>
 
     <div v-if="!ai.status" class="card">
@@ -306,7 +316,7 @@ const typeLabels = {
       <div class="card block">
         <h2 class="block-title">用量与成本</h2>
         <p class="block-sub">
-          今日已调用 {{ ai.monthTotals.used }} 次 · 缓存命中 {{ ai.monthTotals.cached }} 次
+          近 30 天已调用 {{ ai.monthTotals.used }} 次 · 缓存命中 {{ ai.monthTotals.cached }} 次
         </p>
 
         <div class="usage-grid">
@@ -315,6 +325,7 @@ const typeLabels = {
             <span class="usage-count mono-num">
               {{ item.used }}<template v-if="item.limit"> / {{ item.limit }}</template>
             </span>
+            <span class="usage-cached">输入 {{ item.promptTokens }} + 输出 {{ item.completionTokens }} token</span>
             <span v-if="item.cached" class="usage-cached">缓存 {{ item.cached }}</span>
           </div>
         </div>
@@ -428,7 +439,8 @@ const typeLabels = {
           </p>
         </div>
 
-        <div class="limit-grid">
+        <p v-if="ai.limits?.unlimited" class="form-hint">不限额度已开启：对话、复盘及其他生成不设置应用内 token 和每日次数上限。服务商余额、限流与模型上下文仍然有效，所有调用显示实际消耗。</p>
+        <div v-if="!ai.limits?.unlimited" class="limit-grid">
           <label v-for="field in limitFields" :key="field.key" class="field">
             <span class="field-label">
               {{ field.label }}
@@ -598,10 +610,18 @@ const typeLabels = {
         </div>
       </div>
     </template>
+    </section>
   </div>
 </template>
 
 <style scoped>
+.settings-sections { display: flex; gap: 10px; padding-bottom: 24px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
+.settings-sections button { background: transparent; color: var(--ink-soft); border: 1px solid transparent; border-radius: 11px; text-align: left; padding: 11px 18px; font-size: 14px; min-height: 44px; }
+.settings-sections button.active { color: var(--accent-deep); background: var(--accent-soft); border-color: var(--line); }
+.settings-sections span { display: block; font-size: 10px; color: var(--ink-soft); margin-top: 3px; }
+.key-row { flex-wrap: wrap; }
+.key-actions { flex-wrap: wrap; }
+@media (max-width: 480px) { .settings-sections { gap: 6px; }.settings-sections button { flex: 1; padding: 10px 12px; } }
 .block {
   margin-bottom: 16px;
 }

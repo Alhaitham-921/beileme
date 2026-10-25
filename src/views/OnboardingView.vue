@@ -257,7 +257,7 @@ function startLearning() {
   width: 72px;
   height: 72px;
   border-radius: 22px;
-  box-shadow: 0 10px 30px rgba(208, 118, 90, 0.24);
+  box-shadow: var(--shadow);
 }
 
 .ob-title {

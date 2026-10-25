@@ -1,0 +1,1 @@
+ALTER TABLE user_ai_limits ADD COLUMN unlimited TINYINT(1) NOT NULL DEFAULT 0;

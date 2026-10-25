@@ -141,6 +141,7 @@ const quizStats = computed(() => {
 
 <template>
   <div class="article-page">
+    <p class="page-eyebrow">WORDS IN CONTEXT</p>
     <div class="page-head">
       <button class="back-link" @click="router.push('/')">← 返回首页</button>
       <h1 class="section-title">AI 巩固内容</h1>

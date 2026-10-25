@@ -29,7 +29,12 @@ export function createApp() {
   )
 
   // 生成内容与短文可能较长，放宽 body 上限
-  app.use(express.json({ limit: '1mb' }))
+  const generalJson = express.json({ limit: '1mb' })
+  app.use((req, res, next) => {
+    // 仅语音转写允许较大 JSON；由语音路由在登录校验后解析，其他接口仍保持 1 MB。
+    if (req.method === 'POST' && /^\/api\/v1\/speech\/transcribe\/?$/i.test(req.path)) return next()
+    return generalJson(req, res, next)
+  })
   app.use(express.urlencoded({ extended: false, limit: '1mb' }))
 
   // 开发环境打印精简访问日志；测试环境保持安静

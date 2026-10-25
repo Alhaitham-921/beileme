@@ -5,11 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <script>
       try {
-        const theme = localStorage.getItem('beileme.theme');
-        if (['paper', 'frost', 'forest'].includes(theme)) {
-          document.documentElement.dataset.theme = theme;
-          document.documentElement.style.backgroundColor = theme === 'frost' ? '#10141d' : theme === 'forest' ? '#f0f5ef' : '#faf6f0';
-        }
+        document.documentElement.dataset.theme = 'frost';
+        document.documentElement.style.backgroundColor = '#0d1720';
       } catch (_) {}
     </script>
     <title>背了么 · 用单词，而不是背单词</title>

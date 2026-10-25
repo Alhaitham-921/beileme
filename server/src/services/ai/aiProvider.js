@@ -428,6 +428,7 @@ export async function chat({
     const reasoning = choice?.message?.reasoning_content ?? choice?.message?.reasoning
     const finishReason = choice?.finish_reason
     const usage = {
+      reported: payload?.usage?.prompt_tokens != null && payload?.usage?.completion_tokens != null,
       promptTokens: Number(payload?.usage?.prompt_tokens || 0),
       completionTokens: Number(payload?.usage?.completion_tokens || 0),
       reasoningTokens: Number(
@@ -447,6 +448,9 @@ export async function chat({
       )
       // 把现场信息带出去，便于在设置页的诊断面板里定位
       error.diagnostics = {
+        emptyContent: true,
+        contentLength: typeof content === 'string' ? content.length : 0,
+        whitespaceOnly: typeof content === 'string' && content.length > 0 && !content.trim(),
         finishReason: finishReason || null,
         hasReasoning: Boolean(reasoning),
         reasoningLength: reasoning ? String(reasoning).length : 0,

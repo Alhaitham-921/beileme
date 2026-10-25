@@ -11,6 +11,8 @@
  * HttpOnly Cookie。这一点在当前阶段接受，但记录在此以免遗忘。
  */
 
+import { publishAiUsage, latestAiUsage } from '../stores/aiUsage.js'
+
 const STORAGE_KEY = 'beileme:auth'
 
 /**
@@ -89,6 +91,7 @@ export function isLoggedIn() {
 }
 
 export function setTokens(next) {
+  if (!next) latestAiUsage.value = null
   tokens = next && next.accessToken ? next : null
   const storage = readStorage()
   try {
@@ -203,6 +206,7 @@ export async function request(method, path, options = {}) {
   }
 
   const payload = await parseBody(response)
+  if (method !== 'GET') publishAiUsage(path, payload?.data, payload?.error)
 
   if (!response.ok || payload?.ok === false) {
     const error = payload?.error || {}

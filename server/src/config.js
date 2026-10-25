@@ -132,6 +132,18 @@ export const config = {
     userKeyQuotaMultiplier: readInt('AI_USER_KEY_QUOTA_MULTIPLIER', 20),
   },
 
+  // 语音与文字模型独立配置；聊天供应商不一定支持音频接口。
+  speech: {
+    apiKey: readString('SPEECH_API_KEY', ''),
+    baseUrl: readString('SPEECH_BASE_URL', 'https://api.openai.com/v1'),
+    model: readString('SPEECH_MODEL', 'gpt-4o-mini-transcribe'),
+    timeoutMs: Math.min(60000, Math.max(1000, readInt('SPEECH_TIMEOUT_MS', 30000))),
+    maxBytes: Math.min(5 * 1024 * 1024, Math.max(1024, readInt('SPEECH_MAX_BYTES', 2097152))),
+    maxSeconds: Math.min(120, Math.max(5, readInt('SPEECH_MAX_SECONDS', 60))),
+    dailyQuota: Math.min(1000, Math.max(0, readInt('SPEECH_DAILY_QUOTA', 100))),
+    perMinuteQuota: Math.min(60, Math.max(1, readInt('SPEECH_PER_MINUTE_QUOTA', 6))),
+  },
+
   security: {
     /**
      * 用户自带 API Key 的加密主密钥。留空时从 JWT_SECRET 派生。

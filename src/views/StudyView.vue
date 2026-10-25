@@ -187,8 +187,13 @@ async function makeErrorCards() {
 
 <template>
   <div class="study">
+    <header class="focus-header">
+      <router-link to="/" class="back-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m14 6-6 6 6 6" /></svg> 返回首页</router-link>
+      <span class="focus-label"><span></span> 专注学习</span>
+    </header>
     <!-- 加载中 -->
-    <div v-if="status === 'loading'" class="card result-card">
+    <div v-if="status === 'loading'" class="card result-card" role="status">
+      <span class="state-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M12 6c-3-3-7-3-10-2v15c4-1 7 0 10 2 3-2 6-3 10-2V4c-3-1-7-1-10 2Zm0 0v15" /></svg></span>
       <p class="muted">正在准备今天的单词…</p>
     </div>
 
@@ -205,20 +210,20 @@ async function makeErrorCards() {
     <!-- 答题中 / 已作答 -->
     <template v-else-if="status === 'question' || status === 'answered'">
       <div class="study-head">
-        <span class="badge" :class="item.kind">{{ item.kind === 'new' ? '新词' : '复习' }}</span>
+        <div class="study-head-left"><span class="badge" :class="item.kind">{{ item.kind === 'new' ? '新词学习' : '复习巩固' }}</span><span class="session-label">今日学习</span></div>
         <span class="progress-text mono-num">
-          {{ app.answeredCount }} / {{ app.totalItems }}
+          <b>{{ app.answeredCount }}</b><span> / {{ app.totalItems }} 词</span>
         </span>
       </div>
 
-      <div class="progress head-progress">
+      <div class="progress head-progress" role="progressbar" aria-label="本组学习进度" :aria-valuenow="app.answeredCount" :aria-valuemin="0" :aria-valuemax="app.totalItems || 1">
         <span :style="{ width: (app.answeredCount / app.totalItems) * 100 + '%' }"></span>
       </div>
 
       <div class="card word-card">
         <div class="word-row">
           <h1 class="word-spell">{{ word.spelling }}</h1>
-          <button class="speak-btn" title="朗读" @click="speak">🔊</button>
+          <button class="speak-btn" title="朗读单词" aria-label="朗读单词" @click="speak"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m11 4-6 5H2v6h3l6 5V4Z" /><path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" /></svg></button>
         </div>
         <p class="word-meta">
           <!-- 部分开源词表（初高中）没有音标，缺什么就不显示什么，避免留下空白占位 -->
@@ -231,7 +236,7 @@ async function makeErrorCards() {
           </span>
         </p>
 
-        <p class="q-prompt">选择正确的中文释义 · 数字键 1–4 选择，空格继续</p>
+        <div class="question-heading"><p class="q-prompt">选择正确的中文释义</p><span class="question-hint">相信你的第一反应</span></div>
 
         <div class="option-grid">
           <button
@@ -240,6 +245,7 @@ async function makeErrorCards() {
             class="option choice"
             :class="[optionClass(option.index), { selected: app.loading.answering && selectedIndex === option.index }]"
             :disabled="status === 'answered' || app.loading.answering"
+            :aria-label="`${option.index + 1}. ${option.text}${status === 'answered' && option.index === correctIndex ? '，正确答案' : status === 'answered' && option.index === selectedIndex ? '，你的选择，回答错误' : ''}`"
             @click="choose(option.index)"
           >
             <span class="opt-key">{{ option.index + 1 }}</span>
@@ -251,11 +257,13 @@ async function makeErrorCards() {
               </template>
               <template v-else>{{ option.text }}</template>
             </span>
+            <svg v-if="status === 'answered' && option.index === correctIndex" class="option-status" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
+            <svg v-else-if="status === 'answered' && option.index === selectedIndex" class="option-status" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
           </button>
         </div>
 
         <transition name="fade">
-          <div v-if="status === 'answered'" class="feedback">
+          <div v-if="status === 'answered'" class="feedback" aria-live="polite">
             <p class="fb-line" :class="answer.isCorrect ? 'ok' : 'bad'">
               {{ answer.isCorrect ? '✓ 回答正确' : '✗ 再记一下这个' }}
             </p>
@@ -311,20 +319,23 @@ async function makeErrorCards() {
       </div>
 
       <div class="study-foot">
+        <p class="keyboard-hints"><span><kbd>1</kbd> – <kbd>4</kbd> 选择释义</span><span><kbd>Space</kbd> 作答后继续</span></p>
         <button
           v-if="status === 'answered'"
-          class="btn btn-primary btn-lg btn-full"
+          class="btn btn-primary btn-lg next-btn"
           :disabled="advancing"
           @click="advance"
         >
-          {{ app.isLastItem ? '查看结果' : '下一个' }} · 空格
+          {{ app.isLastItem ? '查看结果' : '下一个单词' }} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
         </button>
       </div>
     </template>
 
     <!-- 本轮完成 -->
     <div v-else-if="status === 'finished'" class="card result-card">
-      <h1 class="result-title">本组完成 🎉</h1>
+      <span class="state-icon completed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="m8 12 3 3 5-6" /></svg></span>
+      <p class="result-eyebrow">每一次专注，都在积累</p>
+      <h1 class="result-title">这一组，完成了。</h1>
       <p class="result-sub">
         共 {{ app.sessionSummary.answeredCount }} 个单词
         <template v-if="app.sessionSummary.avgHesitationMs">
@@ -354,10 +365,10 @@ async function makeErrorCards() {
 
       <!-- AI 巩固内容：只有点击才会调用模型，不自动生成 -->
       <div class="ai-block">
-        <p class="ai-title">要不要巩固一下？</p>
+        <p class="ai-title">让今天学到的词，留下来</p>
         <div class="ai-actions">
           <button class="btn btn-ghost" @click="goToArticle">
-            📖 生成巩固短文
+            生成巩固短文
           </button>
           <button
             v-if="wrongWordIds.length"
@@ -365,7 +376,7 @@ async function makeErrorCards() {
             :disabled="generating"
             @click="makeErrorCards"
           >
-            {{ generating ? '生成中…' : `🃏 错词对比卡片（${wrongWordIds.length} 个）` }}
+            {{ generating ? '生成中…' : `错词对比卡片（${wrongWordIds.length} 个）` }}
           </button>
         </div>
         <p class="ai-hint">
@@ -396,7 +407,7 @@ async function makeErrorCards() {
               <span class="mc-spell">{{ d.spelling }}</span>
               <span class="mc-mean">{{ d.coreMeaning }}</span>
             </div>
-            <p v-if="card.mnemonic" class="mc-mnemonic">💡 {{ card.mnemonic }}</p>
+            <p v-if="card.mnemonic" class="mc-mnemonic">记忆提示 · {{ card.mnemonic }}</p>
             <p v-if="card.formTip" class="mc-tip">{{ card.formTip }}</p>
           </div>
         </div>
@@ -410,7 +421,8 @@ async function makeErrorCards() {
 
     <!-- 今天没有要学的 -->
     <div v-else class="card result-card">
-      <h1 class="result-title">今天已完成 ☕</h1>
+      <span class="state-icon completed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="m8 12 3 3 5-6" /></svg></span>
+      <h1 class="result-title">今天的计划，已完成。</h1>
       <p class="result-sub">新词与待复习都学完了，休息一下，或者再巩固一组。</p>
       <div class="result-actions">
         <button class="btn btn-ghost" @click="startExtra">再学一组</button>
@@ -421,23 +433,33 @@ async function makeErrorCards() {
 </template>
 
 <style scoped>
+.study { max-width: 800px; margin: 0 auto; }
+.focus-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 32px; }
+.back-link { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-soft); font-size: 12px; }
+.back-link svg { width: 18px; height: 18px; }
+.back-link:hover { color: var(--ink); }
+.focus-label { display: inline-flex; align-items: center; gap: 7px; font-size: 10px; letter-spacing: 1px; color: var(--ink-soft); }
+.focus-label > span { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
 .choice.selected { outline: 2px solid var(--accent); background: var(--accent-soft); opacity: 1; }
 .study-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
+.study-head-left { display: flex; align-items: center; gap: 12px; }
+.session-label { font-size: 11px; color: var(--ink-soft); }
 .head-progress {
-  margin-bottom: 16px;
+  height: 3px;
+  margin-bottom: 22px;
 }
 
 .badge {
-  font-size: 13px;
-  font-weight: 600;
-  padding: 4px 12px;
-  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 6px;
 }
 
 .badge.new {
@@ -452,35 +474,46 @@ async function makeErrorCards() {
 
 .progress-text {
   color: var(--ink-soft);
-  font-size: 14px;
+  font-size: 12px;
 }
+.progress-text b { color: var(--ink); font-size: 15px; font-weight: 500; }
 
 .word-card {
-  padding: 34px 28px;
+  padding: 42px 38px 34px;
+  background: var(--surface-study, var(--bg-card));
 }
 
 .word-row {
   display: flex;
   align-items: center;
-  gap: 16px;
+  justify-content: center;
+  gap: 18px;
+  margin: 15px 0 12px;
 }
 
 .word-spell {
   font-family: var(--serif);
-  font-size: 40px;
+  font-size: clamp(35px, 5.5vw, 62px);
+  line-height: 1.2;
+  font-weight: 500;
   margin: 0;
-  letter-spacing: 0.5px;
+  letter-spacing: -1.5px;
+  overflow-wrap: anywhere;
 }
 
 .speak-btn {
-  background: var(--bg);
+  background: var(--accent-soft);
+  color: var(--accent-deep);
   border: 1px solid var(--line);
   border-radius: 50%;
-  width: 44px;
-  height: 44px;
-  font-size: 18px;
-  transition: transform 0.08s;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  transition: transform .12s ease, border-color .16s ease;
 }
+.speak-btn svg { width: 17px; height: 17px; }
 
 .speak-btn:hover {
   border-color: var(--accent);
@@ -492,8 +525,10 @@ async function makeErrorCards() {
 
 .word-meta {
   color: var(--ink-soft);
-  margin: 6px 0 22px;
-  font-size: 15px;
+  margin: 0 0 42px;
+  font-size: 14px;
+  text-align: center;
+  line-height: 2;
 }
 
 .meta-sep {
@@ -502,10 +537,10 @@ async function makeErrorCards() {
 
 .freq-tag {
   display: inline-block;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 1px 8px;
-  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 4px;
   margin-left: 10px;
   vertical-align: middle;
 }
@@ -527,48 +562,65 @@ async function makeErrorCards() {
 
 .diff {
   margin-left: 10px;
-  color: #e0a800;
-  font-size: 13px;
+  color: var(--ink-soft);
+  font-size: 10px;
   letter-spacing: 1px;
   vertical-align: middle;
 }
 
+.question-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
 .q-prompt {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--ink-soft);
-  margin: 0 0 12px;
+  margin: 0;
 }
+.question-hint { font-size: 10px; color: var(--ink-soft); opacity: .7; }
+.option-grid { gap: 10px; }
 
 .choice {
   cursor: pointer;
+  min-height: 66px;
+  border-width: 1px;
+  background: var(--bg-card);
+  padding: 15px 18px;
+  font-size: 14px;
+  gap: 16px;
 }
+.choice .opt-key { width: 26px; height: 26px; background: transparent; border: 1px solid var(--line); border-radius: 6px; color: var(--ink-soft); font-size: 11px; font-weight: 400; }
+.option-status { width: 18px; height: 18px; margin-left: auto; flex-shrink: 0; }
 
 .choice:disabled {
   cursor: default;
 }
 
 .choice.correct {
+  opacity: 1;
   border-color: var(--ok);
   background: var(--ok-soft);
   color: var(--ok);
 }
+.choice.correct .opt-key { border-color: var(--ok); color: var(--ok); }
 
 .choice.wrong {
+  opacity: 1;
   border-color: var(--bad);
   background: var(--bad-soft);
   color: var(--bad);
 }
+.choice.wrong .opt-key { border-color: var(--bad); color: var(--bad); }
 
 .choice.dim {
   opacity: 0.55;
 }
 
 .opt-text {
-  line-height: 1.6;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
 }
 
 .opt-text b {
-  color: var(--accent-deep);
+  color: var(--ink);
+  font-weight: 500;
 }
 
 .choice.correct .opt-text b,
@@ -577,14 +629,14 @@ async function makeErrorCards() {
 }
 
 .feedback {
-  margin-top: 22px;
-  padding-top: 20px;
-  border-top: 1px dashed var(--line);
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
 }
 
 .fb-line {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   margin: 0 0 12px;
 }
 
@@ -722,12 +774,19 @@ async function makeErrorCards() {
 }
 
 .study-foot {
-  margin-top: 20px;
+  margin-top: 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  min-height: 48px;
 }
 
-.btn-full {
-  width: 100%;
-}
+.keyboard-hints { display: flex; align-items: center; flex-wrap: wrap; gap: 18px; margin: 0; font-size: 10px; color: var(--ink-soft); }
+.keyboard-hints > span { display: inline-flex; align-items: center; gap: 5px; }
+.keyboard-hints kbd { font: inherit; font-size: 9px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 4px; color: var(--ink-soft); background: var(--bg-card); box-shadow: 0 1px 0 var(--line); }
+.next-btn { padding: 13px 21px; font-size: 13px; min-width: 170px; gap: 24px; flex-shrink: 0; }
+.next-btn svg { width: 16px; height: 16px; }
 
 .fade-enter-active,
 .fade-leave-active {
@@ -741,25 +800,35 @@ async function makeErrorCards() {
 
 .result-card {
   text-align: center;
-  padding: 44px 28px;
+  padding: 46px 34px;
+  background: var(--surface-study, var(--bg-card));
 }
+.state-icon { width: 56px; height: 56px; display: grid; place-items: center; color: var(--accent-deep); margin: 0 auto 24px; border-radius: 50%; background: var(--accent-soft); }
+.state-icon svg { width: 30px; height: 30px; }
+.state-icon.completed { color: var(--ok); background: var(--ok-soft); }
+.result-eyebrow { font-size: 10px; color: var(--ink-soft); letter-spacing: 1px; margin: 0 0 12px; }
 
 .result-title {
-  font-family: var(--serif);
-  font-size: 28px;
-  margin: 0 0 6px;
+  font-size: 27px;
+  font-weight: 500;
+  letter-spacing: -.6px;
+  margin: 0 0 12px;
 }
 
 .result-sub {
   color: var(--ink-soft);
+  font-size: 12px;
   margin: 0 0 28px;
 }
 
 .result-stats {
-  display: flex;
-  justify-content: center;
-  gap: 32px;
-  margin-bottom: 28px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin: 30px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 24px 0;
 }
 
 .rs {
@@ -768,9 +837,8 @@ async function makeErrorCards() {
 }
 
 .rs-num {
-  font-family: var(--serif);
-  font-size: 30px;
-  font-weight: 600;
+  font-size: 32px;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
@@ -783,8 +851,9 @@ async function makeErrorCards() {
 }
 
 .rs-label {
-  font-size: 13px;
+  font-size: 11px;
   color: var(--ink-soft);
+  margin-top: 6px;
 }
 
 .badge-toast {
@@ -810,7 +879,8 @@ async function makeErrorCards() {
 /* AI 巩固内容 */
 .ai-block {
   text-align: left;
-  background: var(--bg);
+  background: var(--bg-card);
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   padding: 18px;
   margin-bottom: 24px;
@@ -927,4 +997,27 @@ async function makeErrorCards() {
   font-size: 12.5px;
   color: var(--ink-soft);
 }
+@media (max-width: 600px) {
+  .focus-header { margin-bottom: 25px; }
+  .word-card { padding: 30px 22px 24px; }
+  .word-row { margin-top: 16px; gap: 12px; }
+  .word-spell { font-size: clamp(30px, 8vw, 44px); letter-spacing: -.8px; }
+  .speak-btn { width: 34px; height: 34px; }
+  .word-meta { font-size: 12px; margin-bottom: 32px; }
+  .question-hint { display: none; }
+  .choice { padding: 13px 14px; min-height: 62px; font-size: 13px; gap: 12px; }
+  .choice .opt-key { width: 23px; height: 23px; }
+  .study-foot { flex-direction: column-reverse; gap: 17px; }
+  .next-btn { width: 100%; justify-content: space-between; }
+  .keyboard-hints { width: 100%; justify-content: center; font-size: 9px; gap: 14px; }
+  .result-card { padding: 34px 22px; }
+  .result-title { font-size: 23px; }
+  .result-sub { line-height: 1.9; }
+  .result-actions { flex-wrap: wrap; }
+  .result-actions .btn { font-size: 13px; padding: 12px 20px; }
+  .ai-block { padding: 16px; }
+  .ai-actions .btn { font-size: 12px; padding: 10px 12px; }
+  .mc-row { flex-wrap: wrap; gap: 4px 10px; }
+}
+@media (prefers-reduced-motion: reduce) { .speak-btn, .fade-enter-active, .fade-leave-active { transition: none; }.speak-btn:active { transform: none; } }
 </style>

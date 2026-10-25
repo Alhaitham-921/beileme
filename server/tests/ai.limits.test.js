@@ -99,7 +99,7 @@ describe('读取与保存额度', () => {
 
     assert.equal(response.status, 200)
     assert.deepEqual(response.data.limits, { ...RECOMMENDED_LIMITS, usingRecommended: true })
-    assert.ok(Array.isArray(response.data.presets) && response.data.presets.length === 3)
+    assert.ok(Array.isArray(response.data.presets) && response.data.presets.length === 4)
     assert.ok(response.data.measured.articleTokens > 0, '应给出实测参考值供用户参考')
   })
 

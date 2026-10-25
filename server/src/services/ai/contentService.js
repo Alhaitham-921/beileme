@@ -167,6 +167,10 @@ export async function getUsage(userId, dateKey = todayKey()) {
       userKeyLimit: quotaLimitFor(type, 'user'),
     }
   }
+  const dialogue = await queryOne('SELECT calls, prompt_tokens, completion_tokens FROM dialogue_daily_usage WHERE user_id = ? AND usage_date = ?', [userId, dateKey])
+  const limits = await resolveLimits(userId)
+  if (limits.unlimited) for (const value of Object.values(result)) { value.limit = null; value.userKeyLimit = null }
+  result.dialogue = { used: Number(dialogue?.calls || 0), cached: 0, promptTokens: Number(dialogue?.prompt_tokens || 0), completionTokens: Number(dialogue?.completion_tokens || 0), limit: limits.unlimited ? null : 200 }
   return result
 }
 
@@ -178,6 +182,7 @@ function quotaLimitFor(type, providerSource) {
 }
 
 async function ensureQuota(userId, type, providerSource) {
+  if ((await resolveLimits(userId)).unlimited) return
   const limit = quotaLimitFor(type, providerSource)
   if (limit == null) return
 
@@ -225,6 +230,8 @@ export async function getUsageSummary(userId, { days = 30 } = {}) {
     [userId, since]
   )
 
+  const dialogue = await queryOne('SELECT SUM(calls) AS used, SUM(prompt_tokens) AS promptTokens, SUM(completion_tokens) AS completionTokens FROM dialogue_daily_usage WHERE user_id = ? AND usage_date >= ?', [userId, since])
+  rows.push({ type: 'dialogue', ...dialogue, cached: 0, costUsd: estimateCost({ inputTokens: Number(dialogue?.promptTokens || 0), outputTokens: Number(dialogue?.completionTokens || 0) }) })
   const totals = { used: 0, cached: 0, promptTokens: 0, completionTokens: 0, costUsd: 0 }
   const byType = {}
   for (const row of rows) {
@@ -546,7 +553,7 @@ export async function preflightContent(userId, options = {}) {
   })
 
   const usage = await getUsage(userId)
-  const limit = quotaLimitFor(type, provider.source)
+  const limit = limits.unlimited ? null : quotaLimitFor(type, provider.source)
   /** 本次是否会让模型跳过内部思考（默认会，用户可在设置里打开） */
   const thinkingDisabled = !limits.allowThinking
 
@@ -560,9 +567,10 @@ export async function preflightContent(userId, options = {}) {
     cacheAvailable: Boolean(cached),
     cachedContentId: cached?.id ?? null,
     estimatedInputTokens: estimate.inputTokens,
-    maxOutputTokens: estimate.outputCap,
-    worstCaseCostUsd: Number(estimate.worstCaseCost.toFixed(8)),
-    worstCaseCostText: formatCost(estimate.worstCaseCost),
+    maxOutputTokens: limits.unlimited ? null : estimate.outputCap,
+    unlimited: limits.unlimited,
+    worstCaseCostUsd: limits.unlimited ? null : Number(estimate.worstCaseCost.toFixed(8)),
+    worstCaseCostText: limits.unlimited ? '不限额度，按实际消耗计费' : formatCost(estimate.worstCaseCost),
     /** 单次调用（不含拆批）的预估；错词卡片合批后固定成本只付一次 */
     callCount: type === 'article' ? 1 : Math.ceil(words.length / MAX_CARDS_PER_REQUEST),
     quota: { type, used: usage[type].used, limit },
@@ -575,7 +583,7 @@ export async function preflightContent(userId, options = {}) {
         ? '当前未配置 AI，将返回本地复习清单（不产生费用）'
         : cached
           ? '命中缓存，本次不会调用模型'
-          : `预计最多消耗 ${estimate.outputCap} 个输出 token${thinkingDisabled ? '（已让模型跳过内部思考，实测约用 410）' : '（已允许模型内部思考，会更慢更贵）'}`,
+          : limits.unlimited ? '不限额度，按实际 token 消耗计费；服务商仍可能限流' : `预计最多消耗 ${estimate.outputCap} 个输出 token${thinkingDisabled ? '（已让模型跳过内部思考，实测约用 410）' : '（已允许模型内部思考，会更慢更贵）'}`,
   }
 }
 
@@ -644,7 +652,7 @@ export async function generateArticle(userId, options = {}) {
     words,
     build: (candidate) => buildArticlePrompt({ words: candidate, ...promptInput }),
     promptType: 'article',
-    maxInputTokens: limits.maxInputTokens,
+    maxInputTokens: limits.unlimited ? Infinity : limits.maxInputTokens,
   })
 
   const preflight = estimateCall({
@@ -690,6 +698,7 @@ export async function generateArticle(userId, options = {}) {
       build: (candidate) =>
         buildArticlePrompt({ words: candidate, ...promptInput, topic: alternateTopic }),
       promptType: 'article',
+      maxInputTokens: limits.unlimited ? Infinity : limits.maxInputTokens,
     })
     try {
       const second = await callAndParse(retry.prompt, {
@@ -699,6 +708,7 @@ export async function generateArticle(userId, options = {}) {
         limits,
         boost,
       })
+      second.__usage = { ...second.__usage, ...sumReportedUsage(parsed.__usage, second.__usage) }
       parsed = second
       body = String(second.body || '')
       maxSimilarity = await maxHistorySimilarity(userId, 'article', body)
@@ -764,6 +774,7 @@ export async function generateArticle(userId, options = {}) {
 
 /** 短文的本地兜底：复习清单 + 明确的降级说明 */
 async function buildArticleFallback({ userId, words, reason, error, preflight }) {
+  if (error) await recordFailedUsage(userId, 'article', error)
   const relatedMap = await loadRelatedMap(words)
   const sheet = buildReviewSheet({ words, relatedMap, reason })
 
@@ -785,7 +796,7 @@ async function buildArticleFallback({ userId, words, reason, error, preflight })
     degradedReason: reason,
     message: degradeMessage(reason, error),
     aiError: error ? { kind: error.kind, message: error.message } : null,
-    usage: null,
+    usage: error ? failedUsage(error) : null,
     preflight,
     quota: await getUsage(userId),
   }
@@ -865,11 +876,13 @@ export async function generateQuiz(userId, { articleId, count = 3, forceNew = fa
   } catch (error) {
     if (!isAiFailure(error)) throw error
     await recordKeyError(provider, error.message)
+    await recordFailedUsage(userId, 'quiz', error)
     return {
       content: null,
       source: CONTENT_SOURCES.TEMPLATE,
       degradedReason: error.kind || 'ai_error',
       message: degradeMessage(error.kind, error),
+      usage: failedUsage(error),
       suggestions: await quizFallbackSuggestions(words),
       preflight,
       quota: await getUsage(userId),
@@ -1054,6 +1067,11 @@ export async function generateErrorCards(
     } catch (error) {
       if (!isAiFailure(error)) throw error
       await recordKeyError(provider, error.message)
+      const failed = failedUsage(error)
+      usageTotals.promptTokens += failed.promptTokens
+      usageTotals.completionTokens += failed.completionTokens
+      usageTotals.unknownCalls = failed.unknownCalls
+      if (usageTotals.promptTokens || usageTotals.completionTokens) await bumpUsage(userId, 'error_card', { ...usageTotals, costUsd: estimateCost({ inputTokens: usageTotals.promptTokens, outputTokens: usageTotals.completionTokens }) })
       // 部分批次失败：已成功的保留，失败的用本地卡片补齐
       const missing = words.filter((word) => !cards.some((card) => card.wordId === word.id))
       const template = buildTemplateErrorCards({
@@ -1069,7 +1087,7 @@ export async function generateErrorCards(
         degradedReason: error.kind || 'ai_error',
         message: degradeMessage(error.kind, error),
         aiError: { kind: error.kind, message: error.message },
-        usage: buildUsageReport({ source: provider.source, model: lastModel, ...usageTotals }),
+        usage: { ...buildUsageReport({ source: provider.source, model: lastModel, ...usageTotals }), unknownCalls: usageTotals.unknownCalls || 0 },
         preflight,
         quota: await getUsage(userId),
       }
@@ -1184,11 +1202,13 @@ export async function generateWeakSummary(userId, { days = 7, boost = 1 } = {}) 
   } catch (error) {
     if (!isAiFailure(error)) throw error
     await recordKeyError(provider, error.message)
+    await recordFailedUsage(userId, 'weak_summary', error)
     return {
       content: null,
       source: CONTENT_SOURCES.TEMPLATE,
       reason: error.kind || 'ai_error',
       message: degradeMessage(error.kind, error),
+      usage: failedUsage(error),
       fallback: stats,
       preflight,
       quota: await getUsage(userId),
@@ -1248,6 +1268,20 @@ export async function generateWeakSummary(userId, { days = 7, boost = 1 } = {}) 
  * @param {object} [options]
  * @param {number} [options.boost] 用户主动要求「用更大额度重新生成」时的额外倍数
  */
+function sumReportedUsage(first, second) {
+  return { promptTokens: Number(first?.promptTokens || 0) + Number(second?.promptTokens || 0), completionTokens: Number(first?.completionTokens || 0) + Number(second?.completionTokens || 0), reported: first?.reported !== false && Boolean(first) && second?.reported !== false && Boolean(second) }
+}
+
+async function recordFailedUsage(userId, type, error) {
+  const usage = failedUsage(error)
+  if (usage.totalTokens) await bumpUsage(userId, type, { ...usage, costUsd: usage.estimatedCostUsd })
+}
+
+function failedUsage(error) {
+  const usage = error.diagnostics?.usage
+  return { ...buildUsageReport({ ...usage }), unknownCalls: usage && usage.reported !== false ? 0 : 1 }
+}
+
 async function callAndParse(prompt, { provider, maxTokens, temperature, attempt = 1, boost = 1, limits = null } = {}) {
   // 默认请求服务商跳过内部思考：更快、更便宜，且不会出现「额度全花在思考上」
   const disableThinking = !limits?.allowThinking
@@ -1321,6 +1355,7 @@ async function callAndParse(prompt, { provider, maxTokens, temperature, attempt 
               finishReason: error.diagnostics?.finishReason ?? null,
             },
             retryBudget,
+            usage: sumReportedUsage(error.diagnostics?.usage, retryError.diagnostics?.usage),
           }
           throw retryError
         }
@@ -1356,11 +1391,11 @@ async function callAndParse(prompt, { provider, maxTokens, temperature, attempt 
       ? reasoningRetryBudget(retryBudget, multiplier)
       : retryBudget
 
-    if (adjusted > maxTokens) {
+    if (limits?.unlimited || adjusted > maxTokens) {
       try {
         const retried = await callAndParse(prompt, {
           provider,
-          maxTokens: adjusted,
+          maxTokens: limits?.unlimited ? undefined : adjusted,
           temperature,
           attempt: 2,
           boost,
@@ -1388,6 +1423,7 @@ async function callAndParse(prompt, { provider, maxTokens, temperature, attempt 
         // 重试也失败：把首次失败的原因一并带出去，便于定位
         retryError.diagnostics = {
           ...(retryError.diagnostics || {}),
+          usage: sumReportedUsage(response.usage, retryError.diagnostics?.usage),
           firstAttempt: {
             truncated,
             maxTokens,
@@ -1401,7 +1437,7 @@ async function callAndParse(prompt, { provider, maxTokens, temperature, attempt 
     }
   }
 
-  if (!parsed) {
+  if (truncated || !parsed) {
     const error = new AiCallError(
       AI_ERROR_KINDS.BAD_RESPONSE,
       truncated
@@ -1477,6 +1513,7 @@ function reasoningRetryBudget(maxTokens, multiplier) {
  * 用户会以为一次短文要 3000 token（实测关掉思考后只用约 410）。
  */
 function outputBudgetFor(provider, type, limits, boost = 1) {
+  if (limits?.unlimited) return undefined
   const base = effectiveBudget(limits, budgetFieldFor(type), type)
   const multiplier = Number(limits?.reasoningMultiplier ?? config.ai.reasoningBudgetMultiplier)
   const reasoningFactor =

@@ -207,6 +207,7 @@ export const useAiStore = defineStore('ai', {
         const data = await api.ai.saveLimits({ preset })
         this.limits = data.limits
         this.activePreset = preset
+        await this.loadStatus()
         return data.limits
       } finally {
         this.loading.limits = false
@@ -220,6 +221,7 @@ export const useAiStore = defineStore('ai', {
         const data = await api.ai.saveLimits(patch)
         this.limits = data.limits
         this.activePreset = null
+        await this.loadStatus()
         return data.limits
       } finally {
         this.loading.limits = false
@@ -232,6 +234,7 @@ export const useAiStore = defineStore('ai', {
         const data = await api.ai.resetLimits()
         this.limits = data.limits
         this.activePreset = null
+        await this.loadStatus()
         return data.limits
       } finally {
         this.loading.limits = false

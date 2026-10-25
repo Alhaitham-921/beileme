@@ -127,7 +127,7 @@ export async function getWeakSummary(userId, { days = 7 } = {}) {
   const count = Math.min(60, Math.max(1, Number.parseInt(days, 10) || 7))
   const since = new Date(Date.now() - count * 24 * 60 * 60 * 1000)
 
-  const [distribution, topWrong, hesitationRow] = await Promise.all([
+  const [distribution, topWrong, hesitationRow, dialogues, dialogueWeakWords] = await Promise.all([
     getErrorDistribution(userId, { days: count }),
     query(
       `SELECT w.id, w.spelling, w.definitions, COUNT(*) AS wrong_times,
@@ -146,9 +146,22 @@ export async function getWeakSummary(userId, { days = 7 } = {}) {
          FROM answer_logs WHERE user_id = ? AND created_at >= ?`,
       [userId, since],
     ),
+    query(`SELECT state FROM dialogue_sessions WHERE user_id = ? AND status = 'finished' AND updated_at >= ? ORDER BY id DESC LIMIT 600`, [userId, since]),
+    query(`SELECT spelling, SUM(weight) AS weight, COUNT(*) AS hits FROM dialogue_word_evidence
+      WHERE user_id = ? AND result <> 'independent' AND created_at >= ? GROUP BY spelling ORDER BY weight DESC LIMIT 5`, [userId, since]),
   ])
 
   const sentences = []
+  const grammarCounts = new Map()
+  const grammarLabels = { tense: '时态', agreement: '主谓一致', word_order: '语序', articles: '冠词', prepositions: '介词', other: '其他语法' }
+  for (const row of dialogues) {
+    for (const correction of parseJson(row.state, {}).report?.corrections || []) {
+      if (correction.type !== 'grammar') continue
+      const tag = correction.grammarTag || 'other'
+      grammarCounts.set(tag, (grammarCounts.get(tag) || 0) + 1)
+    }
+  }
+  const dialogueGrammar = [...grammarCounts].filter(([, n]) => n >= 2).map(([tag, n]) => ({ tag, label: grammarLabels[tag] || tag, count: n }))
   const dominant = distribution.items[0]
 
   if (!distribution.total) {
@@ -190,6 +203,9 @@ export async function getWeakSummary(userId, { days = 7 } = {}) {
     )
   }
 
+  if (dialogueGrammar.length) sentences.push(`情境对话中反复出现的语法问题：${dialogueGrammar.map(g => `${g.label}（${g.count} 次）`).join('、')}，建议完成小结里的短句强化。`)
+  if (dialogueWeakWords.length) sentences.push(`情境表达仍需加强：${dialogueWeakWords.map(w => w.spelling).join('、')}，已记录求助或用错义项的证据。`)
+
   return {
     days: count,
     generatedAt: new Date(),
@@ -197,6 +213,8 @@ export async function getWeakSummary(userId, { days = 7 } = {}) {
     sentences,
     summary: sentences.join(''),
     errorDistribution: distribution,
+    dialogueGrammar,
+    dialogueWeakWords: dialogueWeakWords.map(w => ({ spelling: w.spelling, weight: Number(w.weight), count: Number(w.hits) })),
     topWrongWords: topWrong.map((row) => ({
       wordId: Number(row.id),
       spelling: row.spelling,

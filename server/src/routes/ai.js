@@ -62,7 +62,8 @@ const modelListSchema = z.object({
 const optionalLimit = z.union([z.null(), z.coerce.number().int()]).optional()
 
 const limitsSchema = z.object({
-  preset: z.enum(['frugal', 'balanced', 'quality']).optional(),
+  preset: z.enum(['frugal', 'balanced', 'quality', 'unlimited']).optional(),
+  unlimited: z.boolean().optional(),
   articleTokens: optionalLimit,
   quizTokens: optionalLimit,
   errorCardTokens: optionalLimit,
@@ -186,6 +187,7 @@ router.put(
     }
 
     const patch = {}
+      if ('unlimited' in body) patch.unlimited = body.unlimited
     for (const field of [
       'articleTokens',
       'quizTokens',

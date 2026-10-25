@@ -6,6 +6,12 @@ import http from './client.js'
 export const practice = {
   list: () => http.get('/practice'),
   submit: (body) => http.post('/practice', { body }),
+  startSession: (body) => http.post('/practice/sessions', { body, timeoutMs: 150000 }),
+  getSession: (id) => http.get(`/practice/sessions/${encodeURIComponent(id)}`, { timeoutMs: 15000 }),
+  turn: (id, body) => http.post(`/practice/sessions/${encodeURIComponent(id)}/turns`, { body, timeoutMs: 150000 }),
+  help: (id, body) => http.post(`/practice/sessions/${encodeURIComponent(id)}/help`, { body, timeoutMs: 150000 }),
+  finish: (id) => http.post(`/practice/sessions/${encodeURIComponent(id)}/finish`, { timeoutMs: 150000 }),
+  retryReport: (id) => http.post(`/practice/sessions/${encodeURIComponent(id)}/retry-report`, { timeoutMs: 150000 }),
 }
 export const assessment = {
   history: () => http.get('/assessment', { timeoutMs: 8000 }),

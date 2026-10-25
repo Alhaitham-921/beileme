@@ -14,6 +14,10 @@ third_party/morpholex/project-words.json
 dist/
 dist-ssr/
 
+# 本地测试报告、截图和周报制作产物
+output/
+ppt-weekly/
+
 # 本地 Claude Code 设置（不提交）
 .claude/settings.local.json
 

@@ -1,87 +1,91 @@
 <script setup>
-import { computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
-import logo from './assets/logo.png'
-import { theme, themes, setTheme } from './stores/theme'
+import AppIcon from './components/AppIcon.vue'
+import AiUsage from './components/AiUsage.vue'
+import { latestAiUsage } from './stores/aiUsage.js'
+import EnvironmentBackground from './components/EnvironmentBackground.vue'
+import brandMark from './assets/brand-mark.svg'
 
 const auth = useAuthStore()
+const route = useRoute()
 const router = useRouter()
+const showChrome = computed(() => auth.isLoggedIn && !['login', 'onboarding'].includes(route.name))
+const menuOpen = ref(false)
+const menuButton = ref(null)
+const sidebar = ref(null)
+const links = [
+  { to: '/', icon: 'home', label: '今日', caption: 'TODAY' },
+  { to: '/study', icon: 'book', label: '单词学习' },
+  { to: '/review', icon: 'repeat', label: '温故知新' },
+  { to: '/practice', icon: 'chat', label: '情境练习' },
+  { to: '/roots', icon: 'layers', label: '词根词缀' },
+  { to: '/dashboard', icon: 'chart', label: '学习足迹' },
+]
+const pageLabel = computed(() => [...links, { to: '/settings', label: '偏好设置' }, { to: '/article', label: '阅读巩固' }, { to: '/assessment', label: '词汇测评' }].find(item => item.to === route.path)?.label || '学习空间')
 
-/** 顶栏只在登录后出现，登录页与引导页保持干净 */
-const showChrome = computed(() => auth.isLoggedIn)
-
+async function closeMenu(restoreFocus = true) {
+  menuOpen.value = false
+  if (restoreFocus) { await nextTick(); menuButton.value?.focus() }
+}
+async function openMenu() {
+  menuOpen.value = true
+  await nextTick()
+  sidebar.value?.querySelector('a')?.focus()
+}
+function onKeydown(event) {
+  if (!menuOpen.value) return
+  event.stopPropagation()
+  if (event.key === 'Escape') { event.preventDefault(); closeMenu(); return }
+  if (event.key !== 'Tab') return
+  const controls = [...sidebar.value.querySelectorAll('a, button')].filter(el => el.getClientRects().length)
+  const first = controls[0], last = controls[controls.length - 1]
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+}
+watch(() => route.fullPath, () => closeMenu(false))
+watch(menuOpen, open => { document.body.classList.toggle('menu-is-open', open) })
+document.addEventListener('keydown', onKeydown)
+const desktopQuery = window.matchMedia('(min-width: 821px)')
+function handleDesktop(event) { if (event.matches) closeMenu(false) }
+desktopQuery.addEventListener('change', handleDesktop)
+onBeforeUnmount(() => { document.removeEventListener('keydown', onKeydown); desktopQuery.removeEventListener('change', handleDesktop); document.body.classList.remove('menu-is-open') })
 async function logout() {
   await auth.logout()
   router.replace({ name: 'login' })
 }
+function focusMain() { document.getElementById('main-content')?.focus() }
 </script>
 
 <template>
-  <div class="app">
-    <header v-if="showChrome" class="topbar">
-      <router-link to="/" class="brand">
-        <img :src="logo" alt="" class="brand-logo" />
-        <span class="brand-name">背了么</span>
-      </router-link>
-
-      <nav class="nav">
-        <router-link to="/" class="nav-link" active-class="active">首页</router-link>
-        <router-link to="/study" class="nav-link" active-class="active">学习</router-link>
-        <router-link to="/review" class="nav-link" active-class="active">回顾</router-link>
-        <router-link to="/practice" class="nav-link" active-class="active">情境</router-link>
-        <router-link to="/dashboard" class="nav-link" active-class="active">看板</router-link>
-        <router-link to="/settings" class="nav-link" active-class="active">设置</router-link>
-      </nav>
-
-      <button class="user-btn" :title="`退出登录（${auth.displayName}）`" @click="logout">
-        {{ auth.displayName.slice(0, 1) }}
-      </button>
-    </header>
-
-    <div class="theme-shortcut"><label>外观 <select :value="theme" aria-label="界面主题" @change="setTheme($event.target.value)"><option v-for="item in themes" :key="item.id" :value="item.id">{{ item.name }}</option></select></label></div>
-    <main class="main">
-      <router-view />
-    </main>
+  <EnvironmentBackground />
+  <div class="app" :class="{ 'with-navigation': showChrome }">
+    <a class="accessibility-skip" href="#main-content" @click.prevent="focusMain">跳到主要内容</a>
+    <template v-if="showChrome">
+      <header class="mobile-header">
+        <router-link to="/" class="brand"><span class="brand-symbol"><img :src="brandMark" alt="" /></span><span>背了么<span class="brand-dot">.</span></span></router-link>
+        <button ref="menuButton" class="icon-button" aria-label="打开导航" :aria-expanded="menuOpen" aria-controls="app-navigation" @click="openMenu"><AppIcon name="menu" /></button>
+      </header>
+      <div v-if="menuOpen" class="navigation-overlay" @click="closeMenu()"></div>
+      <aside id="app-navigation" ref="sidebar" class="sidebar" :class="{ 'is-open': menuOpen }" :role="menuOpen ? 'dialog' : undefined" :aria-modal="menuOpen ? true : undefined" aria-label="学习导航">
+        <div class="sidebar-brand-row">
+          <router-link to="/" class="brand" @click="closeMenu(false)"><span class="brand-symbol"><img :src="brandMark" alt="" /></span><span>背了么<span class="brand-dot">.</span><small>让每个单词，都有回响</small></span></router-link>
+          <button class="icon-button close-navigation" aria-label="关闭导航" @click="closeMenu()"><AppIcon name="close" /></button>
+        </div>
+        <p class="navigation-caption">你的学习空间</p>
+        <nav class="nav" aria-label="主要导航">
+          <router-link v-for="link in links" :key="link.to" :to="link.to" class="nav-link" exact-active-class="active" @click="closeMenu(false)"><AppIcon :name="link.icon" /><span>{{ link.label }}</span><small v-if="link.caption">{{ link.caption }}</small></router-link>
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="sidebar-note"><span class="quiet-line"></span><p>慢慢来，<br />每一天都在靠近。</p><small>A LITTLE, EVERY DAY.</small></div>
+          <router-link to="/settings" class="nav-link settings-link" exact-active-class="active" @click="closeMenu(false)"><AppIcon name="settings" /><span>偏好设置</span></router-link>
+          <div class="sidebar-account"><span class="avatar">{{ auth.displayName.slice(0, 1) }}</span><div><strong>{{ auth.displayName }}</strong><small>保持好奇，继续生长</small></div><button class="icon-button logout-button" aria-label="退出登录" title="退出登录" @click="logout"><AppIcon name="logout" /></button></div>
+        </div>
+      </aside>
+      <header class="workspace-header"><span>学习空间 <span class="breadcrumb-separator">/</span> <strong>{{ pageLabel }}</strong></span><span class="workspace-motto"><span></span> 留一点时间，给自己</span></header>
+    </template>
+    <main id="main-content" class="main" :class="{ 'public-main': !showChrome }" :inert="menuOpen || undefined" tabindex="-1"><router-view /><AiUsage v-if="showChrome" :usage="latestAiUsage" :label="`${latestAiUsage?.label || 'AI'}最近一次消耗${latestAiUsage?.failed ? '（生成失败）' : ''}`" /></main>
+    <footer v-if="showChrome" class="workspace-footer"><span>背了么 · 用单词，而不是背单词</span><span>MAKE ROOM FOR GROWTH.</span></footer>
   </div>
 </template>
-
-<style scoped>
-.theme-shortcut { max-width: 760px; margin: 0 auto; padding: 8px 20px 0; text-align: right; font-size: 12px; color: var(--ink-soft); }.theme-shortcut select { font: inherit; color: var(--ink); background: var(--bg-card); border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; margin-left: 6px; }
-.topbar {
-  position: relative;
-}
-
-.user-btn {
-  width: 34px;
-  height: 34px;
-  flex: none;
-  border-radius: 50%;
-  border: 1px solid var(--line);
-  background: var(--bg-card);
-  color: var(--accent-deep);
-  font-size: 15px;
-  font-weight: 600;
-  transition: border-color 0.15s, background 0.15s;
-}
-
-.user-btn:hover {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-@media (max-width: 560px) {
-  .brand-name {
-    display: none;
-  }
-
-  .topbar {
-    gap: 8px;
-  }
-
-  .nav-link {
-    padding: 7px 10px;
-    font-size: 13px;
-  }
-}
-</style>
