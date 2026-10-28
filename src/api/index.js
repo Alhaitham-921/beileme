@@ -5,6 +5,9 @@
 import http from './client.js'
 export const practice = {
   list: () => http.get('/practice'),
+  generateScene: (body) => http.post('/practice/scenes/generate', { body, timeoutMs: 150000 }),
+  saveScene: (body) => http.post('/practice/scenes/save', { body }),
+  repeatSession: (id, body = {}) => http.post(`/practice/sessions/${encodeURIComponent(id)}/repeat`, { body, timeoutMs: 150000 }),
   submit: (body) => http.post('/practice', { body }),
   startSession: (body) => http.post('/practice/sessions', { body, timeoutMs: 150000 }),
   getSession: (id) => http.get(`/practice/sessions/${encodeURIComponent(id)}`, { timeoutMs: 15000 }),
@@ -36,6 +39,9 @@ export const profile = {
 }
 
 export const words = {
+  favorites: () => http.get('/words/favorites'),
+  favorite: (id) => http.put(`/words/${id}/favorite`),
+  unfavorite: (id) => http.del(`/words/${id}/favorite`),
   books: () => http.get('/words/books'),
   listByBook: (code, query) => http.get(`/words/books/${code}/words`, { query }),
   detail: (id) => http.get(`/words/${id}`),

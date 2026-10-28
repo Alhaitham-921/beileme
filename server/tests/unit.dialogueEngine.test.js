@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { DIALOGUE_SCENES, sceneFor, difficultyFor, validateTurn, validateReport, updateTargetUsage, buildHelp, buildEvidence, buildTurnMessages, buildReportMessages } from '../src/services/dialogueEngine.js'
+import { DIALOGUE_SCENES, sceneFor, difficultyFor, validateTurn, validateReport, updateTargetUsage, buildHelp, buildEvidence, buildTurnMessages, buildReportMessages, containsWord } from '../src/services/dialogueEngine.js'
 
 const scene = sceneFor('bank', 'beginner')
 const fresh = () => scene.targets.map(t => ({ word: t.word, sense: t.sense, status: 'unused', helpLevel: 0 }))
@@ -8,8 +8,8 @@ const turn = (patch = {}) => ({ reply: 'There is a path by the river.', translat
 const report = (patch = {}) => ({ summary: '继续练习河岸的表达。', corrections: [], weakWords: [], reinforcement: [], grammarWeaknesses: [], ...patch })
 const session = (patch = {}) => ({ scene, difficulty: 'beginner', strictness: 'balanced', targetUsage: fresh(), messages: [{ role: 'assistant', text: scene.opening }], ...patch })
 
-test('three scenes expose distinct bank senses and adapt difficulty without mutating templates', () => {
-  assert.equal(DIALOGUE_SCENES.length, 3)
+test('classic scenes expose distinct bank senses and adapt difficulty without mutating templates', () => {
+  assert.deepEqual(DIALOGUE_SCENES.map(item => item.id), ['restaurant', 'directions', 'bank', 'hotel', 'interview', 'shopping', 'campus'])
   assert.equal(scene.targets.find(t => t.word === 'bank').sense, '河岸')
   const finance = sceneFor('bank', 'advanced', 'finance')
   assert.equal(finance.targets.find(t => t.word === 'bank').sense, '银行')
@@ -20,6 +20,52 @@ test('three scenes expose distinct bank senses and adapt difficulty without muta
   assert.equal(sceneFor('bank', 'advanced', 'finance').targets[0].sense, '银行')
   assert.throws(() => sceneFor('bank', 2, 'unknown'))
   assert.equal(difficultyFor({ assessment: { total: 12, bands: [{ band: 1, tested: 4, mastery: 0.9 }] }, selfLevel: '6000 以上' }), 'beginner')
+  for (const template of DIALOGUE_SCENES) {
+    const generated = sceneFor(template.id, 'advanced')
+    assert.equal(generated.difficulty, 'advanced')
+    assert.ok(generated.targets.length >= 3 && generated.targets.length <= 5)
+    for (const target of generated.targets) {
+      assert.ok(target.sense && target.phrase)
+      assert.ok(containsWord(target.example, target.word))
+    }
+  }
+})
+
+test('new target words recognize regular inflections without treating substrings or short words as evidence', () => {
+  assert.equal(containsWord('I have two reservations.', 'reservation'), true)
+  assert.equal(containsWord('I studied in London.', 'study'), true)
+  assert.equal(containsWord('I exchanged the shirt.', 'exchange'), true)
+  assert.equal(containsWord('We are planning the project.', 'plan'), true)
+  assert.equal(containsWord('This is a classroom.', 'room'), false)
+  assert.equal(containsWord('This is a banker.', 'bank'), false)
+  assert.equal(containsWord('It is nice.', 'as'), false)
+  assert.equal(containsWord('The student asked me.', 'ask'), true)
+})
+
+test('custom vocabulary accepts common irregular and short verb forms while grounding turn evidence', () => {
+  for (const [word, sentence] of [
+    ['buy', 'I bought a book.'], ['try', 'I tried the local food.'], ['make', 'I made a reservation.'],
+    ['take', 'I took the bus.'], ['choose', 'I chose a quiet room.'], ['child', 'The children are here.'],
+    ['be', 'They were happy.'], ['have', 'I had breakfast.'], ['die', 'The battery is dying.'],
+    ['travel', 'I travelled to London.'], ['prefer', 'I preferred the other room.'],
+  ]) {
+    assert.equal(containsWord(sentence, word), true, `${word}: ${sentence}`)
+    const custom = { targets: [{ word, sense: '本场景义项' }] }
+    const validated = validateTurn(turn({ usedTargets: [{ word, sense: '本场景义项', correct: true }] }), sentence, custom)
+    assert.equal(validated.usedTargets[0].word, word)
+  }
+  assert.equal(containsWord('I talked about it.', 'talk'), true)
+  assert.equal(containsWord('It is nice.', 'as'), false)
+  assert.equal(containsWord('I visited the market.', 'buy'), false)
+})
+
+test('free practice follows the conversation and does not request early completion', () => {
+  const messages = buildTurnMessages(session({ mode: 'free', maxTurns: 24 }), 'Can we discuss another option?')
+  assert.match(messages[0].content, /taskComplete始终为false/)
+  assert.match(messages[0].content, /最多24轮/)
+  assert.match(messages[0].content, /允许用户改变谈话方向/)
+  assert.doesNotMatch(messages[0].content, /至少6轮/)
+  assert.match(buildTurnMessages(session({ mode: 'task', maxTurns: 16 }), 'Hello.')[0].content, /最多16轮/)
 })
 
 test('turn validation rejects invented target usage and wrong target sense', () => {

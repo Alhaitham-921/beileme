@@ -14,7 +14,8 @@ import { emptyUsage, addUsage, usageReport } from '../services/ai/usage.js'
 import { todayKey } from '../utils/time.js'
 import { parseJsonResponse } from '../services/ai/promptTemplates.js'
 import { resolveWordbookForUser } from '../services/wordService.js'
-import { listDialogues, startDialogue, getDialogue, addDialogueTurn, requestDialogueHelp, finishDialogue } from '../services/dialogueService.js'
+import { listDialogues, startDialogue, getDialogue, addDialogueTurn, requestDialogueHelp, finishDialogue,
+  generateScenario, saveScenario, repeatDialogue } from '../services/dialogueService.js'
 
 const router = Router()
 router.use(requireAuth)
@@ -23,19 +24,33 @@ router.get('/', asyncHandler(async (req, res) => {
   return ok(res, { ...await listDialogues(req.user.id), legacyScenes: SCENES, history: rows.map(r => ({ ...r, feedback: parseJson(r.feedback, {}) })) })
 }))
 const sessionId = z.object({ id: z.coerce.number().int().positive() })
+const sceneId = z.string().max(32).regex(/^(?:[a-z]+|custom-[1-9]\d{0,19})$/)
+const difficulty = z.enum(['beginner', 'intermediate', 'advanced'])
+const strictness = z.enum(['lenient', 'standard', 'strict'])
+const mode = z.enum(['free', 'task'])
+const maxTurns = z.union([z.literal(8), z.literal(16), z.literal(24)])
+router.post('/scenes/generate', validate({ body: z.object({
+  wordIds: z.array(z.number().int().positive()).min(1).max(5).optional(),
+  description: z.string().trim().min(10).max(1500), difficulty: difficulty.default('beginner'),
+}) }), asyncHandler(async (req, res) => ok(res, await generateScenario(req.user.id, req.valid.body), 201)))
+router.post('/scenes/save', validate({ body: z.object({
+  sceneId, difficulty: difficulty.default('beginner'), variant: z.enum(['river', 'finance']).optional(),
+}) }), asyncHandler(async (req, res) => ok(res, await saveScenario(req.user.id, req.valid.body))))
 router.post('/sessions', validate({ body: z.object({
-  sceneId: z.enum(['restaurant', 'directions', 'bank']),
-  strictness: z.enum(['lenient', 'standard', 'strict']).default('standard'),
-  difficulty: z.enum(['beginner', 'intermediate', 'advanced']).default('beginner'),
+  sceneId, strictness: strictness.default('standard'), difficulty: difficulty.default('beginner'),
   variant: z.enum(['river', 'finance']).optional(),
+  mode: mode.default('task'), maxTurns: maxTurns.default(8),
 }) }), asyncHandler(async (req, res) => ok(res, await startDialogue(req.user.id, req.valid.body), 201)))
 router.get('/sessions/:id', validate({ params: sessionId }), asyncHandler(async (req, res) => ok(res, await getDialogue(req.user.id, req.valid.params.id))))
+router.post('/sessions/:id/repeat', validate({ params: sessionId, body: z.object({
+  strictness: strictness.optional(), difficulty: difficulty.optional(), mode: mode.optional(), maxTurns: maxTurns.optional(),
+}).default({}) }), asyncHandler(async (req, res) => ok(res, await repeatDialogue(req.user.id, req.valid.params.id, req.valid.body), 201)))
 router.post('/sessions/:id/turns', validate({ params: sessionId, body: z.object({
-  text: z.string().trim().min(1).max(2000), expectedTurn: z.number().int().min(0).max(7),
+  text: z.string().trim().min(1).max(2000), expectedTurn: z.number().int().min(0).max(23),
 }) }), asyncHandler(async (req, res) => ok(res, await addDialogueTurn(req.user.id, req.valid.params.id, req.valid.body))))
 router.post('/sessions/:id/help', validate({ params: sessionId, body: z.object({
   level: z.union([z.literal(2), z.literal(3), z.literal(4)]), word: z.string().max(64).optional(),
-  text: z.string().trim().max(2000).optional(), expectedTurn: z.number().int().min(0).max(7),
+  text: z.string().trim().max(2000).optional(), expectedTurn: z.number().int().min(0).max(23),
 }) }), asyncHandler(async (req, res) => ok(res, await requestDialogueHelp(req.user.id, req.valid.params.id, req.valid.body))))
 router.post('/sessions/:id/finish', validate({ params: sessionId }), asyncHandler(async (req, res) => ok(res, await finishDialogue(req.user.id, req.valid.params.id))))
 router.post('/sessions/:id/retry-report', validate({ params: sessionId }), asyncHandler(async (req, res) => ok(res, await finishDialogue(req.user.id, req.valid.params.id, true))))

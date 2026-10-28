@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { studyKey } from '../utils/studyKeyboard'
+import FavoriteWord from '../components/FavoriteWord.vue'
 import MorphologyCard from '../components/MorphologyCard.vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
@@ -222,7 +223,7 @@ async function makeErrorCards() {
 
       <div class="card word-card">
         <div class="word-row">
-          <h1 class="word-spell">{{ word.spelling }}</h1>
+          <h1 class="word-spell">{{ word.spelling }}</h1><FavoriteWord :key="word.id" :word-id="word.id" />
           <button class="speak-btn" title="朗读单词" aria-label="朗读单词" @click="speak"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m11 4-6 5H2v6h3l6 5V4Z" /><path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" /></svg></button>
         </div>
         <p class="word-meta">

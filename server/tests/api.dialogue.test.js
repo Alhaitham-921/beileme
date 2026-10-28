@@ -41,7 +41,7 @@ test('multi-turn dialogue records assistance, sense evidence and idempotent SRS 
   }
   try {
     const listing = await client.get('/api/v1/practice', { token: user.token })
-    assert.deepEqual(listing.data.scenes.map(s => s.id), ['restaurant', 'directions', 'bank'])
+    for (const id of ['restaurant', 'directions', 'bank']) assert.ok(listing.data.scenes.some(scene => scene.id === id))
     const created = await client.post('/api/v1/practice/sessions', { token: user.token, body: { sceneId: 'bank', strictness: 'strict', difficulty: 'beginner' } })
     assert.equal(created.status, 201, JSON.stringify(created.raw))
     const id = created.data.id, base = `/api/v1/practice/sessions/${id}`

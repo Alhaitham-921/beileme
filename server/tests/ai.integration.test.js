@@ -786,7 +786,7 @@ describe('跳过模型内部思考（真实踩到的「生成失败」根因）'
 
     const response = await client.post('/api/v1/content/articles', {
       token: user.token,
-      body: { wordCount: 4 },
+      body: { wordCount: 4, forceNew: true },
     })
     assert.equal(response.data.source, 'ai')
 
@@ -808,7 +808,7 @@ describe('跳过模型内部思考（真实踩到的「生成失败」根因）'
     resetReceived()
     const response = await client.post('/api/v1/content/articles', {
       token: user.token,
-      body: { wordCount: 4 },
+      body: { wordCount: 4, forceNew: true },
     })
     assert.equal(response.data.source, 'ai')
 
@@ -839,7 +839,8 @@ describe('跳过模型内部思考（真实踩到的「生成失败」根因）'
     try {
       const response = await client.post('/api/v1/content/articles', {
         token: user.token,
-        body: { wordCount: 4 },
+        // This checks provider requests, so a shared cache hit must not bypass them.
+        body: { wordCount: 4, forceNew: true },
       })
       assert.equal(response.data.source, 'ai', '降级后仍应拿到 AI 内容')
 
@@ -863,7 +864,7 @@ describe('跳过模型内部思考（真实踩到的「生成失败」根因）'
     try {
       const response = await client.post('/api/v1/content/articles', {
         token: user.token,
-        body: { wordCount: 4 },
+        body: { wordCount: 4, forceNew: true },
       })
 
       assert.equal(response.data.source, 'template', '应降级成本地复习清单')

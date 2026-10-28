@@ -310,7 +310,7 @@ async function saveContent({
 /** 取近期目标词：优先用调用方指定的词，否则用最近复习过的词 */
 async function resolveTargetWords(userId, { wordIds, limit = 10 } = {}) {
   if (Array.isArray(wordIds) && wordIds.length) {
-    const words = await listWordsByIds(wordIds.slice(0, limit))
+    const words = await listWordsByIds([...new Set(wordIds)])
     if (!words.length) throw badRequest('给定的目标词都不存在')
     return words
   }
@@ -1139,7 +1139,7 @@ async function resolveErrorWords(userId, { wordIds, limit = 6 } = {}) {
   for (const item of digest.wrongWords) breakdownMap[item.wordId] = item.breakdown
 
   if (Array.isArray(wordIds) && wordIds.length) {
-    const words = await listWordsByIds(wordIds.slice(0, limit))
+    const words = await listWordsByIds([...new Set(wordIds)])
     return { words, breakdownMap }
   }
 

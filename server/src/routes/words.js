@@ -13,6 +13,9 @@ import {
 } from '../services/wordService.js'
 import { buildConfusableCard } from '../services/studyService.js'
 
+import { query, execute } from '../db/pool.js'
+import { mapWordRow } from '../services/wordService.js'
+
 const router = Router()
 
 const wordIdParam = z.object({ id: z.coerce.number().int().positive() })
@@ -78,6 +81,21 @@ router.get(
     })
   })
 )
+
+// Account-owned vocabulary notebook; PUT is idempotent.
+router.get('/favorites', requireAuth, asyncHandler(async (req, res) => {
+  const rows = await query('SELECT w.* FROM user_favorite_words f JOIN words w ON w.id=f.word_id WHERE f.user_id=? ORDER BY f.created_at DESC, f.word_id DESC', [req.user.id])
+  return ok(res, { items: rows.map(mapWordRow) })
+}))
+router.put('/:id/favorite', requireAuth, validate({ params: wordIdParam }), asyncHandler(async (req, res) => {
+  await getWordById(req.valid.params.id)
+  await execute('INSERT IGNORE INTO user_favorite_words (user_id,word_id) VALUES (?,?)', [req.user.id, req.valid.params.id])
+  return ok(res, { saved: true })
+}))
+router.delete('/:id/favorite', requireAuth, validate({ params: wordIdParam }), asyncHandler(async (req, res) => {
+  await execute('DELETE FROM user_favorite_words WHERE user_id=? AND word_id=?', [req.user.id, req.valid.params.id])
+  return ok(res, { saved: false })
+}))
 
 // GET /api/v1/words/:id
 router.get(

@@ -3,7 +3,7 @@ import { query, queryOne, execute, withTransaction } from '../db/pool.js'
 import { parseJson } from '../utils/json.js'
 import { ApiError, badRequest, conflict, notFound, quotaExceeded } from '../utils/errors.js'
 import { todayKey, businessDayStartUtc } from '../utils/time.js'
-import { resolveWordbookForUser } from './wordService.js'
+import { getWordById, resolveWordbookForUser } from './wordService.js'
 import { resolveProvider } from './ai/apiKeyService.js'
 import { chat } from './ai/aiProvider.js'
 import { resolveLimits } from './ai/aiSettingsService.js'
@@ -12,6 +12,7 @@ import { parseJsonResponse } from './ai/promptTemplates.js'
 import { reviewItem, computeMemoryStrength } from './srs.js'
 import { DIALOGUE_SCENES, sceneFor, validateTurn, validateReport, buildTurnMessages,
   buildReportMessages, updateTargetUsage, buildHelp, buildEvidence, containsWord } from './dialogueEngine.js'
+import { buildScenarioMessages, validateScenario } from './scenarioEngine.js'
 
 const reportJobs = new Map()
 const MAX_CALLS = 200
@@ -20,20 +21,75 @@ const MAX_HELP = 16
 
 function fromRow(row) {
   if (!row) throw notFound('这轮情境对话不存在')
-  return { ...parseJson(row.state, {}), id: Number(row.id), status: row.status, updatedAt: row.updated_at }
+  return { ...parseJson(row.state, {}), id: Number(row.id), status: row.status, createdAt: row.created_at, updatedAt: row.updated_at }
 }
 async function rowFor(userId, id) {
   return queryOne('SELECT * FROM dialogue_sessions WHERE id = ? AND user_id = ?', [id, userId])
 }
 
+function savedSceneFromRow(row) {
+  if (!row) throw notFound('这个场景不存在或不属于当前账号')
+  return { ...parseJson(row.scene, {}), id: `custom-${row.id}`, saved: true, source: row.source,
+    sourceSceneId: row.source_scene_id || null, variant: row.variant || null,
+    difficulty: row.difficulty, usage: parseJson(row.generation_usage, null),
+    createdAt: row.created_at, updatedAt: row.updated_at }
+}
+
+async function savedSceneFor(userId, sceneId) {
+  return savedSceneFromRow(await queryOne('SELECT * FROM dialogue_scenes WHERE id = ? AND user_id = ?', [sceneId.slice(7), userId]))
+}
+
+async function resolveScene(userId, sceneId, difficulty, variant) {
+  if (/^custom-[1-9]\d*$/.test(sceneId)) {
+    const scene = await savedSceneFor(userId, sceneId)
+    return withDifficulty(scene, difficulty)
+  }
+  const classic = DIALOGUE_SCENES.find(item => item.id === sceneId)
+  if (!classic) throw badRequest('请选择可用的场景')
+  if (variant && classic.variants && !classic.variants.some(item => item.id === variant)) throw badRequest('请选择可用的场景版本')
+  return { ...sceneFor(sceneId, difficulty, variant), source: 'classic', saved: false }
+}
+
+function withDifficulty(scene, difficulty) {
+  const level = { beginner: 1, intermediate: 2, advanced: 3 }[difficulty]
+  return { ...scene, difficulty, difficultyLevel: level, speechRate: [0.8, 0.95, 1.1][level - 1],
+    showTranslation: level === 1, chineseTolerance: level === 1 ? 'high' : level === 2 ? 'medium' : 'low' }
+}
+
+export async function generateScenario(userId, { description, difficulty = 'beginner', wordIds = [] }) {
+  const words = await Promise.all([...new Set(wordIds)].map(getWordById))
+  const targetWords = [...new Set(words.map(w => w.spelling.toLowerCase()))]
+  if (targetWords.some(w => !/^[a-z]+(?:['-][a-z]+)*$/.test(w))) throw badRequest('请选择单个英文单词作为情景目标词')
+  const request = { description, difficulty, ...(targetWords.length ? { targetWords } : {}) }
+  const generation = {}
+  const { value, usage } = await generateValidated(userId, generation,
+    buildScenarioMessages(request), raw => validateScenario(raw, request), true)
+  const saved = await execute(`INSERT INTO dialogue_scenes (user_id,source,difficulty,scene,generation_usage)
+    VALUES (?,'custom',?,?,?)`, [userId, difficulty, JSON.stringify({ ...value, description }), JSON.stringify(usage)])
+  const scene = await savedSceneFor(userId, `custom-${saved.insertId}`)
+  return { scene, usage }
+}
+
+export async function saveScenario(userId, { sceneId, difficulty = 'beginner', variant }) {
+  if (/^custom-[1-9]\d*$/.test(sceneId)) return { scene: await savedSceneFor(userId, sceneId) }
+  const scene = await resolveScene(userId, sceneId, difficulty, variant)
+  const { variants, ...snapshot } = scene
+  // The unique key makes repeated saves from multiple tabs create one library entry.
+  const saved = await execute(`INSERT INTO dialogue_scenes (user_id,source,source_scene_id,variant,difficulty,scene)
+    VALUES (?,'classic',?,?,?,?) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)`,
+  [userId, sceneId, scene.variant || '', difficulty, JSON.stringify(snapshot)])
+  return { scene: await savedSceneFor(userId, `custom-${saved.insertId}`) }
+}
+
 export async function listDialogues(userId) {
-  const [rows, learned, profile, assessed] = await Promise.all([
+  const [rows, learned, profile, assessed, savedScenes] = await Promise.all([
     query('SELECT * FROM dialogue_sessions WHERE user_id = ? ORDER BY id DESC LIMIT 20', [userId]),
     query(`SELECT w.spelling_norm, p.memory_strength, p.first_learned_at FROM user_word_progress p
       JOIN words w ON w.id = p.word_id WHERE p.user_id = ?
       AND (p.first_learned_at >= ? OR p.memory_strength < 45) ORDER BY p.updated_at DESC LIMIT 200`, [userId, businessDayStartUtc(todayKey())]),
     queryOne('SELECT self_level FROM user_profiles WHERE user_id = ?', [userId]),
     queryOne('SELECT state FROM assessment_sessions WHERE user_id = ? AND completed_at IS NOT NULL ORDER BY id DESC LIMIT 1', [userId]),
+    query('SELECT * FROM dialogue_scenes WHERE user_id = ? ORDER BY id DESC', [userId]),
   ])
   const scores = DIALOGUE_SCENES.map(scene => {
     const matches = learned.filter(w => scene.words.includes(w.spelling_norm))
@@ -49,7 +105,7 @@ export async function listDialogues(userId) {
   return { scenes: DIALOGUE_SCENES, recommendations: scores.slice(0, 3),
     recommendedDifficulty: masteredBand ? (masteredBand >= 4 ? 'advanced' : masteredBand >= 3 ? 'intermediate' : 'beginner')
       : level >= 6000 ? 'advanced' : level >= 3000 ? 'intermediate' : 'beginner',
-    sessions: rows.map(fromRow) }
+    sessions: rows.map(fromRow), savedScenes: savedScenes.map(savedSceneFromRow) }
 }
 
 async function configuredProvider(userId) {
@@ -58,12 +114,24 @@ async function configuredProvider(userId) {
   return provider
 }
 
-export async function startDialogue(userId, { sceneId, strictness = 'standard', difficulty = 'beginner', variant }) {
+export async function startDialogue(userId, { sceneId, strictness = 'standard', difficulty = 'beginner', variant, mode = 'task', maxTurns = 8 }) {
+  const scene = await resolveScene(userId, sceneId, difficulty, variant)
+  return createDialogue(userId, scene, { sceneId, strictness, difficulty, variant: scene.variant, mode, maxTurns })
+}
+
+export async function repeatDialogue(userId, id, options = {}) {
+  const previous = fromRow(await rowFor(userId, id))
+  const difficulty = options.difficulty || previous.difficulty || 'beginner'
+  const scene = withDifficulty(structuredClone(previous.scene), difficulty)
+  return createDialogue(userId, scene, { sceneId: previous.sceneId, difficulty, variant: previous.variant,
+    strictness: options.strictness || previous.strictness || 'standard',
+    mode: options.mode || previous.mode || 'task', maxTurns: options.maxTurns || previous.maxTurns || 8 })
+}
+
+async function createDialogue(userId, scene, { sceneId, strictness, difficulty, variant, mode, maxTurns }) {
   await configuredProvider(userId)
   const limits = await resolveLimits(userId)
-  const scene = sceneFor(sceneId, difficulty, variant)
-  if (!scene) throw badRequest('请选择可用的场景')
-  const state = { sceneId, scene, strictness, difficulty, variant: variant || 'river', maxTurns: 8, turnCount: 0,
+  const state = { sceneId, scene: { ...scene, maxTurns }, strictness, difficulty, variant: variant || null, mode, maxTurns, turnCount: 0,
     messages: [{ role: 'assistant', text: scene.opening, translation: difficulty === 'beginner' ? (scene.openingTranslation || scene.task) : '' }],
     targetUsage: scene.targets.map(t => ({ ...t, status: 'unused', helpLevel: 0 })), help: null, helpEvents: [], report: null, reportAttempts: 0 }
   const id = await withTransaction(async conn => {
@@ -133,7 +201,7 @@ async function generateValidated(userId, session, messages, validator, report = 
       if (attempt === 1 || !retryable) {
         const usage = usageReport(total, provider)
         const label = { truncated: '模型输出被截断', timeout: 'AI 请求超时', rate_limited: '服务商限流或额度不足', reasoning_exhausted: '模型将输出额度用于内部思考' }[error.kind] || (error.kind ? error.message : 'AI 返回内容未通过格式或证据校验')
-        throw new ApiError(error.status === 429 ? 429 : 503, 'PRACTICE_AI_FAILED', `${label}，请重试；对话和输入已保留`, { reason: error.kind || 'validation_failed', usage })
+        throw new ApiError(error.status === 429 ? 429 : 503, 'PRACTICE_AI_FAILED', `${label}，请重试；${session.id ? '对话和输入已保留' : '场景尚未生成，你可以保留需求再试一次'}`, { reason: error.kind || 'validation_failed', usage })
       }
       total.retried = true
       total.retryReason = diagnostics.emptyContent ? 'empty_content' : error.kind || 'validation_failed'
@@ -150,7 +218,7 @@ async function generateValidated(userId, session, messages, validator, report = 
       await execute('UPDATE dialogue_daily_usage SET prompt_tokens = prompt_tokens + ?, completion_tokens = completion_tokens + ? WHERE user_id = ? AND usage_date = ?',
         [total.promptTokens - before.promptTokens, total.completionTokens - before.completionTokens, userId, todayKey()])
       // Persist charged attempts even when validation fails; the lease remains held.
-      await execute('UPDATE dialogue_sessions SET state = ? WHERE id = ? AND user_id = ?', [JSON.stringify(session), session.id, userId])
+      if (session.id) await execute('UPDATE dialogue_sessions SET state = ? WHERE id = ? AND user_id = ?', [JSON.stringify(session), session.id, userId])
     }
   }
 }
@@ -178,7 +246,7 @@ export async function addDialogueTurn(userId, id, { text, expectedTurn }) {
       session.targetUsage = session.targetUsage.map(t => t.word === session.help.word
         ? { ...t, helpLevel: Math.max(t.helpLevel || 0, 3), weak: true, status: t.status === 'unused' ? 'weak' : t.status, tags: [...new Set([...(t.tags || []), 'chinese_help'])] } : t)
     }
-    const done = session.turnCount >= session.maxTurns || (session.turnCount >= 6 && turn.taskComplete)
+    const done = session.turnCount >= session.maxTurns || (session.mode !== 'free' && session.turnCount >= 6 && turn.taskComplete)
     await saveClaimed(session, token, done ? 'analyzing' : 'active')
     if (done) scheduleReport(userId, id)
     return getDialogue(userId, id)
@@ -188,7 +256,8 @@ export async function addDialogueTurn(userId, id, { text, expectedTurn }) {
 export async function requestDialogueHelp(userId, id, options) {
   const { token, session } = await claim(userId, id, options.expectedTurn)
   try {
-    if (session.helpEvents.length >= MAX_HELP) throw badRequest('本轮帮助已达 16 次，可以复述已有示范或结束练习')
+    const maxHelp = Math.max(MAX_HELP, (session.maxTurns || 8) * 2)
+    if (session.helpEvents.length >= maxHelp) throw badRequest(`本轮帮助已达 ${maxHelp} 次，可以复述已有示范或结束练习`)
     if (options.word && !session.scene.words.includes(options.word)) throw badRequest('请选择本轮目标词')
     let help = buildHelp(session, options)
     if (options.level === 3 && options.text?.trim()) {

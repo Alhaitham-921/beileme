@@ -213,3 +213,21 @@ describe('最近所学词（PRD 4.9 气泡彩蛋）', () => {
     assert.equal(response.status, 200)
   })
 })
+
+describe('收藏单词本', () => {
+ test('收藏幂等、按账号隔离，取消收藏不影响其他账号', async () => {
+  const a = await createOnboardedUser(client), b = await createOnboardedUser(client)
+  const id = (await client.get('/api/v1/words/books/fixture-demo/words?size=1')).data.items[0].id
+  const path = `/api/v1/words/${id}/favorite`
+  assert.equal((await client.put(path, { token: a.token })).status, 200)
+  await client.put(path, { token: a.token })
+  assert.equal((await client.get('/api/v1/words/favorites', { token: a.token })).data.items.length, 1)
+  assert.equal((await client.get('/api/v1/words/favorites', { token: b.token })).data.items.length, 0)
+  await client.del(path, { token: b.token })
+  assert.equal((await client.get('/api/v1/words/favorites', { token: a.token })).data.items[0].id, id)
+  await client.del(path, { token: a.token })
+  assert.equal((await client.get('/api/v1/words/favorites', { token: a.token })).data.items.length, 0)
+  assert.equal((await client.put(path)).status, 401)
+  assert.equal((await client.put('/api/v1/words/999999999/favorite', { token: a.token })).status, 404)
+ })
+})

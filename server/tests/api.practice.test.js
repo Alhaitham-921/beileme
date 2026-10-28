@@ -8,7 +8,7 @@ test('context practice validates AI feedback, stores history and queues matched 
   const server = await getTestServer(), client = createClient(server.baseUrl)
   const user = await createOnboardedUser(client), other = await createOnboardedUser(client)
   const listed = await client.get('/api/v1/practice', { token: user.token })
-  assert.equal(listed.data.scenes.length, 3)
+  assert.deepEqual(listed.data.legacyScenes.map(scene => scene.id), ['library', 'hotel', 'ielts'])
   const word = await queryOne('SELECT w.* FROM words w JOIN user_profiles p ON p.wordbook_id = w.wordbook_id WHERE p.user_id = ? LIMIT 1', [user.userId])
   const originalFetch = globalThis.fetch, originalKey = config.ai.apiKey
   config.ai.apiKey = 'test-only-key'
