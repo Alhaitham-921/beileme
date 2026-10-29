@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { DIALOGUE_SCENES, sceneFor, difficultyFor, recoverTurn, validateTurn, validateReport, updateTargetUsage, buildHelp, buildEvidence, buildTurnMessages, buildReportMessages, containsWord } from '../src/services/dialogueEngine.js'
+import { DIALOGUE_SCENES, sceneFor, difficultyFor, recoverTurn, validateTurn, validateReport, updateTargetUsage, buildHelp, buildEvidence, buildTurnMessages, buildValidationRetryMessages, buildReportMessages, containsWord } from '../src/services/dialogueEngine.js'
 
 const scene = sceneFor('bank', 'beginner')
 const fresh = () => scene.targets.map(t => ({ word: t.word, sense: t.sense, status: 'unused', helpLevel: 0 }))
@@ -165,7 +165,8 @@ test('model cannot label a correctly used word weak without an error or assistan
 
 test('Chinese helpWord must be a target in the English demonstration', () => {
   assert.equal(validateTurn(turn({ helpEnglish: 'May I sit here?', helpWord: 'sit' }), '我能坐这里吗', scene).helpWord, 'sit')
-  assert.throws(() => validateTurn(turn({ helpEnglish: 'May I sit here?', helpWord: 'bank' }), '我能坐这里吗', scene), /求助词/)
+  assert.equal(validateTurn(turn({ helpEnglish: 'May I sit here?', helpWord: 'bank' }), '我能坐这里吗', scene).helpWord, 'sit')
+  assert.equal(validateTurn(turn({ helpEnglish: 'I would like beef noodles.', helpWord: 'bank' }), '我想要牛肉面', scene).helpWord, undefined)
 })
 
 test('word-specific help does not downgrade other independently used targets', () => {
@@ -230,4 +231,28 @@ test('recovery rejects missing core reply or Chinese assistance and preserves se
   const result = recoverTurn(turn({ corrections: [{ type: 'sense_misuse', original: 'bank', replacement: 'river bank', explanation: '此处是河岸' }], usedTargets: [{word:'bank',sense:'河岸',correct:true}], helpWord:'invented' }), 'The bank is nearby.', scene)
   assert.equal(result.usedTargets[0].correct, false)
   assert.equal(result.helpWord, undefined)
+})
+
+test('multi-sentence speech input accepts a correction quoting one actual sentence', () => {
+  const text = 'Yes, please. I want noodle. How much is it?'
+  const correction = { type: 'grammar', original: 'noodle', replacement: 'noodles', explanation: '这里用复数。', originalSentence: 'I want noodle.', correctedSentence: 'I want noodles.' }
+  const result = validateTurn(turn({ corrections: [correction], helpEnglish: null, helpWord: null }), text, scene)
+  assert.equal(result.corrections[0].originalSentence, 'I want noodle.')
+  assert.equal(result.helpWord, undefined)
+  assert.throws(() => validateTurn(turn({ corrections: [{ ...correction, originalSentence: 'I want rice.' }] }), text, scene), /引用/)
+})
+
+test('validation retry explains the failure without changing the current input or accepting false evidence', () => {
+  const input = session()
+  const messages = buildTurnMessages(input, '我想要牛肉面')
+  const invalid = turn({ helpEnglish: '我想要牛肉面', helpWord: 'bank' })
+  let caught
+  try { validateTurn(invalid, '我想要牛肉面', scene) } catch (error) { caught = error }
+  assert.ok(caught)
+  const retry = buildValidationRetryMessages(messages, caught)
+  assert.match(retry[0].content, /完整英文表达/)
+  assert.match(retry[0].content, /没有这样的词时省略helpWord/)
+  assert.equal(retry[1].content, messages[1].content)
+  assert.doesNotMatch(messages[0].content, /上一次输出未通过/)
+  assert.deepEqual(validateTurn({ ...invalid, helpEnglish: 'I would like beef noodles.', helpWord: undefined }, '我想要牛肉面', scene).usedTargets, [])
 })

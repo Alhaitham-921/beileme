@@ -171,3 +171,39 @@ test('Chinese assistance waits for repetition and failed reports can retry witho
     assert.equal(untouched.status, 'unused')
   } finally { globalThis.fetch = originalFetch; config.ai.apiKey = oldKey }
 })
+
+
+test('second-turn Chinese assistance recovers from invalid help metadata and continues chatting', async () => {
+  const server = await getTestServer(), client = createClient(server.baseUrl)
+  const user = await createOnboardedUser(client)
+  const originalFetch = globalThis.fetch, oldKey = config.ai.apiKey
+  config.ai.apiKey = 'dialogue-test-only-key'
+  let calls = 0, repaired = false
+  globalThis.fetch = async (url, options) => {
+    if (!String(url).endsWith('/chat/completions')) return originalFetch(url, options)
+    calls++
+    const body = JSON.parse(options.body)
+    const input = JSON.parse(body.messages.at(-1).content)
+    const chinese = input.currentUserText.includes('牛肉面')
+    repaired = repaired || body.messages[0].content.includes('上一次输出未通过程序校验')
+    const content = { reply: chinese ? 'Please try saying: I would like beef noodles.' : 'Would you like a drink?', translation: '', mixedLanguage: chinese, corrections: [], usedTargets: [], taskComplete: false,
+      ...(chinese ? { helpEnglish: repaired ? 'I would like beef noodles.' : '我想要牛肉面', helpWord: 'order' } : { helpWord: null, helpEnglish: null }) }
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) }, finish_reason: 'stop' }], usage: { prompt_tokens: 40, completion_tokens: 100 } }), { status: 200 })
+  }
+  try {
+    const created = await client.post('/api/v1/practice/sessions', { token: user.token, body: { sceneId: 'restaurant', mode: 'free', maxTurns: 16 } })
+    const base = '/api/v1/practice/sessions/' + created.data.id
+    for (const [index, text] of ['I want noodles.', '我想要牛肉面', 'Yes, please. How much is it?'].entries()) {
+      const result = await client.post(base + '/turns', { token: user.token, body: { text, expectedTurn: index } })
+      assert.equal(result.status, 200, JSON.stringify(result.raw))
+      assert.equal(result.data.turnCount, index + 1)
+      assert.equal(result.data.messages.filter(m => m.role === 'user').length, index + 1)
+      assert.ok(result.data.targetUsage.every(target => target.status === 'unused'))
+    }
+    assert.ok(repaired)
+    assert.equal(calls, 4)
+    const row = await queryOne('SELECT operation_token, lease_until FROM dialogue_sessions WHERE id = ?', [created.data.id])
+    assert.equal(row.operation_token, null)
+    assert.equal(row.lease_until, null)
+  } finally { globalThis.fetch = originalFetch; config.ai.apiKey = oldKey }
+})

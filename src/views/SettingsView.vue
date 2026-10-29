@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useAiStore } from '../stores/ai'
 import ThemePicker from '../components/ThemePicker.vue'
+import SpeechSettingsPanel from '../components/SpeechSettingsPanel.vue'
 
 const ai = useAiStore()
 const settingsSection = ref('appearance')
@@ -278,8 +279,10 @@ const typeLabels = { dialogue: '情境对话（含复盘与重试）',
     <div class="settings-sections" role="group" aria-label="设置分组">
       <button :class="{ active: settingsSection === 'appearance' }" :aria-pressed="settingsSection === 'appearance'" @click="settingsSection = 'appearance'">学习环境 <span>外观与个性化</span></button>
       <button :class="{ active: settingsSection === 'ai' }" :aria-pressed="settingsSection === 'ai'" @click="settingsSection = 'ai'">AI 服务 <span>连接与用量</span></button>
+      <button :class="{ active: settingsSection === 'speech' }" :aria-pressed="settingsSection === 'speech'" @click="settingsSection = 'speech'">语音服务 <span>共享语音输入</span></button>
     </div>
     <ThemePicker v-show="settingsSection === 'appearance'" />
+    <SpeechSettingsPanel v-if="settingsSection === 'speech'" />
     <section v-show="settingsSection === 'ai'" aria-label="AI 服务设置">
     <p class="section-sub">不配置也能用：错因分析与易混词对比完全免费</p>
 

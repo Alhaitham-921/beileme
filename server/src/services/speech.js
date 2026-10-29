@@ -1,4 +1,5 @@
 import { config } from '../config.js'
+import { speechSettingsService } from './speechSettings.js'
 import { ApiError, badRequest, quotaExceeded } from '../utils/errors.js'
 
 const AUDIO_TYPES = {
@@ -55,8 +56,7 @@ function providerUrl(settings) {
 }
 
 /** Process-local quota: failed upstream attempts also consume quota to bound spend. */
-export function createSpeechService({ settings = config.speech, now = Date.now, fetchImpl = (...args) => fetch(...args) } = {}) {
-  const budgets = new Map()
+export function createSpeechService({ settings = config.speech, now = Date.now, fetchImpl = (...args) => fetch(...args), budgets = new Map() } = {}) {
   function dayKey() {
     return new Date(now() + config.timezoneOffsetMinutes * 60000).toISOString().slice(0, 10)
   }
@@ -77,7 +77,7 @@ export function createSpeechService({ settings = config.speech, now = Date.now, 
     const budget = budgetFor(userId)
     return {
       configured,
-      reason: configured ? '' : '语音识别尚未配置，请管理员在服务端填写独立语音 API 配置；现在可继续打字练习。',
+      reason: configured ? '' : '语音识别尚未开启，请联系管理员在「偏好设置 → 语音服务」配置共享服务。',
       maxBytes: settings.maxBytes,
       maxSeconds: settings.maxSeconds,
       dailyQuota: settings.dailyQuota,
@@ -140,4 +140,14 @@ export function createSpeechService({ settings = config.speech, now = Date.now, 
   return { status, transcribe }
 }
 
-export const speechService = createSpeechService()
+// 每次请求读取生效配置，管理员保存后立即生效；并发请求各自持有配置快照。
+// 复用计数器，避免配置变化或创建服务实例时重置普通用户额度。
+const sharedBudgets = new Map()
+export const speechService = {
+  async status(userId) {
+    return createSpeechService({ settings: await speechSettingsService.effective(), budgets: sharedBudgets }).status(userId)
+  },
+  async transcribe(userId, body, options) {
+    return createSpeechService({ settings: await speechSettingsService.effective(), budgets: sharedBudgets }).transcribe(userId, body, options)
+  },
+}

@@ -21,6 +21,7 @@ const links = [
   { to: '/review', icon: 'repeat', label: '温故知新' },
   { to: '/notebooks', icon: 'book', label: '我的单词本' },
   { to: '/practice', icon: 'chat', label: '情境练习' },
+  { to: '/speech', icon: 'microphone', label: '语音转文字' },
   { to: '/roots', icon: 'layers', label: '词根词缀' },
   { to: '/dashboard', icon: 'chart', label: '学习足迹' },
 ]

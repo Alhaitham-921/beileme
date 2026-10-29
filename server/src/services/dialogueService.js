@@ -11,7 +11,7 @@ import { emptyUsage, addUsage, usageReport } from './ai/usage.js'
 import { parseJsonResponse } from './ai/promptTemplates.js'
 import { reviewItem, computeMemoryStrength } from './srs.js'
 import { DIALOGUE_SCENES, sceneFor, recoverTurn, validateReport, buildTurnMessages,
-  buildReportMessages, updateTargetUsage, buildHelp, buildEvidence, containsWord } from './dialogueEngine.js'
+  buildReportMessages, buildValidationRetryMessages, updateTargetUsage, buildHelp, buildEvidence, containsWord } from './dialogueEngine.js'
 import { buildScenarioMessages, validateScenario } from './scenarioEngine.js'
 
 const reportJobs = new Map()
@@ -204,8 +204,8 @@ async function generateValidated(userId, session, messages, validator, report = 
         const label = { truncated: '模型输出被截断', timeout: 'AI 请求超时', rate_limited: '服务商限流或额度不足', reasoning_exhausted: '模型将输出额度用于内部思考' }[error.kind] || (error.kind ? error.message : 'AI 返回内容未通过格式或证据校验')
         throw new ApiError(error.status === 429 ? 429 : 503, 'PRACTICE_AI_FAILED', `${label}，请重试；${session.id ? '对话和输入已保留' : '场景尚未生成，你可以保留需求再试一次'}`, { reason: error.kind || 'validation_failed', usage })
       }
+      if (!error.kind) requestMessages = buildValidationRetryMessages(messages, error)
       total.retried = true
-      if (!error.kind) requestMessages = [...messages, { role: 'system', content: '上一轮输出未通过结构或证据检查。请重新回答当前用户，严格只输出指定结构的完整 JSON。严格遵守原任务的字段与证据范围，不要新增字段。没有可靠证据的纠错和词汇评价使用空数组；若任务要求逐轮对话，只能评价 currentUserText，usedTargets 的 sense 必须与场景一致，混合中文的输入必须提供完整英文 helpEnglish。若任务要求场景或复盘，则仍遵循原来的场景或复盘结构。不要解释格式问题。' }]
       total.retryReason = diagnostics.emptyContent ? 'empty_content' : error.kind || 'validation_failed'
       if (maxTokens != null) maxTokens = Math.min(maxTokens * 2, 32000)
     } finally {
