@@ -23,6 +23,7 @@ const sceneIcons = { restaurant: '☕', directions: '↗', bank: '≋', hotel: '
 const drafts = new Map()
 const sceneId = ref(''), variant = ref('river'), strictness = ref('standard'), difficulty = ref('beginner')
 const session = ref(null), draft = ref(''), busy = ref(false), loading = ref(true), error = ref(''), notice = ref('')
+const startError = ref(null), startErrorElement = ref(null)
 const selectedWord = ref(''), showTranslations = ref(true), waitingHelp = ref(false), conversationEnd = ref(null)
 const revealedAnswers = ref([]), shortAnswers = ref({}), checkedAnswers = ref([])
 const exporting = ref(''), exportError = ref('')
@@ -78,7 +79,7 @@ function applySession(data) {
   if (disposed) return
   const next = unwrap(data)
   if (!next?.id) throw new Error('练习进度未能读取，请恢复进度后重试。')
-  session.value = next; remember(next.id)
+  session.value = next; startError.value = null; remember(next.id)
   const index = sessions.value.findIndex(item => item.id === next.id)
   const summary = { ...next, updatedAt: next.updatedAt || new Date().toISOString() }
   if (index === -1) sessions.value.unshift(summary)
@@ -114,7 +115,7 @@ async function load() {
   finally { loading.value = false }
 }
 function selectScene(id) {
-  sceneId.value = id; variant.value = 'river'; error.value = ''; notice.value = ''
+  sceneId.value = id; variant.value = 'river'; error.value = ''; notice.value = ''; startError.value = null
   const saved = savedScenes.value.find(item => item.id === id)
   if (saved?.difficulty) difficulty.value = saved.difficulty
 }
@@ -162,13 +163,17 @@ async function repeatSession(id) {
 }
 async function start() {
   if (working.value || !sceneId.value) return
-  busy.value = true; error.value = ''; notice.value = ''; draft.value = ''
+  busy.value = true; error.value = ''; notice.value = ''; draft.value = ''; startError.value = null
   speech.cancel(); speech.stopSpeaking(); clearTimers(); pollFailures = 0
   try {
     applySession(await practice.startSession({ sceneId: sceneId.value, strictness: strictness.value, difficulty: difficulty.value, mode: mode.value, maxTurns: maxTurns.value, ...(sceneId.value === 'bank' ? { variant: variant.value } : {}) }))
     showTranslations.value = session.value.difficulty === 'beginner'; revealedAnswers.value = []; checkedAnswers.value = []; shortAnswers.value = {}
     scrollConversation()
-  } catch (e) { error.value = e.message }
+  } catch (e) {
+    startError.value = { code: e.code || '', message: e.message || '对话暂时无法开始，请稍后重试。' }
+    await nextTick()
+    startErrorElement.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
   finally { busy.value = false; resetIdle() }
 }
 async function restore(id) {
@@ -328,7 +333,12 @@ onUnmounted(() => { disposed = true; clearTimers(); speech.cancel(); speech.stop
         <h3 class="vocab-title">带上这些词，试着聊一聊 <span>展开查看搭配与例句</span></h3>
         <div class="vocabulary-preview"><details v-for="target in selectedScene.targets || []" :key="target.word" class="vocabulary-item"><summary><strong>{{ target.word }}</strong><span>{{ target.sense }}</span></summary><p class="phrase">{{ target.phrase }}</p><p>{{ target.example }}</p><button type="button" class="text-button" @click="read(target.example)">◖ 听例句</button></details></div>
         <div class="settings-grid"><label>对话难度<select v-model="difficulty" :disabled="working"><option value="beginner">入门 · 短句 + 中文提示</option><option value="intermediate">进阶 · 日常交流</option><option value="advanced">挑战 · 更完整的表达</option></select></label><label>纠错严格度<select v-model="strictness" :disabled="working"><option value="lenient">宽松 · 先把意思说清楚</option><option value="standard">标准 · 兼顾准确和流畅</option><option value="strict">严格 · 适合考试备考</option></select></label><label>对话方式<select v-model="mode" :disabled="working"><option value="free">自由交流 · 延伸话题，深入追问</option><option value="task">任务练习 · 完成目标后复盘</option></select></label><label>本次练习长度<select v-model="maxTurns" :disabled="working"><option :value="8">8 轮 · 轻量热身</option><option :value="16">16 轮 · 充分交流</option><option :value="24">24 轮 · 深入练习</option></select></label></div>
-        <p class="note">{{ mode === 'free' ? '不用按顺序完成任务，跟着兴趣聊下去，随时可以结束并复盘。' : '围绕交流目标练习，完成任务后由 AI 引导收尾。' }} 最多 {{ maxTurns }} 轮，记录自动保存。</p><button class="btn btn-primary" :disabled="working" @click="start">{{ busy ? '正在准备对话…' : '进入场景，开始对话 →' }}</button>
+        <p class="note">{{ mode === 'free' ? '不用按顺序完成任务，跟着兴趣聊下去，随时可以结束并复盘。' : '围绕交流目标练习，完成任务后由 AI 引导收尾。' }} 最多 {{ maxTurns }} 轮，记录自动保存。</p><button class="btn btn-primary" :disabled="working" :aria-describedby="startError ? 'practice-start-error' : undefined" @click="start">{{ busy ? '正在准备对话…' : '进入场景，开始对话 →' }}</button>
+        <div v-if="startError" id="practice-start-error" ref="startErrorElement" class="start-error" role="alert">
+          <strong>{{ startError.code === 'AI_NOT_CONFIGURED' ? '先配置 AI 对话服务' : '对话暂时无法开始' }}</strong>
+          <p>{{ startError.message }}</p>
+          <router-link v-if="startError.code === 'AI_NOT_CONFIGURED'" class="small-link" to="/settings">前往 AI 设置 →</router-link>
+        </div>
       </section>
     </template>
     <section v-if="session" class="conversation-shell" aria-label="情境练习">
@@ -363,6 +373,9 @@ onUnmounted(() => { disposed = true; clearTimers(); speech.cancel(); speech.stop
 </template>
 
 <style scoped>
+.start-error { margin-top: 14px; padding: 14px; border: 1px solid var(--bad); border-radius: 12px; background: var(--bad-soft); }
+.start-error strong { color: var(--bad); font-size: 14px; }
+.start-error p { margin: 7px 0; font-size: 13px; line-height: 1.7; }
 .practice { max-width: 850px; margin: auto; padding: 30px 20px 90px; }
 .report-heading { flex-wrap: wrap; align-items: flex-start; }.report-heading .button-row { margin-top: 7px; }
 .library-tabs { display: flex; gap: 6px; padding: 5px; background: var(--bg); border: 1px solid var(--line); border-radius: 13px; margin-bottom: 24px; }
