@@ -4,9 +4,7 @@ import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import MorphologyCard from '../components/MorphologyCard.vue'
 
-import { words } from '../api'
 import FavoriteWord from '../components/FavoriteWord.vue'
-const favorites = ref([])
 const app = useAppStore()
 const router = useRouter()
 const tab = ref('wrong')
@@ -17,7 +15,7 @@ const loading = ref(true)
 const loadError = ref('')
 
 const review = computed(() => app.todayReview)
-const wrongWords = computed(() => tab.value === 'favorites' ? favorites.value.map(w => ({ ...w, wordId: w.id, errorTypes: [] })) : review.value?.wrongWords || [])
+const wrongWords = computed(() => review.value?.wrongWords || [])
 watch(tab, () => { selected.value = []; message.value = '' })
 const articles = computed(() => review.value?.articles || [])
 const allSelected = computed(() => wrongWords.value.length > 0 && selected.value.length === wrongWords.value.length)
@@ -30,7 +28,6 @@ async function loadReview() {
   app.clearError()
   try {
     await app.loadTodayReview()
-    favorites.value = (await words.favorites()).items
     selected.value = wrongWords.value.map(item => item.wordId)
   } catch (error) {
     loadError.value = error.message || '暂时无法加载今日回顾，请稍后重试。'
@@ -97,7 +94,6 @@ function generateArticleForToday() {
       <button class="tab" :class="{ active: tab === 'wrong' }" :aria-pressed="tab === 'wrong'" @click="tab = 'wrong'">
         今日错词 <span v-if="wrongWords.length" class="tab-count">{{ wrongWords.length }}</span>
       </button>
-      <button class="tab" :class="{ active: tab === 'favorites' }" @click="tab = 'favorites'; words.favorites().then(data => favorites = data.items).catch(e => message = e.message)">收藏单词本</button>
       <button class="tab" :class="{ active: tab === 'articles' }" :aria-pressed="tab === 'articles'" @click="tab = 'articles'">
         短文回顾 <span v-if="articles.length" class="tab-count">{{ articles.length }}</span>
       </button>
@@ -109,7 +105,7 @@ function generateArticleForToday() {
       <template v-if="tab !== 'articles'">
         <div v-if="!wrongWords.length" class="card empty-card">
           <span class="empty-icon" aria-hidden="true"><svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="20" cy="20" r="14" /><path d="m13 20 5 5 10-11" /></svg></span>
-          <p class="empty-title">{{ tab === 'favorites' ? '还没有收藏单词' : '今天还没有错词' }}</p>
+          <p class="empty-title">今天还没有错词</p>
           <p class="empty-sub">在背词或错词列表点击收藏，即可加入单词本。</p>
           <button class="btn btn-primary" @click="router.push('/study')">去背单词 <span aria-hidden="true">→</span></button>
         </div>
@@ -131,7 +127,7 @@ function generateArticleForToday() {
                     <span class="item-word">{{ item.spelling }}</span>
                     <span v-if="item.phonetic" class="item-phonetic">{{ item.phonetic }}</span>
                     <span v-if="item.pos" class="item-pos">{{ item.pos }}</span>
-                    <FavoriteWord :key="item.wordId" :word-id="item.wordId" @change="saved => { if (!saved) { favorites = favorites.filter(w => w.id !== item.wordId); if (tab === 'favorites') selected = selected.filter(id => id !== item.wordId) } }" /><span v-if="item.wrongTimes" class="item-wrong">错 {{ item.wrongTimes }} 次</span>
+                    <FavoriteWord :key="item.wordId" :word-id="item.wordId" /><span v-if="item.wrongTimes" class="item-wrong">错 {{ item.wrongTimes }} 次</span>
                   </div>
                   <p class="item-def"><b>{{ item.definitions[0] }}</b><template v-if="item.definitions.length > 1">；{{ item.definitions.slice(1).join('；') }}</template></p>
                   <p v-if="item.example" class="item-example">{{ item.example }}</p>

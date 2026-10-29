@@ -19,6 +19,7 @@ const links = [
   { to: '/', icon: 'home', label: '今日', caption: 'TODAY' },
   { to: '/study', icon: 'book', label: '单词学习' },
   { to: '/review', icon: 'repeat', label: '温故知新' },
+  { to: '/notebooks', icon: 'book', label: '我的单词本' },
   { to: '/practice', icon: 'chat', label: '情境练习' },
   { to: '/roots', icon: 'layers', label: '词根词缀' },
   { to: '/dashboard', icon: 'chart', label: '学习足迹' },

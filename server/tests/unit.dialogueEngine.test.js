@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { DIALOGUE_SCENES, sceneFor, difficultyFor, validateTurn, validateReport, updateTargetUsage, buildHelp, buildEvidence, buildTurnMessages, buildReportMessages, containsWord } from '../src/services/dialogueEngine.js'
+import { DIALOGUE_SCENES, sceneFor, difficultyFor, recoverTurn, validateTurn, validateReport, updateTargetUsage, buildHelp, buildEvidence, buildTurnMessages, buildReportMessages, containsWord } from '../src/services/dialogueEngine.js'
 
 const scene = sceneFor('bank', 'beginner')
 const fresh = () => scene.targets.map(t => ({ word: t.word, sense: t.sense, status: 'unused', helpLevel: 0 }))
@@ -209,4 +209,25 @@ test('prompts include role, strictness, exact word sense, transcript and capped 
   const final = buildReportMessages(data)
   assert.match(final[1].content, /May I sit here/)
   assert.match(final[0].content, /最多5条/)
+})
+
+
+test('conversation recovery drops ungrounded feedback while retaining usable reply and verified claims', () => {
+  const text = 'The bank is nearby.'
+  const valid = { type: 'grammar', original: 'is', replacement: 'was', explanation: '时态建议' }
+  const result = recoverTurn(turn({ corrections: [valid, { ...valid, original: 'imagined quote' }, { type: 'unknown' }],
+    usedTargets: [{ word: 'bank', sense: '河岸', correct: true }, { word: 'bank', sense: '河岸', correct: true }, { word: 'sit', sense: '坐', correct: true }] }), text, scene)
+  assert.equal(result.reply, turn().reply)
+  assert.equal(result.corrections.length, 1)
+  assert.deepEqual(result.usedTargets.map(t => t.word), ['bank'])
+  assert.equal(validateTurn(result, text, scene).corrections[0].originalSentence, text)
+})
+
+test('recovery rejects missing core reply or Chinese assistance and preserves sense corrections', () => {
+  assert.throws(() => recoverTurn({ reply: 'incomplete' }, 'Hello', scene))
+  assert.throws(() => recoverTurn(turn({ reply: '' }), 'Hello', scene))
+  assert.throws(() => recoverTurn(turn(), '我想去河边', scene), /完整英文/)
+  const result = recoverTurn(turn({ corrections: [{ type: 'sense_misuse', original: 'bank', replacement: 'river bank', explanation: '此处是河岸' }], usedTargets: [{word:'bank',sense:'河岸',correct:true}], helpWord:'invented' }), 'The bank is nearby.', scene)
+  assert.equal(result.usedTargets[0].correct, false)
+  assert.equal(result.helpWord, undefined)
 })

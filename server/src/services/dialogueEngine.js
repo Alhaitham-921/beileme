@@ -157,6 +157,32 @@ const normalizeCorrections = (corrections, texts) => corrections.map(c => {
   return { ...c, originalSentence: sentence, correctedSentence: c.correctedSentence || sentence.replace(c.original, c.replacement) }
 })
 
+// Keep the conversation usable when optional feedback is malformed. Every retained
+// item still passes the strict validator; discarded claims never affect learning.
+export function recoverTurn(raw, text, scene) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return validateTurn(raw, text, scene)
+  const base = { ...raw, mixedLanguage: hasChinese(text),
+    corrections: [], usedTargets: [] }
+  // A bad optional help-word must not invalidate an otherwise usable English hint.
+  delete base.helpWord
+  const parsed = validateTurn(base, text, scene)
+  for (const correction of (Array.isArray(raw.corrections) ? raw.corrections : []).slice(0, 5)) {
+    try {
+      parsed.corrections.push(...validateTurn({ ...base, corrections: [correction] }, text, scene).corrections)
+    } catch { /* Unverified feedback is omitted, never recorded as evidence. */ }
+  }
+  for (const target of (Array.isArray(raw.usedTargets) ? raw.usedTargets : []).slice(0, 5)) {
+    try {
+      const item = validateTurn({ ...base, corrections: parsed.corrections, usedTargets: [target] }, text, scene).usedTargets[0]
+      if (!parsed.usedTargets.some(existing => existing.word === item.word)) parsed.usedTargets.push(item)
+    } catch { /* No credit or penalty for unsupported target claims. */ }
+  }
+  if (raw.helpWord) {
+    try { parsed.helpWord = validateTurn({ ...base, helpWord: raw.helpWord }, text, scene).helpWord } catch { /* Optional metadata. */ }
+  }
+  return parsed
+}
+
 export function validateTurn(raw, text, scene) {
   const parsed = TurnSchema.parse(raw)
   parsed.corrections = normalizeCorrections(parsed.corrections, [text])

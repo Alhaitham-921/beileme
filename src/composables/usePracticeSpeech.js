@@ -7,6 +7,7 @@ function microphoneError(error) {
   if (['NotAllowedError', 'SecurityError'].includes(error?.name)) return '麦克风权限未开启，请在浏览器网站设置中允许麦克风，然后重试。'
   if (error?.name === 'NotFoundError') return '没有找到麦克风，请连接麦克风或继续打字。'
   if (error?.name === 'NotReadableError') return '麦克风正被其他程序占用，请关闭占用程序后重试。'
+  if (error?.name === 'OverconstrainedError') return '所选麦克风不可用或已断开，请刷新设备列表并重新选择。'
   return error?.message || '无法录音，请重新尝试或继续打字。'
 }
 
@@ -34,6 +35,29 @@ export function usePracticeSpeech() {
   const maxBytes = ref(2097152)
   const remaining = ref(0)
   const isSpeaking = ref(false)
+  const inputLevel = ref(0)
+  const waveform = ref(Array(32).fill(0))
+  const meterReady = ref(false)
+  const detectedSound = ref(false)
+  const microphoneName = ref('麦克风')
+  const recordingUrl = ref('')
+  const microphones = ref([])
+  const selectedMicrophone = ref('')
+  const rawAudio = ref(true)
+  const deviceError = ref('')
+
+  async function refreshMicrophones() {
+    try {
+      if (!navigator.mediaDevices?.enumerateDevices) return
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      if (disposed) return
+      microphones.value = devices.filter(device => device.kind === 'audioinput' && device.deviceId)
+        .map((device, index) => ({ id: device.deviceId, label: device.label || `麦克风 ${index + 1}` }))
+      deviceError.value = ''
+    } catch { deviceError.value = '无法读取麦克风列表，请检查浏览器麦克风权限。' }
+  }
+  const inputStatus = computed(() => !meterReady.value ? '音量检测不可用，请录音后回放检查' :
+    inputLevel.value > 0.015 ? '正在接收声音' : detectedSound.value ? '已收到声音，正在等待你继续说话' : '暂未检测到声音，请说一句话试试')
   const supported = computed(() => typeof window !== 'undefined' && window.isSecureContext !== false &&
     typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia) && typeof MediaRecorder !== 'undefined')
   const available = computed(() => supported.value && configured.value && remaining.value > 0)
@@ -45,8 +69,49 @@ export function usePracticeSpeech() {
   let disposed = false
   let startedAt = 0
   let utterance = null
+  let audioContext = null
+  let meterFrame = null
+  let meterSource = null
+
+  function clearPreview() {
+    if (recordingUrl.value) URL.revokeObjectURL(recordingUrl.value)
+    recordingUrl.value = ''
+  }
+
+  function startMeter() {
+    try {
+      const Context = window.AudioContext || window.webkitAudioContext
+      if (!Context) return
+      audioContext = new Context()
+      const context = audioContext
+      meterSource = context.createMediaStreamSource(stream)
+      const analyser = context.createAnalyser()
+      analyser.fftSize = 1024
+      meterSource.connect(analyser)
+      const samples = new Float32Array(analyser.fftSize)
+      void context.resume().catch(() => {})
+      const sample = () => {
+        if (context !== audioContext) return
+        meterReady.value = context.state === 'running'
+        analyser.getFloatTimeDomainData(samples)
+        const rms = Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length)
+        inputLevel.value = rms
+        if (meterReady.value && rms > 0.015) detectedSound.value = true
+        waveform.value = [...waveform.value.slice(1), Math.min(1, rms * 8)]
+        meterFrame = requestAnimationFrame(sample)
+      }
+      sample()
+    } catch { meterReady.value = false }
+  }
 
   function releaseMicrophone() {
+    if (meterFrame !== null) cancelAnimationFrame(meterFrame)
+    meterFrame = null
+    meterSource?.disconnect()
+    meterSource = null
+    const context = audioContext
+    audioContext = null
+    if (context) void context.close().catch(() => {})
     clearTimeout(deadline)
     clearInterval(ticker)
     deadline = ticker = null
@@ -62,6 +127,7 @@ export function usePracticeSpeech() {
   }
 
   function cancel() {
+    clearPreview()
     generation += 1
     const activeRecorder = recorder
     recorder = null
@@ -112,6 +178,11 @@ export function usePracticeSpeech() {
     error.value = ''
     transcript.value = ''
     elapsedSeconds.value = 0
+    clearPreview()
+    inputLevel.value = 0
+    waveform.value = Array(32).fill(0)
+    detectedSound.value = false
+    meterReady.value = false
     if (!supported.value) {
       error.value = '当前环境无法录音。请使用 HTTPS 或 localhost，并在新版浏览器中打开。'
       return
@@ -124,13 +195,18 @@ export function usePracticeSpeech() {
     stopSpeaking()
     const token = ++generation
     try {
-      const acquired = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false })
+      const audio = { echoCancellation: !rawAudio.value, noiseSuppression: !rawAudio.value, autoGainControl: !rawAudio.value }
+      if (selectedMicrophone.value) audio.deviceId = { exact: selectedMicrophone.value }
+      const acquired = await navigator.mediaDevices.getUserMedia({ audio, video: false })
       // A permission prompt can outlive navigation or cancellation.
       if (token !== generation || disposed) {
         acquired.getTracks().forEach((track) => track.stop())
         return
       }
       stream = acquired
+      void refreshMicrophones()
+      microphoneName.value = stream.getAudioTracks?.()[0]?.label || '默认麦克风'
+      startMeter()
       const mimeType = RECORDER_TYPES.find((type) => MediaRecorder.isTypeSupported(type))
       if (!mimeType) throw new Error('此浏览器没有受支持的录音格式，请更换新版浏览器或继续打字。')
       const activeRecorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 64000 })
@@ -163,19 +239,27 @@ export function usePracticeSpeech() {
         }
         isTranscribing.value = true
         try {
-          const audioBase64 = await readBase64(new Blob(chunks, { type: mimeType }))
+          const blob = new Blob(chunks, { type: activeRecorder.mimeType || mimeType })
+          recordingUrl.value = URL.createObjectURL(blob)
+          const audioBase64 = await readBase64(blob)
           if (token !== generation || disposed) return
           const result = await http.post('/speech/transcribe', {
             body: { audioBase64, mimeType, durationMs: Math.min(actualDuration, maxSeconds.value * 1000) },
             timeoutMs: 45000,
           })
           if (token !== generation || disposed) return
-          if (typeof result?.text !== 'string' || !result.text.trim()) throw new Error('没有听清，请重新录音。')
+          if (typeof result?.text !== 'string' || !result.text.trim()) throw new Error('语音服务未识别出文字，请回放录音检查。')
           transcript.value = result.text.trim()
           remaining.value = result.remaining ?? Math.max(0, remaining.value - 1)
         } catch (cause) {
           if (token === generation && !disposed) {
-            error.value = cause.code === 'TIMEOUT' ? '语音识别超时，请重新录音或继续打字。' : microphoneError(cause)
+            error.value = cause.code === 'SPEECH_EMPTY_TRANSCRIPT'
+              ? detectedSound.value
+                ? '麦克风已收到声音，但语音服务没有识别出文字。请回放录音；如果人声清晰，可能是识别服务或录音格式兼容问题，可以重试或继续打字。'
+                : meterReady.value
+                  ? '本次未检测到明显声音。请回放录音，并检查浏览器选用的麦克风和系统输入音量。'
+                  : '语音服务没有识别出文字。请回放录音检查是否有人声，再重试或继续打字。'
+              : cause.code === 'TIMEOUT' ? '语音识别超时，请重新录音或继续打字。' : microphoneError(cause)
             void refreshStatus()
           }
         } finally {
@@ -224,6 +308,8 @@ export function usePracticeSpeech() {
 
   onMounted(() => {
     void refreshStatus()
+    void refreshMicrophones()
+    navigator.mediaDevices?.addEventListener?.('devicechange', refreshMicrophones)
     document.addEventListener('visibilitychange', onVisibilityChange)
   })
   onBeforeUnmount(() => {
@@ -231,8 +317,11 @@ export function usePracticeSpeech() {
     cancel()
     stopSpeaking()
     document.removeEventListener('visibilitychange', onVisibilityChange)
+    navigator.mediaDevices?.removeEventListener?.('devicechange', refreshMicrophones)
   })
 
   return { supported, available, configured, statusLoading, statusReason, isStarting, isRecording, isTranscribing,
+    inputLevel, waveform, meterReady, detectedSound, microphoneName, recordingUrl, inputStatus,
+    microphones, selectedMicrophone, rawAudio, deviceError, refreshMicrophones,
     error, transcript, elapsedSeconds, maxSeconds, remaining, refreshStatus, start, stop, cancel, speak, stopSpeaking, isSpeaking }
 }

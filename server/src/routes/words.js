@@ -13,8 +13,7 @@ import {
 } from '../services/wordService.js'
 import { buildConfusableCard } from '../services/studyService.js'
 
-import { query, execute } from '../db/pool.js'
-import { mapWordRow } from '../services/wordService.js'
+import { listNotebooks, createNotebook, notebookWords, allFavorites, setNotebookWord } from '../services/notebookService.js'
 
 const router = Router()
 
@@ -82,18 +81,26 @@ router.get(
   })
 )
 
-// Account-owned vocabulary notebook; PUT is idempotent.
-router.get('/favorites', requireAuth, asyncHandler(async (req, res) => {
-  const rows = await query('SELECT w.* FROM user_favorite_words f JOIN words w ON w.id=f.word_id WHERE f.user_id=? ORDER BY f.created_at DESC, f.word_id DESC', [req.user.id])
-  return ok(res, { items: rows.map(mapWordRow) })
+// Account-owned notebooks; id 0 preserves the original default favorites.
+const notebookId = z.coerce.number().int().min(0)
+router.get('/notebooks', requireAuth, validate({ query: z.object({ wordId: z.coerce.number().int().positive().optional() }) }), asyncHandler(async (req, res) => {
+  return ok(res, { items: await listNotebooks(req.user.id, req.valid.query.wordId) })
 }))
-router.put('/:id/favorite', requireAuth, validate({ params: wordIdParam }), asyncHandler(async (req, res) => {
-  await getWordById(req.valid.params.id)
-  await execute('INSERT IGNORE INTO user_favorite_words (user_id,word_id) VALUES (?,?)', [req.user.id, req.valid.params.id])
+router.post('/notebooks', requireAuth, validate({ body: z.object({ name: z.string().trim().min(1).max(40) }) }), asyncHandler(async (req, res) => {
+  return ok(res, { notebook: await createNotebook(req.user.id, req.valid.body.name) })
+}))
+router.get('/notebooks/:bookId/words', requireAuth, validate({ params: z.object({ bookId: notebookId }) }), asyncHandler(async (req, res) => {
+  return ok(res, { items: await notebookWords(req.user.id, req.valid.params.bookId) })
+}))
+router.get('/favorites', requireAuth, asyncHandler(async (req, res) => {
+  return ok(res, { items: await allFavorites(req.user.id) })
+}))
+router.put('/:id/favorite', requireAuth, validate({ params: wordIdParam, body: z.object({ notebookId: notebookId.optional() }).optional() }), asyncHandler(async (req, res) => {
+  await setNotebookWord(req.user.id, req.valid.body?.notebookId ?? 0, req.valid.params.id, true)
   return ok(res, { saved: true })
 }))
-router.delete('/:id/favorite', requireAuth, validate({ params: wordIdParam }), asyncHandler(async (req, res) => {
-  await execute('DELETE FROM user_favorite_words WHERE user_id=? AND word_id=?', [req.user.id, req.valid.params.id])
+router.delete('/:id/favorite', requireAuth, validate({ params: wordIdParam, query: z.object({ notebookId: notebookId.optional() }) }), asyncHandler(async (req, res) => {
+  await setNotebookWord(req.user.id, req.valid.query.notebookId ?? 0, req.valid.params.id, false)
   return ok(res, { saved: false })
 }))
 

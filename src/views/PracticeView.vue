@@ -29,7 +29,9 @@ const revealedAnswers = ref([]), shortAnswers = ref({}), checkedAnswers = ref([]
 const exporting = ref(''), exportError = ref('')
 const speech = usePracticeSpeech()
 const { available: voiceAvailable, supported: voiceSupported, statusLoading: voiceLoading, statusReason: voiceReason,
-  isRecording, isTranscribing, isStarting, error: voiceError, transcript, elapsedSeconds, maxSeconds, isSpeaking } = speech
+  isRecording, isTranscribing, isStarting, error: voiceError, transcript, elapsedSeconds, maxSeconds, isSpeaking,
+  waveform, microphoneName, recordingUrl, inputStatus,
+  microphones, selectedMicrophone, rawAudio, deviceError } = speech
 let pollTimer, idleTimer, disposed = false, pollFailures = 0
 const scene = computed(() => [...savedScenes.value, ...scenes.value].find(item => item.id === sceneId.value))
 const visibleScenes = computed(() => (libraryTab.value === 'saved' ? savedScenes.value : scenes.value).filter(item =>
@@ -353,7 +355,22 @@ onUnmounted(() => { disposed = true; clearTimers(); speech.cancel(); speech.stop
         <p v-if="waitingHelp && !session.help" class="waiting-hint">慢慢想，没关系。需要时点「不会说？」获取提示。</p>
         <form @submit.prevent="send"><label for="practice-expression" class="input-label">你的回答 <span>可以夹中文，也可以用麦克风输入</span></label><textarea id="practice-expression" v-model="draft" rows="3" maxlength="2000" :disabled="busy || isRecording || isTranscribing || isStarting" placeholder="试着用英语回答。不会的部分可以写中文…" @keydown="keyboard"></textarea><div class="composer-controls"><div class="input-tools"><button class="btn mic-button" type="button" :class="{ recording: isRecording }" :disabled="busy || isTranscribing || isStarting || (!isRecording && !voiceAvailable)" :aria-pressed="isRecording" @click="toggleMicrophone">{{ isStarting ? '连接麦克风…' : isTranscribing ? '正在识别…' : isRecording ? `■ 完成录音 ${elapsedSeconds}s` : '♩ 麦克风' }}</button><button v-if="isRecording || isTranscribing || isStarting" class="text-button" type="button" @click="speech.cancel()">取消</button><button class="btn help-button" type="button" :disabled="working" @click="help()">不会说？</button></div><button class="btn btn-primary send-button" type="submit" :disabled="working || !draft.trim()">{{ busy ? '请稍候…' : '发送 ↑' }}</button></div></form>
         <div v-if="session.help" class="help-options"><label>求助词 <select v-model="selectedWord" :disabled="working"><option v-for="target in targets" :key="target.word" :value="target.word">{{ target.word }} · {{ target.sense }}</option></select></label><button v-for="level in [2, 3, 4]" :key="level" type="button" class="text-button" :disabled="working" @click="help(level)">{{ level }} · {{ helpLabels[level] }}</button></div>
-        <p v-if="isRecording" role="status" class="recording-note">正在录音，最长 {{ maxSeconds }} 秒。完成后先检查文字，再发送。</p><p v-if="voiceError" role="status" class="note error">{{ voiceError }}</p><p v-else-if="!voiceAvailable && !voiceLoading" class="note"><template v-if="!voiceSupported">当前浏览器无法录音，请使用支持麦克风的浏览器，并通过 HTTPS 或 localhost 打开。</template><template v-else>{{ voiceReason || '语音识别尚未配置，可先打字练习。' }} <router-link to="/settings" class="small-link">查看设置</router-link></template></p><p v-else class="note">{{ isTranscribing ? '语音正在转成文字，识别后可以修改。' : 'Ctrl / ⌘ + Enter 发送 · 点击目标词看释义 · 浅色下划线点开看建议' }}</p>
+        <div class="microphone-settings">
+          <label for="practice-microphone">录音设备</label>
+          <select id="practice-microphone" v-model="selectedMicrophone" :disabled="isRecording || isStarting || isTranscribing">
+            <option value="">浏览器默认麦克风</option><option v-for="device in microphones" :key="device.id" :value="device.id">{{ device.label }}</option>
+          </select>
+          <button type="button" class="text-button" :disabled="isRecording || isStarting" @click="speech.refreshMicrophones()">刷新设备</button>
+          <label><input v-model="rawAudio" type="checkbox" :disabled="isRecording || isStarting || isTranscribing"> 原始收音（关闭降噪）</label>
+        </div>
+        <p v-if="deviceError" class="note error">{{ deviceError }}</p>
+        <p class="note">录音无声时，请选用与你其他语音软件相同的麦克风。首次允许录音后会显示完整设备名称；如果仍无声，可在 Chrome 或 Edge 中打开此页面对比。</p>
+        <div v-if="isRecording" class="microphone-monitor">
+          <div class="microphone-wave" aria-hidden="true"><span v-for="(level, index) in waveform" :key="index" :style="{ height: `${3 + level * 33}px` }"></span></div>
+          <div class="microphone-details"><strong role="status">{{ inputStatus }}</strong><span>{{ microphoneName }} · {{ elapsedSeconds }} / {{ maxSeconds }} 秒</span></div>
+        </div>
+        <div v-if="recordingUrl && !isRecording" class="recording-preview"><span>回放本次录音，检查人声是否清晰</span><audio :src="recordingUrl" controls preload="metadata" aria-label="回放本次麦克风录音"></audio></div>
+        <p v-if="isRecording" class="recording-note">波形随实际输入音量变化；收到声音不代表已识别出文字。完成后先检查文字，再发送。</p><p v-if="voiceError" role="status" class="note error">{{ voiceError }}</p><p v-else-if="!voiceAvailable && !voiceLoading" class="note"><template v-if="!voiceSupported">当前浏览器无法录音，请使用支持麦克风的浏览器，并通过 HTTPS 或 localhost 打开。</template><template v-else>{{ voiceReason || '语音识别尚未配置，可先打字练习。' }} <router-link to="/settings" class="small-link">查看设置</router-link></template></p><p v-else class="note">{{ isTranscribing ? '语音正在转成文字，识别后可以修改。' : 'Ctrl / ⌘ + Enter 发送 · 点击目标词看释义 · 浅色下划线点开看建议' }}</p>
         <div class="session-footer"><span class="muted">帮助越少，独立使用的记忆证据越强。</span><button class="text-button" :disabled="working" @click="finish">结束对话，查看小结 →</button></div>
       </div>
     </section>
@@ -432,4 +449,15 @@ button:disabled { cursor: not-allowed; opacity: .55; }button, textarea, input, s
   .history-item { align-items: flex-start; flex-wrap: wrap; gap: 8px; }.history-actions { width: 100%; justify-content: flex-start; }
   .scene-actions { flex-wrap: wrap; }.setup > .section-heading { align-items: flex-start; }
 }
+.microphone-monitor { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin-top: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.microphone-wave { display: flex; align-items: center; gap: 3px; height: 40px; color: var(--ink); }
+.microphone-wave span { width: 4px; border-radius: 2px; background: currentColor; }
+.microphone-details { display: grid; gap: 4px; font-size: 12px; }
+.microphone-details span { color: var(--ink-soft); overflow-wrap: anywhere; }
+.recording-preview { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 12px; font-size: 12px; color: var(--ink-soft); }
+.recording-preview audio { width: 280px; max-width: 100%; height: 36px; }
+.microphone-settings { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; font-size: 12px; }
+.microphone-settings select { flex: 1 1 180px; min-width: 0; max-width: 100%; padding: 6px; }
+.microphone-settings label { display: inline-flex; align-items: center; gap: 5px; }
+.microphone-settings input { width: auto; margin: 0; }
 </style>

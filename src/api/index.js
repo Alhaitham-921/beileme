@@ -40,8 +40,11 @@ export const profile = {
 
 export const words = {
   favorites: () => http.get('/words/favorites'),
-  favorite: (id) => http.put(`/words/${id}/favorite`),
-  unfavorite: (id) => http.del(`/words/${id}/favorite`),
+  notebooks: (wordId) => http.get('/words/notebooks', { query: wordId ? { wordId } : {} }),
+  createNotebook: (name) => http.post('/words/notebooks', { body: { name } }),
+  notebookWords: (id) => http.get(`/words/notebooks/${id}/words`),
+  favorite: (id, notebookId = 0) => http.put(`/words/${id}/favorite`, { body: { notebookId } }),
+  unfavorite: (id, notebookId = 0) => http.del(`/words/${id}/favorite`, { query: { notebookId } }),
   books: () => http.get('/words/books'),
   listByBook: (code, query) => http.get(`/words/books/${code}/words`, { query }),
   detail: (id) => http.get(`/words/${id}`),

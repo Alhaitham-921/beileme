@@ -2,6 +2,7 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
 const routes = [
+  { path: '/notebooks', name: 'notebooks', component: () => import('../views/NotebooksView.vue') },
   { path: '/roots', name: 'roots', component: () => import('../views/RootsView.vue') },
   { path: '/practice', name: 'practice', component: () => import('../views/PracticeView.vue') },
   { path: '/assessment', name: 'assessment', component: () => import('../views/AssessmentView.vue') },

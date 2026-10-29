@@ -125,7 +125,7 @@ export function createSpeechService({ settings = config.speech, now = Date.now, 
         throw new ApiError(502, 'SPEECH_INVALID_RESPONSE', '语音识别结果不完整，请重新录音')
       }
       const text = result.text.trim()
-      if (!text) throw badRequest('没有听清说话内容，请靠近麦克风重新录音')
+      if (!text) throw new ApiError(422, 'SPEECH_EMPTY_TRANSCRIPT', '语音服务未识别出文字，请回放录音检查是否有人声；若人声清晰，请重试或检查语音服务兼容性')
       return { text, source: 'microphone', remaining: Math.max(0, settings.dailyQuota - budget.used) }
     } catch (error) {
       if (error instanceof ApiError) throw error

@@ -115,3 +115,8 @@ test('app exposes protected speech routes while retaining 1 MB limit on other en
   assert.equal((await fetch(`${url}/speech/transcribe`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: large })).status, 401)
   assert.equal((await fetch(`${url}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: large })).status, 413)
 })
+
+test('empty provider transcript is distinct from microphone silence', async () => {
+  const service = createSpeechService({ settings: settings(), fetchImpl: async () => Response.json({ text: '  ' }) })
+  await assert.rejects(service.transcribe(1, recording()), { code: 'SPEECH_EMPTY_TRANSCRIPT', status: 422 })
+})

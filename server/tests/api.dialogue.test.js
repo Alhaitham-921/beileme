@@ -37,6 +37,7 @@ test('multi-turn dialogue records assistance, sense evidence and idempotent SRS 
     const content = mode === 'invalid' ? { reply: 'invalid' } : isReport
       ? { summary: '你完成了河岸对话，bank 需要进一步练习。', corrections: [], weakWords: ['bank'], reinforcement: [{ word: 'bank', prompt: '我想沿河岸散步。', answer: 'I would like to walk along the river bank.', explanation: 'bank 在这里表示河岸。' }], grammarWeaknesses: [] }
       : { reply: 'Yes, there is a path along the river bank nearby. Would you like to sit here?', translation: '附近有沿河岸的小路。你想坐这里吗？', mixedLanguage: false, corrections: [], usedTargets: [{ word: 'bank', sense: '河岸', correct: true }, { word: 'nearby', sense: '在附近', correct: true }], taskComplete: false }
+    if (mode === 'badEvidence') content.corrections = [{ type: 'grammar', original: 'invented sentence', replacement: 'fixed sentence', explanation: 'unsupported' }]
     return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) }, finish_reason: 'stop' }], usage: { prompt_tokens: 40, completion_tokens: 100 } }), { status: 200 })
   }
   try {
@@ -80,6 +81,14 @@ test('multi-turn dialogue records assistance, sense evidence and idempotent SRS 
     const intact = await client.get(`/api/v1/practice/sessions/${next.data.id}`, { token: user.token })
     assert.equal(intact.data.turnCount, 0)
     assert.equal(intact.data.messages.length, 1)
+    mode = 'badEvidence'
+    const callsBeforeRecovery = aiCalls
+    const continued = await client.post(`/api/v1/practice/sessions/${next.data.id}/turns`, { token: user.token, body: { text: 'The bank is nearby.', expectedTurn: 0 } })
+    assert.equal(continued.status, 200, JSON.stringify(continued.raw))
+    assert.equal(continued.data.turnCount, 1)
+    assert.equal(continued.data.messages.find(m => m.role === 'user').corrections.length, 0)
+    assert.equal(aiCalls - callsBeforeRecovery, 1)
+
   } finally { globalThis.fetch = originalFetch; config.ai.apiKey = oldKey }
 })
 

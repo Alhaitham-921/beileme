@@ -231,3 +231,50 @@ describe('收藏单词本', () => {
   assert.equal((await client.put('/api/v1/words/999999999/favorite', { token: a.token })).status, 404)
  })
 })
+
+describe('独立单词本', () => {
+ test('默认收藏保留，自建本支持重复收藏与单本移除，汇总去重', async () => {
+  const user = await createOnboardedUser(client)
+  const token = user.token
+  const id = (await client.get('/api/v1/words/books/fixture-demo/words?size=1')).data.items[0].id
+  const path = `/api/v1/words/${id}/favorite`
+  await client.put(path, { token })
+  const initial = await client.get('/api/v1/words/notebooks', { token })
+  assert.equal(initial.data.items[0].id, 0)
+  assert.equal(initial.data.items[0].wordCount, 1)
+  const created = await client.post('/api/v1/words/notebooks', { token, body: { name: '  旅行英语  ' } })
+  assert.equal(created.status, 200)
+  assert.equal(created.data.notebook.name, '旅行英语')
+  const bookId = created.data.notebook.id
+  for (let i = 0; i < 2; i++) assert.equal((await client.put(path, { token, body: { notebookId: bookId } })).status, 200)
+  const books = (await client.get(`/api/v1/words/notebooks?wordId=${id}`, { token })).data.items
+  assert.ok(books.every(b => b.containsWord))
+  assert.equal(books.find(b => b.id === bookId).wordCount, 1)
+  assert.equal((await client.get('/api/v1/words/favorites', { token })).data.items.length, 1)
+  await client.del(path, { token })
+  assert.equal((await client.get('/api/v1/words/notebooks/0/words', { token })).data.items.length, 0)
+  const content = (await client.get(`/api/v1/words/notebooks/${bookId}/words`, { token })).data.items
+  assert.equal(content[0].id, id)
+  assert.ok(content[0].definitions.length)
+  assert.equal((await client.get('/api/v1/words/favorites', { token })).data.items.length, 1)
+  await client.del(`${path}?notebookId=${bookId}`, { token })
+  assert.equal((await client.get('/api/v1/words/favorites', { token })).data.items.length, 0)
+ })
+ test('单词本按账号隔离且拒绝越权读取和增删', async () => {
+  const a = await createOnboardedUser(client), b = await createOnboardedUser(client)
+  const id = (await client.get('/api/v1/words/books/fixture-demo/words?size=1')).data.items[0].id
+  const bookId = (await client.post('/api/v1/words/notebooks', { token: a.token, body: { name: '私有单词本' } })).data.notebook.id
+  assert.equal((await client.get(`/api/v1/words/notebooks/${bookId}/words`, { token: b.token })).status, 404)
+  assert.equal((await client.put(`/api/v1/words/${id}/favorite`, { token: b.token, body: { notebookId: bookId } })).status, 404)
+  assert.equal((await client.del(`/api/v1/words/${id}/favorite?notebookId=${bookId}`, { token: b.token })).status, 404)
+  assert.equal((await client.get('/api/v1/words/notebooks', { token: b.token })).data.items.length, 1)
+  assert.equal((await client.get('/api/v1/words/notebooks')).status, 401)
+ })
+ test('校验名称和单词本编号，同名创建不会重复', async () => {
+  const { token } = await createOnboardedUser(client)
+  for (const name of ['', '   ', '长'.repeat(41)]) assert.equal((await client.post('/api/v1/words/notebooks', { token, body: { name } })).status, 400)
+  await client.post('/api/v1/words/notebooks', { token, body: { name: '易混词' } })
+  assert.equal((await client.post('/api/v1/words/notebooks', { token, body: { name: '易混词' } })).status, 409)
+  assert.equal((await client.get('/api/v1/words/notebooks/-1/words', { token })).status, 400)
+ })
+})

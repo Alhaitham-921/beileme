@@ -13,8 +13,8 @@ const until = async (predicate) => {
   assert.fail('Timed out waiting for mock microphone lifecycle')
 }
 
-function mountSpeech(t, { getUserMedia, post } = {}) {
-  const originalGlobals = new Map(['window', 'document', 'navigator', 'MediaRecorder', 'FileReader', 'SpeechSynthesisUtterance'].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
+function mountSpeech(t, { getUserMedia, post, audioContext } = {}) {
+  const originalGlobals = new Map(['window', 'document', 'navigator', 'MediaRecorder', 'FileReader', 'SpeechSynthesisUtterance', 'requestAnimationFrame', 'cancelAnimationFrame'].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
   const originalGet = http.get, originalPost = http.post
   const tracks = [], requests = [], recorders = [], spoken = []
   const listeners = new Map()
@@ -36,7 +36,9 @@ function mountSpeech(t, { getUserMedia, post } = {}) {
     return { getTracks: () => [track] }
   }
   const globals = {
-    window: { isSecureContext: true, speechSynthesis: { cancel() {}, getVoices: () => [{ lang: 'en-US' }], speak(message) { spoken.push(message); message.onstart?.() } } },
+    window: { AudioContext: audioContext, isSecureContext: true, speechSynthesis: { cancel() {}, getVoices: () => [{ lang: 'en-US' }], speak(message) { spoken.push(message); message.onstart?.() } } },
+    requestAnimationFrame: (fn) => setTimeout(fn, 10),
+    cancelAnimationFrame: (id) => clearTimeout(id),
     document: { hidden: false, addEventListener(name, fn) { listeners.set(name, fn) }, removeEventListener(name) { listeners.delete(name) } },
     navigator: { mediaDevices: { getUserMedia: getUserMedia || defaultGetUserMedia } },
     MediaRecorder: Recorder,
@@ -142,5 +144,72 @@ test('cancel during transcription ignores late result and permission denial rema
   navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('denied', 'NotAllowedError') }
   await speech.start()
   assert.match(speech.error.value, /麦克风权限/)
+  assert.equal(speech.isStarting.value, false)
+})
+
+test('live meter follows actual samples and empty transcript preserves playback with accurate diagnosis', async (t) => {
+  let amplitude = 0, closed = 0, disconnected = 0
+  class AudioContext {
+    state = 'running'
+    createMediaStreamSource() { return { connect() {}, disconnect() { disconnected++ } } }
+    createAnalyser() { return { fftSize: 1024, getFloatTimeDomainData(samples) { samples.fill(amplitude) } } }
+    async resume() {}
+    async close() { closed++ }
+  }
+  const { speech } = mountSpeech(t, { audioContext: AudioContext, post: async () => {
+    throw Object.assign(new Error('empty'), { code: 'SPEECH_EMPTY_TRANSCRIPT' })
+  } })
+  await nextTick()
+  await speech.start()
+  assert.equal(speech.detectedSound.value, false)
+  assert.ok(speech.waveform.value.every(value => value === 0))
+  amplitude = 0.1
+  await until(() => speech.detectedSound.value)
+  assert.ok(speech.waveform.value.some(value => value > 0))
+  assert.match(speech.inputStatus.value, /正在接收声音/)
+  amplitude = 0
+  await until(() => speech.inputLevel.value === 0)
+  assert.match(speech.inputStatus.value, /已收到声音/)
+  await delay(220)
+  speech.stop()
+  await until(() => speech.error.value)
+  assert.match(speech.error.value, /麦克风已收到声音/)
+  assert.ok(speech.recordingUrl.value.startsWith('blob:'))
+  assert.equal(closed, 1)
+  assert.equal(disconnected, 1)
+  speech.cancel()
+  assert.equal(speech.recordingUrl.value, '')
+})
+
+test('explicit microphone selection uses exact device and raw input constraints', async (t) => {
+  let constraints
+  const { speech, defaultGetUserMedia } = mountSpeech(t, { getUserMedia: async (options) => {
+    constraints = options
+    return defaultGetUserMedia()
+  } })
+  navigator.mediaDevices.enumerateDevices = async () => [
+    { kind: 'audioinput', deviceId: 'usb-mic', label: 'USB microphone' },
+    { kind: 'audiooutput', deviceId: 'speaker', label: 'Speaker' },
+  ]
+  await nextTick()
+  await speech.refreshMicrophones()
+  assert.deepEqual(speech.microphones.value, [{ id: 'usb-mic', label: 'USB microphone' }])
+  speech.selectedMicrophone.value = 'usb-mic'
+  await speech.start()
+  assert.deepEqual(constraints.audio, { deviceId: { exact: 'usb-mic' }, echoCancellation: false, noiseSuppression: false, autoGainControl: false })
+  speech.cancel()
+  speech.rawAudio.value = false
+  await speech.start()
+  assert.equal(constraints.audio.noiseSuppression, true)
+  speech.cancel()
+})
+
+test('disconnected selected microphone reports device recovery without fallback', async (t) => {
+  const { speech } = mountSpeech(t, { getUserMedia: async () => { throw new DOMException('gone', 'OverconstrainedError') } })
+  await nextTick()
+  speech.selectedMicrophone.value = 'gone'
+  await speech.start()
+  assert.match(speech.error.value, /重新选择/)
+  assert.equal(speech.isRecording.value, false)
   assert.equal(speech.isStarting.value, false)
 })
