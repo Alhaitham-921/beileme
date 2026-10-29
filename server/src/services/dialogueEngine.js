@@ -152,20 +152,33 @@ const userMessages = session => (session.messages || []).filter(m => m.role === 
 const messageAnalysis = m => m.analysis ?? m.feedback ?? m
 const usageEntries = usage => Array.isArray(usage) ? usage : Object.values(usage || {})
 const normalizeCorrections = (corrections, texts) => corrections.map(c => {
-  const sentence = texts.find(text => text.includes(c.original) && (!c.originalSentence || text === c.originalSentence))
+  const sentence = texts.find(text => text.includes(c.original) && (!c.originalSentence || (text.includes(c.originalSentence) && c.originalSentence.includes(c.original))))
   if (!sentence) throw new Error('纠错引用未出现在用户原文中')
-  return { ...c, originalSentence: sentence, correctedSentence: c.correctedSentence || sentence.replace(c.original, c.replacement) }
+  const originalSentence = c.originalSentence || sentence
+  return { ...c, originalSentence, correctedSentence: c.correctedSentence || originalSentence.replace(c.original, c.replacement) }
 })
 
 export function validateTurn(raw, text, scene) {
-  const parsed = TurnSchema.parse(raw)
+  // Optional fields are often emitted as null/empty strings by compatible providers.
+  // Omission carries no learning evidence; required fields and grounding remain strict.
+  const normalized = raw && typeof raw === 'object' ? { ...raw } : raw
+  if (normalized) {
+    for (const key of ['helpEnglish', 'helpWord']) if (normalized[key] == null || normalized[key] === '') delete normalized[key]
+  }
+  const parsed = TurnSchema.parse(normalized)
   parsed.corrections = normalizeCorrections(parsed.corrections, [text])
   // 混说由原文确定，避免模型漏报中文，或者给纯英文凭空增加求助证据。
   parsed.mixedLanguage = hasChinese(text)
   if (parsed.mixedLanguage && (!parsed.helpEnglish || hasChinese(parsed.helpEnglish))) throw new Error('中文求助必须返回完整英文表达')
   if (parsed.helpWord) {
     parsed.helpWord = parsed.helpWord.toLowerCase()
-    if (!scene.targets.some(t => t.word === parsed.helpWord) || !parsed.helpEnglish || !containsWord(parsed.helpEnglish, parsed.helpWord)) throw new Error('求助词必须是完整英文示范中的本轮目标词')
+    if (!scene.targets.some(t => t.word === parsed.helpWord) || !parsed.helpEnglish || !containsWord(parsed.helpEnglish, parsed.helpWord)) {
+      // This optional label is not usage evidence. Derive it from the actual
+      // demonstration instead of discarding a valid conversational reply.
+      const grounded = scene.targets.find(t => parsed.helpEnglish && containsWord(parsed.helpEnglish, t.word))
+      if (grounded) parsed.helpWord = grounded.word
+      else delete parsed.helpWord
+    }
   }
   const seen = new Set()
   parsed.usedTargets = parsed.usedTargets.map(item => {
@@ -321,6 +334,15 @@ const context = session => ({ scene: session.scene, strictness: session.strictne
   targetUsage: session.targetUsage || {}, help: session.pendingHelp || session.help || null })
 const transcript = session => (session.messages || []).filter(m => ['assistant', 'user'].includes(m.role)).map(m => ({ role: m.role, content: messageText(m) }))
 
+export function buildValidationRetryMessages(messages, error) {
+  const detail = Array.isArray(error.issues)
+    ? error.issues.slice(0, 8).map(issue => `${issue.path.join('.')} (${issue.code})`).join('；')
+    : error.message
+  return messages.map((message, index) => index === 0
+    ? { ...message, content: message.content + '\n上一次输出未通过程序校验：' + detail + '。请重新生成完整合法JSON并修复该问题，不要重复相同输出。可选字段不需要时直接省略，不填null或空字符串。helpWord若填写，必须是helpEnglish实际包含的本场景目标词；没有这样的词时省略helpWord。纠错只引用当前用户原文，originalSentence可以是当前原文中的完整一句。usedTargets只记录当前用户实际说出的词，sense逐字复制场景义项；没有可靠证据时返回空数组。' }
+    : message)
+}
+
 export function buildTurnMessages(session, text) {
   const user = userMessages(session)
   const maxTurns = session.maxTurns || 8
@@ -331,7 +353,7 @@ export function buildTurnMessages(session, text) {
 场景与设置：${JSON.stringify(context(session))}
 输入JSON中的currentUserText是本次唯一需要评价的用户回答。transcript只用于理解对话背景；禁止再次纠正历史句子，corrections的original及originalSentence只能引用currentUserText，usedTargets也只检查currentUserText。请根据currentUserText接话。
 每轮只问一个简短问题，自然引导目标词，避免机械逐个检查。初级使用短句和常见词，中级自然交流，高级可增加细节；按难度调整中文提示与对混说的引导强度。宽松(lenient)优先影响理解的错误，适中(standard)兼顾常见错误，严格(strict)也记录细小错误；每轮最多5条，优先词义、用词、时态。不打断对话，不说“你错了”，在英文reply中自然重述正确表达。没有错误时corrections:[]。
-usedTargets只能记录本次用户原文实际出现的目标词（允许词形变化），不得把你回复里的词或中文求助后尚未复述的英文算作已使用。sense必须严格等于场景targets给出的sense。词义用错单独用sense_misuse并标correct:false。未用到目标词时usedTargets:[]。mixedLanguage反映原文是否含中文，含中文时必须给helpEnglish完整英文表达，并在reply自然请用户复述；helpEnglish不能含中文。混说时可给helpWord，填写helpEnglish里本轮正在练习的一个目标词；纯英文且不需要帮助时省略helpEnglish和helpWord。
+usedTargets只能记录本次用户原文实际出现的目标词（允许词形变化），不得把你回复里的词或中文求助后尚未复述的英文算作已使用。sense必须严格等于场景targets给出的sense。词义用错单独用sense_misuse并标correct:false。未用到目标词时usedTargets:[]。mixedLanguage反映原文是否含中文，含中文时必须给helpEnglish完整英文表达，并在reply自然请用户复述；helpEnglish不能含中文。混说时可给helpWord，填写helpEnglish里本轮正在练习的一个目标词；helpWord必须实际出现在helpEnglish中，没有这样的目标词时省略。纯英文且不需要帮助时省略helpEnglish和helpWord，可选字段不要填null或空字符串。
 ${progression}当前是第${user.length + 1}轮用户回复。
 返回结构：${JSON.stringify({ reply: '角色的英文回复', translation: '中文翻译', mixedLanguage: false, corrections: [correctionShape], usedTargets: [{ word: '目标词', sense: '本场景义项', correct: true }], taskComplete: false, helpEnglish: '仅混说时必填', helpWord: '仅求助时可填一个目标词' })}` },
   // History is input data, not assistant examples: replaying plain English assistant

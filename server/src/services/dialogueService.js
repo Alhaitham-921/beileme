@@ -11,7 +11,7 @@ import { emptyUsage, addUsage, usageReport } from './ai/usage.js'
 import { parseJsonResponse } from './ai/promptTemplates.js'
 import { reviewItem, computeMemoryStrength } from './srs.js'
 import { DIALOGUE_SCENES, sceneFor, validateTurn, validateReport, buildTurnMessages,
-  buildReportMessages, updateTargetUsage, buildHelp, buildEvidence, containsWord } from './dialogueEngine.js'
+  buildReportMessages, buildValidationRetryMessages, updateTargetUsage, buildHelp, buildEvidence, containsWord } from './dialogueEngine.js'
 import { buildScenarioMessages, validateScenario } from './scenarioEngine.js'
 
 const reportJobs = new Map()
@@ -172,6 +172,7 @@ async function generateValidated(userId, session, messages, validator, report = 
   const limits = await resolveLimits(userId)
   const total = emptyUsage()
   let jsonMode = true
+  let attemptMessages = messages
   let maxTokens = limits.unlimited ? undefined : report ? Math.max(4096, limits.errorCardTokens) : Math.max(2048, limits.quizTokens)
   for (let attempt = 0; attempt < 2; attempt++) {
     await execute('INSERT IGNORE INTO dialogue_daily_usage (user_id, usage_date) VALUES (?, ?)', [userId, todayKey()])
@@ -181,7 +182,7 @@ async function generateValidated(userId, session, messages, validator, report = 
     let received
     const before = { ...total }
     try {
-      const result = await chat({ ...provider, messages, maxTokens, temperature: 0.4, jsonMode, disableThinking: !limits.allowThinking })
+      const result = await chat({ ...provider, messages: attemptMessages, maxTokens, temperature: 0.4, jsonMode, disableThinking: !limits.allowThinking })
       received = result.usage
       addUsage(total, received, result.model)
       if (result.finishReason === 'length') throw Object.assign(new Error('模型输出达到上限，回复被截断'), { kind: 'truncated' })
@@ -203,6 +204,7 @@ async function generateValidated(userId, session, messages, validator, report = 
         const label = { truncated: '模型输出被截断', timeout: 'AI 请求超时', rate_limited: '服务商限流或额度不足', reasoning_exhausted: '模型将输出额度用于内部思考' }[error.kind] || (error.kind ? error.message : 'AI 返回内容未通过格式或证据校验')
         throw new ApiError(error.status === 429 ? 429 : 503, 'PRACTICE_AI_FAILED', `${label}，请重试；${session.id ? '对话和输入已保留' : '场景尚未生成，你可以保留需求再试一次'}`, { reason: error.kind || 'validation_failed', usage })
       }
+      if (!error.kind) attemptMessages = buildValidationRetryMessages(messages, error)
       total.retried = true
       total.retryReason = diagnostics.emptyContent ? 'empty_content' : error.kind || 'validation_failed'
       if (maxTokens != null) maxTokens = Math.min(maxTokens * 2, 32000)
