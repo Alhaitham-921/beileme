@@ -41,6 +41,8 @@ export const config = {
   env,
   isProduction: env === 'production',
   isTest,
+  // 只能由服务器运营者指定已有账号 ID；注册请求不能授予管理权限。
+  adminUserIds: readList('ADMIN_USER_IDS', []),
   port: readInt('PORT', 3001),
   // 业务「今天」的时区偏移（分钟）。数据统一按 UTC 存储，但每日计划的日期归属按东八区切分，
   // 否则用户在晚上 8 点之后的学习会被算进 UTC 的第二天。

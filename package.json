@@ -15,7 +15,8 @@
     "db:setup": "node server/src/db/migrate.js && node server/src/db/importWordlists.js",
     "test:server": "node --test --test-isolation=none --test-force-exit \"server/tests/*.test.js\"",
     "start:all": "concurrently \"npm run dev\" \"npm run server:dev\"",
-    "ai:calibrate": "node server/src/db/calibrateAi.js"
+    "ai:calibrate": "node server/src/db/calibrateAi.js",
+    "admin:grant": "node scripts/grant-admin.mjs"
   },
   "dependencies": {
     "cors": "^2.8.6",
