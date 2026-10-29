@@ -20,6 +20,7 @@ const links = [
   { to: '/study', icon: 'book', label: '单词学习' },
   { to: '/review', icon: 'repeat', label: '温故知新' },
   { to: '/practice', icon: 'chat', label: '情境练习' },
+  { to: '/speech', icon: 'microphone', label: '语音转文字' },
   { to: '/roots', icon: 'layers', label: '词根词缀' },
   { to: '/dashboard', icon: 'chart', label: '学习足迹' },
 ]

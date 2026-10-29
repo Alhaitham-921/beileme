@@ -2,6 +2,7 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
 const routes = [
+  { path: '/speech', name: 'speech', component: () => import('../views/SpeechView.vue') },
   { path: '/roots', name: 'roots', component: () => import('../views/RootsView.vue') },
   { path: '/practice', name: 'practice', component: () => import('../views/PracticeView.vue') },
   { path: '/assessment', name: 'assessment', component: () => import('../views/AssessmentView.vue') },
@@ -44,7 +45,7 @@ router.beforeEach(async (to) => {
     return { name: auth.isOnboarded ? 'home' : 'onboarding' }
   }
 
-  if (!auth.isOnboarded && to.name !== 'onboarding') {
+  if (!auth.isOnboarded && !['onboarding', 'speech'].includes(to.name)) {
     return { name: 'onboarding' }
   }
 
