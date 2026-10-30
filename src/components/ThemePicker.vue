@@ -94,6 +94,11 @@ async function restoreDefaults() {
               <span class="selection-mark" aria-hidden="true">{{ appearance.material === 'solid' ? '✓' : '' }}</span>
             </button>
           </div>
+          <label class="range-control glass-transparency-control">
+            <span>毛玻璃透明度<output>{{ appearance.glassTransparency }}%</output></span>
+            <input type="range" min="0" max="70" step="1" :value="appearance.glassTransparency" :disabled="appearance.material !== 'glass'" :aria-valuetext="`${appearance.glassTransparency}% 透明`" aria-describedby="glass-transparency-hint" @input="setAppearance({ glassTransparency: Number($event.target.value) })" />
+          </label>
+          <p id="glass-transparency-hint" class="group-description glass-transparency-hint">{{ appearance.material === 'glass' ? '数值越大，卡片、导航与顶栏越通透，文字保持清晰。' : '切换到沉浸毛玻璃后可调节，当前透明度偏好会保留。' }}</p>
         </fieldset>
 
         <fieldset class="setting-group">
@@ -257,6 +262,9 @@ async function restoreDefaults() {
 .range-control > span { display: flex; justify-content: space-between; }
 .range-control output { font-size: 10px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
 .range-control input { width: 100%; height: 28px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.glass-transparency-control { margin-top: 20px; }
+.glass-transparency-control input:disabled { opacity: .45; cursor: default; }
+.glass-transparency-hint { margin-top: 6px; font-size: 10px; }
 .default-background { justify-self: start; }
 .density-group { padding-bottom: 0; margin-bottom: 0; border: 0; }
 .density-options { display: flex; gap: 9px; }
@@ -273,7 +281,7 @@ async function restoreDefaults() {
 .mini-header { display: flex; gap: 7px; align-items: center; font-size: 10px; color: #e0e6f1; }
 .mini-header > span:first-child { font-size: 15px; color: var(--accent-deep); }
 .mini-header > span:last-child { margin-left: auto; color: #a7b1c4; font-size: 8px; }
-.mini-word-card { display: flex; flex-direction: column; align-items: center; padding: 17px 17px 15px; margin-top: 31px; border: 1px solid rgba(220, 229, 249, .14); border-radius: 12px; background: rgba(17, 26, 42, .73); box-shadow: 0 10px 30px rgba(0, 0, 0, .14), inset 0 1px rgba(255, 255, 255, .04); backdrop-filter: blur(18px); color: #e7ebf4; }
+.mini-word-card { display: flex; flex-direction: column; align-items: center; padding: 17px 17px 15px; margin-top: 31px; border: 1px solid rgba(220, 229, 249, .14); border-radius: 12px; background: rgba(17, 26, 42, var(--glass-preview-opacity, .73)); box-shadow: 0 10px 30px rgba(0, 0, 0, .14), inset 0 1px rgba(255, 255, 255, .04); backdrop-filter: blur(18px) brightness(var(--glass-backdrop-brightness, 1)); color: #e7ebf4; }
 .solid .mini-word-card { background: #1a2333; backdrop-filter: none; }
 .compact .mini-word-card { padding: 12px 14px; }
 .mini-progress { display: flex; justify-content: space-between; align-items: center; align-self: stretch; gap: 8px; font-size: 7px; color: #a5aec0; }

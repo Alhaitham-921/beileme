@@ -1,11 +1,13 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { studyKey } from '../utils/studyKeyboard'
+import { studySwipeDirection } from '../utils/studySwipe.js'
 import FavoriteWord from '../components/FavoriteWord.vue'
 import MorphologyCard from '../components/MorphologyCard.vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import { useAiStore } from '../stores/ai'
+import { nativeSpeech } from '../utils/speechSynthesis.js'
 
 const app = useAppStore()
 const ai = useAiStore()
@@ -16,12 +18,18 @@ const bootError = ref('')
 const selectedIndex = ref(null)
 const cardShownAt = ref(Date.now())
 const advancing = ref(false)
+const speechError = ref('')
+const navigationNotice = ref('')
+const wordCard = ref(null)
+let swipe = null
+let speechGeneration = 0
 let continueRequested = false
 
 const item = computed(() => app.currentItem)
 const word = computed(() => item.value?.word)
 const options = computed(() => item.value?.options || [])
 const answer = computed(() => app.lastAnswer)
+const nextLabel = computed(() => app.isLastItem ? (app.allAnswered ? '查看结果' : '继续未答单词') : '下一个单词')
 
 /** 页面状态机：把「该显示什么」收敛到一个字段，模板里只做分支渲染 */
 const status = computed(() => {
@@ -64,6 +72,7 @@ async function boot() {
       if (!restored) await app.startSession('daily')
     }
     cardShownAt.value = Date.now()
+    selectedIndex.value = app.currentItem?.selectedOptionIndex ?? null
   } catch (error) {
     bootError.value = error.message
   } finally {
@@ -83,19 +92,22 @@ function onKey(event) {
   }
 }
 onMounted(() => { boot(); window.addEventListener('keydown', onKey) })
-onUnmounted(() => window.removeEventListener('keydown', onKey))
+onUnmounted(() => { window.removeEventListener('keydown', onKey); stopSpeaking() })
 
 // 每翻到新题都重置计时起点，犹豫时长才有意义
 watch(
   () => app.currentIndex,
   () => {
-    selectedIndex.value = null
+    selectedIndex.value = app.currentItem?.selectedOptionIndex ?? null
     cardShownAt.value = Date.now()
+    speechError.value = ''
+    stopSpeaking()
   }
 )
 
 async function choose(index) {
-  if (status.value !== 'question' || app.loading.answering) return
+  if (status.value !== 'question' || app.loading.answering || item.value?.answered) return
+  navigationNotice.value = ''
 
   // 先记录「展示到首次交互」的间隔，再发请求，避免把网络耗时算进犹豫时长
   const hesitationMs = Date.now() - cardShownAt.value
@@ -107,8 +119,10 @@ async function choose(index) {
   } catch (error) {
     continueRequested = false
     if (error.status === 409) {
-      // 这一题服务端已记过（例如刷新前答过），直接跳到下一题
-      advance()
+      // Another tab may have answered this word. Restore rather than resubmitting.
+      const restored = await app.restoreSession(true)
+      if (!restored) { bootError.value = '无法恢复最新答题状态，请重新进入单词学习。'; return }
+      selectedIndex.value = app.currentItem?.selectedOptionIndex ?? null
       return
     }
     bootError.value = error.message
@@ -116,20 +130,75 @@ async function choose(index) {
 }
 
 async function advance() {
-  if (advancing.value) return
+  if (advancing.value || app.loading.answering) return
   advancing.value = true
+  navigationNotice.value = ''
   try {
-  if (app.isLastItem) {
-    try {
-      await app.finishSession()
-    } catch (error) {
-      bootError.value = error.message
+    if (app.isLastItem) {
+      if (app.allAnswered) {
+        await app.finishSession()
+        return
+      }
+      const remaining = app.firstUnansweredIndex
+      if (remaining === app.currentIndex) {
+        navigationNotice.value = '请先完成这个单词，再查看本组结果。'
+        return
+      }
+      app.goToQuestion(remaining)
+      navigationNotice.value = '已回到未作答的单词，滑过的词不会计入完成进度。'
+    } else {
+      app.nextQuestion()
     }
+    await revealWord()
+  } catch (error) { bootError.value = error.message }
+  finally { advancing.value = false }
+}
+
+async function revealWord() {
+  await nextTick()
+  wordCard.value?.scrollIntoView({ block: 'start', behavior: 'instant' })
+}
+
+async function previous() {
+  if (advancing.value || app.loading.answering) return
+  navigationNotice.value = ''
+  if (!app.previousQuestion()) {
+    navigationNotice.value = '已经是本组第一个单词。'
     return
   }
-  app.nextQuestion()
-  cardShownAt.value = Date.now()
-  } finally { advancing.value = false }
+  await revealWord()
+}
+
+function startSwipe(event) {
+  swipe = null
+  if (!['question', 'answered'].includes(status.value) || advancing.value || app.loading.answering || event.touches.length !== 1) return
+  if (event.target?.closest?.('input, textarea, select, a, .favorite-word, .speak-btn, .next-btn')) return
+  if (window.getSelection()?.isCollapsed === false) return
+  const touch = event.touches[0]
+  // Keep Android system back gestures available at the screen edges.
+  if (touch.clientX < 24 || touch.clientX > window.innerWidth - 24) return
+  swipe = { id: touch.identifier, startX: touch.clientX, startY: touch.clientY, startedAt: Date.now(), vertical: false }
+}
+
+function moveSwipe(event) {
+  if (!swipe) return
+  if (event.touches.length !== 1) { swipe = null; return }
+  const touch = event.touches[0]
+  const dx = Math.abs(touch.clientX - swipe.startX), dy = Math.abs(touch.clientY - swipe.startY)
+  if (dy > 12 && dy > dx * 1.2) swipe.vertical = true
+}
+
+function endSwipe(event) {
+  const start = swipe
+  swipe = null
+  if (!start || advancing.value || app.loading.answering) return
+  const touch = [...event.changedTouches].find(touch => touch.identifier === start.id)
+  if (!touch) return
+  const direction = studySwipeDirection({ ...start, endX: touch.clientX, endY: touch.clientY, elapsedMs: Date.now() - start.startedAt })
+  if (!direction) return
+  if (event.cancelable) event.preventDefault() // A swipe on an option must not also select it.
+  if (direction === 'next') void advance()
+  else void previous()
 }
 
 async function startExtra() {
@@ -147,12 +216,31 @@ async function startExtra() {
 }
 
 function speak() {
-  if (!('speechSynthesis' in window) || !word.value) return
+  if (!word.value) return
+  stopSpeaking()
+  speechError.value = ''
+  if (nativeSpeech.isSupported()) {
+    const token = speechGeneration
+    void nativeSpeech.speak(word.value.spelling, 0.9).catch(error => {
+      if (token === speechGeneration) speechError.value = error.message || '系统朗读失败，请检查手机的文字转语音设置。'
+    })
+    return
+  }
+  if (!window.speechSynthesis || typeof SpeechSynthesisUtterance === 'undefined') {
+    speechError.value = '当前浏览器不支持朗读，请更换新版浏览器。'
+    return
+  }
   const utterance = new SpeechSynthesisUtterance(word.value.spelling)
   utterance.lang = 'en-US'
   utterance.rate = 0.9
   speechSynthesis.cancel()
   speechSynthesis.speak(utterance)
+}
+
+function stopSpeaking() {
+  speechGeneration += 1
+  if (nativeSpeech.isSupported()) void nativeSpeech.stop().catch(() => {})
+  window.speechSynthesis?.cancel()
 }
 
 /** 本组答错的词，用于生成错词卡片 */
@@ -187,7 +275,7 @@ async function makeErrorCards() {
 </script>
 
 <template>
-  <div class="study">
+  <div class="study" @touchstart.passive="startSwipe" @touchmove.passive="moveSwipe" @touchend="endSwipe" @touchcancel="swipe = null">
     <header class="focus-header">
       <router-link to="/" class="back-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m14 6-6 6 6 6" /></svg> 返回首页</router-link>
       <span class="focus-label"><span></span> 专注学习</span>
@@ -213,7 +301,7 @@ async function makeErrorCards() {
       <div class="study-head">
         <div class="study-head-left"><span class="badge" :class="item.kind">{{ item.kind === 'new' ? '新词学习' : '复习巩固' }}</span><span class="session-label">今日学习</span></div>
         <span class="progress-text mono-num">
-          <b>{{ app.answeredCount }}</b><span> / {{ app.totalItems }} 词</span>
+          <b>{{ app.currentIndex + 1 }}</b><span> / {{ app.totalItems }} 词</span>
         </span>
       </div>
 
@@ -221,11 +309,12 @@ async function makeErrorCards() {
         <span :style="{ width: (app.answeredCount / app.totalItems) * 100 + '%' }"></span>
       </div>
 
-      <div class="card word-card">
+      <div ref="wordCard" class="card word-card">
         <div class="word-row">
-          <h1 class="word-spell">{{ word.spelling }}</h1><FavoriteWord :key="word.id" :word-id="word.id" />
+          <h1 class="word-spell">{{ word.spelling }}</h1><FavoriteWord :key="word.id" :word-id="word.id" compact-on-mobile />
           <button class="speak-btn" title="朗读单词" aria-label="朗读单词" @click="speak"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m11 4-6 5H2v6h3l6 5V4Z" /><path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" /></svg></button>
         </div>
+        <p v-if="speechError" class="error-text" role="status">{{ speechError }}</p>
         <p class="word-meta">
           <!-- 部分开源词表（初高中）没有音标，缺什么就不显示什么，避免留下空白占位 -->
           <span v-if="word.phonetic">{{ word.phonetic }}</span>
@@ -263,6 +352,13 @@ async function makeErrorCards() {
           </button>
         </div>
 
+        <div v-if="status === 'answered'" class="mobile-study-actions">
+          <button class="btn btn-primary next-btn" :disabled="advancing || app.loading.answering" @click="advance">
+            {{ nextLabel }} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
+          </button>
+        </div>
+        <p v-if="navigationNotice" class="navigation-notice" role="status">{{ navigationNotice }}</p>
+
         <transition name="fade">
           <div v-if="status === 'answered'" class="feedback" aria-live="polite">
             <p class="fb-line" :class="answer.isCorrect ? 'ok' : 'bad'">
@@ -270,11 +366,11 @@ async function makeErrorCards() {
             </p>
 
             <!-- 错因分析结果（PRD 4.2.3） -->
-            <div v-if="answer.analysis.type" class="analysis">
+            <div v-if="answer.analysis?.type" class="analysis">
               <span class="analysis-tag">{{ answer.analysis.label }}</span>
               <span class="analysis-action">{{ answer.analysis.action }}</span>
             </div>
-            <p v-else-if="answer.analysis.confidence === 'low'" class="analysis-note">
+            <p v-else-if="answer.analysis?.confidence === 'low'" class="analysis-note">
               答对了，但想了一会儿 —— 已标记为「半熟」，复习间隔会自动缩短。
             </p>
 
@@ -311,7 +407,7 @@ async function makeErrorCards() {
             </div>
 
             <!-- 记忆进度反馈 -->
-            <p class="next-review">
+            <p v-if="answer.progress" class="next-review">
               下次复习：{{ answer.progress.intervalDays }} 天后　·　记忆强度
               {{ Math.round(answer.progress.memoryStrength) }}
             </p>
@@ -327,7 +423,7 @@ async function makeErrorCards() {
           :disabled="advancing"
           @click="advance"
         >
-          {{ app.isLastItem ? '查看结果' : '下一个单词' }} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
+          {{ nextLabel }} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
         </button>
       </div>
     </template>
@@ -435,6 +531,9 @@ async function makeErrorCards() {
 
 <style scoped>
 .study { max-width: 800px; margin: 0 auto; }
+.mobile-study-actions { display: none; }
+.navigation-notice { margin: 12px 0 0; color: var(--ink-soft); font-size: 12px; }
+.word-card { scroll-margin-top: 12px; touch-action: pan-y pinch-zoom; }
 .focus-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 32px; }
 .back-link { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-soft); font-size: 12px; }
 .back-link svg { width: 18px; height: 18px; }
@@ -1010,7 +1109,6 @@ async function makeErrorCards() {
   .choice .opt-key { width: 23px; height: 23px; }
   .study-foot { flex-direction: column-reverse; gap: 17px; }
   .next-btn { width: 100%; justify-content: space-between; }
-  .keyboard-hints { width: 100%; justify-content: center; font-size: 9px; gap: 14px; }
   .result-card { padding: 34px 22px; }
   .result-title { font-size: 23px; }
   .result-sub { line-height: 1.9; }
@@ -1019,6 +1117,14 @@ async function makeErrorCards() {
   .ai-block { padding: 16px; }
   .ai-actions .btn { font-size: 12px; padding: 10px 12px; }
   .mc-row { flex-wrap: wrap; gap: 4px 10px; }
+}
+@media (max-width: 820px), (hover: none) and (pointer: coarse) {
+  .study-foot { display: none; }
+  .mobile-study-actions { display: block; margin-top: 14px; }
+  .mobile-study-actions .next-btn { width: 100%; justify-content: space-between; }
+  .word-row { position: relative; gap: 8px; }
+  .word-spell { min-width: 0; }
+  .study-foot:has(> .keyboard-hints:only-child) { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .speak-btn, .fade-enter-active, .fade-leave-active { transition: none; }.speak-btn:active { transform: none; } }
 </style>

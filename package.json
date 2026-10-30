@@ -16,9 +16,20 @@
     "test:server": "node --test --test-isolation=none --test-force-exit \"server/tests/*.test.js\"",
     "start:all": "concurrently \"npm run dev\" \"npm run server:dev\"",
     "ai:calibrate": "node server/src/db/calibrateAi.js",
-    "admin:grant": "node scripts/grant-admin.mjs"
+    "admin:grant": "node scripts/grant-admin.mjs",
+    "android:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/android.ps1 -Action Setup",
+    "android:doctor": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/android.ps1 -Action Doctor",
+    "android:sync": "vite build --mode android && cap sync android",
+    "android:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/android.ps1 -Action Build",
+    "android:connect": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/android.ps1 -Action Connect",
+    "android:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/android.ps1 -Action Install"
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
@@ -29,6 +40,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.6.0",
     "@vitejs/plugin-vue": "^5.2.1",
     "concurrently": "^10.0.5",
     "vite": "^6.0.7",

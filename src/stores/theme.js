@@ -28,7 +28,7 @@ export const backgrounds = [
 
 export const defaultAppearance = Object.freeze({
   material: 'glass', accent: '#9AAEFF', background: 'moonlake',
-  position: 'center', dim: 48, blur: 0, density: 'comfortable',
+  position: 'center', dim: 48, blur: 0, glassTransparency: 24, density: 'comfortable',
 })
 export const appearance = reactive({ ...defaultAppearance })
 export const uploadedBackgroundUrl = ref('')
@@ -67,6 +67,9 @@ function normalizeSettings(value = {}) {
       ? value.position : defaultAppearance.position,
     dim: finiteRange(value.dim, 0, 85, defaultAppearance.dim),
     blur: finiteRange(value.blur, 0, 24, defaultAppearance.blur),
+    glassTransparency: value.glassTransparency == null || value.glassTransparency === ''
+      ? defaultAppearance.glassTransparency
+      : finiteRange(value.glassTransparency, 0, 70, defaultAppearance.glassTransparency),
     density: ['comfortable', 'compact'].includes(value.density) ? value.density : defaultAppearance.density,
   }
 }
@@ -84,6 +87,16 @@ function applyToDocument() {
   root.dataset.theme = 'frost'
   root.dataset.material = appearance.material
   root.dataset.density = appearance.density
+  const glassAlpha = 1 - appearance.glassTransparency / 100
+  root.style.setProperty('--glass-opacity', glassAlpha.toFixed(2))
+  root.style.setProperty('--glass-study-opacity', ((1 + glassAlpha) / 2).toFixed(2))
+  root.style.setProperty('--glass-preview-opacity', Math.max(0, glassAlpha - 0.03).toFixed(2))
+  // Drawers and conversation surfaces start opaque; soften them only beyond the
+  // default setting so existing saved appearances keep their current layering.
+  root.style.setProperty('--glass-elevated-opacity', Math.min(1, glassAlpha + 0.24).toFixed(2))
+  // Gently shade the backdrop at higher transparency without hiding the scenery;
+  // the separate background dim control remains available for brighter photos.
+  root.style.setProperty('--glass-backdrop-brightness', Math.max(0.8, 1 - Math.max(0, appearance.glassTransparency - 24) / 230).toFixed(3))
   const rgb = appearance.accent.match(/[\da-f]{2}/gi).map(channel => parseInt(channel, 16))
   let readableRgb = rgb
   // Preserve the chosen value in preferences, but keep controls and accent text visible on dark surfaces.

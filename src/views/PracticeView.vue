@@ -10,6 +10,7 @@ import { usePracticeSpeech } from '../composables/usePracticeSpeech'
 import PracticeText from '../components/PracticeText.vue'
 import { practiceDay, selectPracticeResume } from '../utils/practiceResume.js'
 import { exportPracticeReport } from '../utils/practiceReportExport.js'
+import { Capacitor } from '@capacitor/core'
 
 const route = useRoute()
 const practiceWords = ref([...new Set(String(route.query.words || '').split(',').map(Number).filter(n => Number.isSafeInteger(n) && n > 0))].slice(0, 5))
@@ -270,8 +271,10 @@ async function exportReport(format) {
   if (working.value || !session.value?.report) return
   exporting.value = format; exportError.value = ''; notice.value = ''
   try {
-    await exportPracticeReport(session.value, format)
-    notice.value = `${format === 'pdf' ? 'PDF' : 'PNG 图片'}已生成，请在浏览器下载列表中查看。`
+    const name = await exportPracticeReport(session.value, format)
+    if (name) notice.value = Capacitor.isNativePlatform()
+      ? '小结已生成并打开系统分享，可选择应用保存或发送。'
+      : `${format === 'pdf' ? 'PDF' : 'PNG 图片'}已生成，请在浏览器下载列表中查看。`
   } catch (e) { exportError.value = e.message || '导出失败，请重试。' }
   finally { exporting.value = '' }
 }

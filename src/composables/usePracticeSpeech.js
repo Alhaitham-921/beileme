@@ -1,10 +1,13 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import http from '../api/client.js'
+import { nativeSpeech } from '../utils/speechSynthesis.js'
 
 const RECORDER_TYPES = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus', 'audio/webm']
 
 function microphoneError(error) {
-  if (['NotAllowedError', 'SecurityError'].includes(error?.name)) return '麦克风权限未开启，请在浏览器网站设置中允许麦克风，然后重试。'
+  if (['NotAllowedError', 'SecurityError'].includes(error?.name)) return nativeSpeech.isSupported()
+    ? '麦克风权限未开启，请在系统设置 → 应用 → 背了么 → 权限 → 麦克风中允许使用，然后重试。'
+    : '麦克风权限未开启，请在浏览器网站设置中允许麦克风，然后重试。'
   if (error?.name === 'NotFoundError') return '没有找到麦克风，请连接麦克风或继续打字。'
   if (error?.name === 'NotReadableError') return '麦克风正被其他程序占用，请关闭占用程序后重试。'
   if (error?.name === 'OverconstrainedError') return '所选麦克风不可用或已断开，请刷新设备列表并重新选择。'
@@ -69,6 +72,7 @@ export function usePracticeSpeech() {
   let disposed = false
   let startedAt = 0
   let utterance = null
+  let speechGeneration = 0
   let audioContext = null
   let meterFrame = null
   let meterSource = null
@@ -121,6 +125,8 @@ export function usePracticeSpeech() {
   }
 
   function stopSpeaking() {
+    speechGeneration += 1
+    if (nativeSpeech.isSupported()) void nativeSpeech.stop().catch(() => {})
     if (typeof window !== 'undefined') window.speechSynthesis?.cancel()
     utterance = null
     isSpeaking.value = false
@@ -283,6 +289,18 @@ export function usePracticeSpeech() {
 
   function speak(text, { rate = 1 } = {}) {
     if (isRecording.value || isStarting.value) return
+    if (nativeSpeech.isSupported()) {
+      stopSpeaking()
+      error.value = ''
+      const token = speechGeneration
+      isSpeaking.value = true
+      void nativeSpeech.speak(text, rate).catch(cause => {
+        if (token === speechGeneration && !disposed) error.value = cause.message || '系统朗读失败，请检查手机的文字转语音设置。'
+      }).finally(() => {
+        if (token === speechGeneration) isSpeaking.value = false
+      })
+      return
+    }
     if (typeof window === 'undefined' || !window.speechSynthesis || typeof SpeechSynthesisUtterance === 'undefined') {
       error.value = '当前浏览器不支持朗读，请更换新版浏览器。'
       return
@@ -300,7 +318,12 @@ export function usePracticeSpeech() {
   }
 
   function onVisibilityChange() {
-    if (document.hidden && (isRecording.value || isStarting.value)) {
+    if (document.hidden) onPageHide()
+  }
+
+  function onPageHide() {
+    stopSpeaking()
+    if (isRecording.value || isStarting.value || isTranscribing.value) {
       cancel()
       error.value = '页面切到后台，录音已停止。返回后可以重新录音。'
     }
@@ -311,12 +334,14 @@ export function usePracticeSpeech() {
     void refreshMicrophones()
     navigator.mediaDevices?.addEventListener?.('devicechange', refreshMicrophones)
     document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener?.('pagehide', onPageHide)
   })
   onBeforeUnmount(() => {
     disposed = true
     cancel()
     stopSpeaking()
     document.removeEventListener('visibilitychange', onVisibilityChange)
+    window.removeEventListener?.('pagehide', onPageHide)
     navigator.mediaDevices?.removeEventListener?.('devicechange', refreshMicrophones)
   })
 

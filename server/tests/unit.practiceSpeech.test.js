@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { createRenderer, nextTick } from 'vue'
 import { usePracticeSpeech } from '../../src/composables/usePracticeSpeech.js'
 import http from '../../src/api/client.js'
+import { nativeSpeech } from '../../src/utils/speechSynthesis.js'
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const until = async (predicate) => {
@@ -13,9 +14,11 @@ const until = async (predicate) => {
   assert.fail('Timed out waiting for mock microphone lifecycle')
 }
 
-function mountSpeech(t, { getUserMedia, post, audioContext } = {}) {
+function mountSpeech(t, { getUserMedia, post, audioContext, nativePlayback } = {}) {
   const originalGlobals = new Map(['window', 'document', 'navigator', 'MediaRecorder', 'FileReader', 'SpeechSynthesisUtterance', 'requestAnimationFrame', 'cancelAnimationFrame'].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
   const originalGet = http.get, originalPost = http.post
+  const originalNativeSpeech = { ...nativeSpeech }
+  if (nativePlayback) Object.assign(nativeSpeech, { isSupported: () => true, ...nativePlayback })
   const tracks = [], requests = [], recorders = [], spoken = []
   const listeners = new Map()
   class Recorder {
@@ -36,7 +39,7 @@ function mountSpeech(t, { getUserMedia, post, audioContext } = {}) {
     return { getTracks: () => [track] }
   }
   const globals = {
-    window: { AudioContext: audioContext, isSecureContext: true, speechSynthesis: { cancel() {}, getVoices: () => [{ lang: 'en-US' }], speak(message) { spoken.push(message); message.onstart?.() } } },
+    window: { AudioContext: audioContext, isSecureContext: true, addEventListener(name, fn) { listeners.set(name, fn) }, removeEventListener(name) { listeners.delete(name) }, speechSynthesis: { cancel() {}, getVoices: () => [{ lang: 'en-US' }], speak(message) { spoken.push(message); message.onstart?.() } } },
     requestAnimationFrame: (fn) => setTimeout(fn, 10),
     cancelAnimationFrame: (id) => clearTimeout(id),
     document: { hidden: false, addEventListener(name, fn) { listeners.set(name, fn) }, removeEventListener(name) { listeners.delete(name) } },
@@ -66,6 +69,7 @@ function mountSpeech(t, { getUserMedia, post, audioContext } = {}) {
     app.unmount()
     http.get = originalGet
     http.post = originalPost
+    Object.assign(nativeSpeech, originalNativeSpeech)
     for (const [key, descriptor] of originalGlobals) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor)
       else delete globalThis[key]
@@ -212,4 +216,53 @@ test('disconnected selected microphone reports device recovery without fallback'
   assert.match(speech.error.value, /重新选择/)
   assert.equal(speech.isRecording.value, false)
   assert.equal(speech.isStarting.value, false)
+})
+
+test('native speech keeps a replacement active when an older call completes and reports engine recovery', async (t) => {
+  const calls = []
+  let stops = 0
+  const { speech, spoken } = mountSpeech(t, { nativePlayback: {
+    stop: async () => { stops++ },
+    speak: (text, rate) => new Promise((resolve, reject) => { calls.push({ text, rate, resolve, reject }) }),
+  } })
+  await nextTick()
+  speech.speak('First sentence', { rate: 0.8 })
+  assert.equal(speech.isSpeaking.value, true)
+  speech.speak('Second sentence', { rate: 1.1 })
+  assert.equal(calls[1].rate, 1.1)
+  calls[0].resolve({ cancelled: true })
+  await delay(0)
+  assert.equal(speech.isSpeaking.value, true)
+  calls[1].reject(new Error('手机缺少英语语音包，请下载英语语音。'))
+  await delay(0)
+  assert.equal(speech.isSpeaking.value, false)
+  assert.match(speech.error.value, /英语语音包/)
+  assert.equal(spoken.length, 0)
+  speech.speak('Third sentence')
+  speech.stopSpeaking()
+  calls[2].resolve({ cancelled: true })
+  await delay(0)
+  assert.equal(speech.isSpeaking.value, false)
+  assert.ok(stops >= 4)
+})
+
+test('native app pagehide stops microphone without requiring document.hidden to change', async (t) => {
+  const { speech, tracks, listeners } = mountSpeech(t)
+  await nextTick()
+  await speech.start()
+  assert.equal(document.hidden, false)
+  listeners.get('pagehide')()
+  assert.ok(tracks[0].stopped > 0)
+  assert.equal(speech.isRecording.value, false)
+  assert.match(speech.error.value, /后台/)
+})
+
+test('native microphone denial points to app permissions', async (t) => {
+  const { speech } = mountSpeech(t, {
+    getUserMedia: async () => { throw new DOMException('denied', 'NotAllowedError') },
+    nativePlayback: { stop: async () => {} },
+  })
+  await nextTick()
+  await speech.start()
+  assert.match(speech.error.value, /系统设置.*背了么.*麦克风/)
 })

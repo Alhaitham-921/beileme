@@ -1,4 +1,5 @@
 import { practiceDay } from './practiceResume.js'
+import { saveExportFile } from './nativeFileExport.js'
 
 const WIDTH = 1240, HEIGHT = 1754, MARGIN = 76, CONTENT_TOP = 152, CONTENT_BOTTOM = HEIGHT - 110
 const FONT = '"Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif'
@@ -275,10 +276,5 @@ export async function exportPracticeReport(session, format) {
     // Release large bitmap buffers after encoding, especially on phones.
     for (const page of pages) { page.width = 0; page.height = 0 }
   }
-  const name = reportExportName(session, format), url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url; link.download = name; document.body.appendChild(link)
-  try { link.click() }
-  finally { link.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000) }
-  return name
+  return saveExportFile(blob, reportExportName(session, format))
 }

@@ -1,5 +1,7 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { Capacitor } from '@capacitor/core'
+import { App as NativeApp } from '@capacitor/app'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import AppIcon from './components/AppIcon.vue'
@@ -21,7 +23,6 @@ const links = [
   { to: '/review', icon: 'repeat', label: '温故知新' },
   { to: '/notebooks', icon: 'book', label: '我的单词本' },
   { to: '/practice', icon: 'chat', label: '情境练习' },
-  { to: '/speech', icon: 'microphone', label: '语音转文字' },
   { to: '/roots', icon: 'layers', label: '词根词缀' },
   { to: '/dashboard', icon: 'chart', label: '学习足迹' },
 ]
@@ -51,6 +52,20 @@ watch(menuOpen, open => { document.body.classList.toggle('menu-is-open', open) }
 document.addEventListener('keydown', onKeydown)
 const desktopQuery = window.matchMedia('(min-width: 821px)')
 function handleDesktop(event) { if (event.matches) closeMenu(false) }
+const nativeListeners = []
+onMounted(async () => {
+  if (Capacitor.getPlatform() !== 'android') return
+  nativeListeners.push(await NativeApp.addListener('backButton', () => {
+    if (menuOpen.value) { closeMenu(); return }
+    if (router.options.history.state.back) router.back()
+    else if (!['home', 'login', 'onboarding'].includes(route.name)) router.replace('/')
+    else NativeApp.minimizeApp()
+  }))
+  nativeListeners.push(await NativeApp.addListener('appStateChange', ({ isActive }) => {
+    if (!isActive) window.dispatchEvent(new Event('pagehide'))
+  }))
+})
+onBeforeUnmount(() => { nativeListeners.forEach(listener => listener.remove()) })
 desktopQuery.addEventListener('change', handleDesktop)
 onBeforeUnmount(() => { document.removeEventListener('keydown', onKeydown); desktopQuery.removeEventListener('change', handleDesktop); document.body.classList.remove('menu-is-open') })
 async function logout() {

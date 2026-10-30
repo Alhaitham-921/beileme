@@ -47,7 +47,7 @@ export const config = {
   // 业务「今天」的时区偏移（分钟）。数据统一按 UTC 存储，但每日计划的日期归属按东八区切分，
   // 否则用户在晚上 8 点之后的学习会被算进 UTC 的第二天。
   timezoneOffsetMinutes: readInt('APP_TIMEZONE_OFFSET_MINUTES', 480),
-  corsOrigins: readList('CORS_ORIGIN', ['http://localhost:5173', 'http://127.0.0.1:5173']),
+  corsOrigins: readList('CORS_ORIGIN', ['http://localhost:5173', 'http://127.0.0.1:5173', 'https://localhost']),
 
   db: {
     host: readString('DB_HOST', '127.0.0.1'),

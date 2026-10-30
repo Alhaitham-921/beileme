@@ -2,6 +2,14 @@
 
 Vue 3 + Node.js + MySQL 的学生英语学习项目，仅用于非商业学习与展示。
 
+## 安卓 App
+
+已接入 Capacitor，复用现有 Vue 界面。Windows 本机执行 `npm run android:setup` 配置工具路径，
+再执行 `npm run android:build` 生成 `output/android/beileme-debug.apk`。
+安卓手机开启 USB 调试并授权电脑后，执行 `npm run android:install`，或双击 `start-android.cmd`。
+调试版通过 USB 使用电脑后端，需保持数据线连接、MySQL 和后端运行；无需购买云服务器。
+手机操作、缓存路径、重连与云端地址配置见 [安卓 App 开发与真机调试](docs/安卓App开发与真机调试.md)。
+
 ## 本地启动
 
 需要 Node.js 22 或以上、MySQL 8。
@@ -46,7 +54,7 @@ Vue 3 + Node.js + MySQL 的学生英语学习项目，仅用于非商业学习�
 # 管理员共享语音识别
 
 管理员在「偏好设置 → 语音服务」统一填写硅基流动 Key、开启服务，并设置每位用户的使用限额。
-服务固定使用 `FunAudioLLM/SenseVoiceSmall`。普通用户登录后可从导航进入「语音转文字」直接录音，
+服务固定使用 `FunAudioLLM/SenseVoiceSmall`。普通用户登录后可从「偏好设置 → 语音输入 → 测试语音识别」直接录音，
 不需要个人语音 Key，也不需要先配置文字模型或创建情境对话。情境对话中的原有语音输入也共用此配置。
 
 首次安装或更新：

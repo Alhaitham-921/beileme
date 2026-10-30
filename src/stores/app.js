@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import api from '../api/index.js'
+import { studyAnswerForItem } from '../utils/studyNavigation.js'
 
 /** 进行中的会话 id 存这里，刷新页面后可以接着背同一组题 */
 const ACTIVE_SESSION_KEY = 'beileme:activeSession'
@@ -41,6 +42,7 @@ export const useAppStore = defineStore('app', {
     currentIndex: 0,
     /** 最近一次作答的完整结果（含错因分析、易混词卡片） */
     lastAnswer: null,
+    answerRequestId: 0,
     sessionSummary: null,
     newBadges: [],
 
@@ -86,6 +88,8 @@ export const useAppStore = defineStore('app', {
       return total ? Math.round((this.sessionCorrect / total) * 100) : 0
     },
     isLastItem: (state) => state.currentIndex >= state.items.length - 1,
+    firstUnansweredIndex: (state) => state.items.findIndex((item) => !item.answered),
+    allAnswered: (state) => state.items.length > 0 && state.items.every((item) => item.answered),
 
     totalLearned: (state) => state.overview?.totalLearned ?? 0,
     accuracy: (state) => state.overview?.accuracy ?? 0,
@@ -132,6 +136,8 @@ export const useAppStore = defineStore('app', {
       this.error = ''
       this.lastAnswer = null
       this.sessionSummary = null
+      this.answerRequestId += 1
+      this.loading.answering = false
       try {
         const data = await api.study.createSession(kind)
         this.session = data.session
@@ -158,6 +164,8 @@ export const useAppStore = defineStore('app', {
       this.error = ''
       this.lastAnswer = null
       this.sessionSummary = null
+      this.answerRequestId += 1
+      this.loading.answering = false
       try {
         const data = await api.study.createReviewSession(wordIds)
         this.session = data.session
@@ -189,18 +197,22 @@ export const useAppStore = defineStore('app', {
     },
 
     /** 刷新页面后恢复进行中的会话 */
-    async restoreSession() {
-      const sessionId = readActiveSessionId()
-      if (!sessionId || this.session?.id === sessionId) return null
+    async restoreSession(force = false) {
+      const sessionId = force ? this.session?.id || readActiveSessionId() : readActiveSessionId()
+      if (!sessionId || (!force && this.session?.id === sessionId)) return null
 
       this.loading.session = true
       try {
         const data = await api.study.getSession(sessionId)
         this.session = data.session
         this.items = data.items
+        this.answerRequestId += 1
+        this.loading.answering = false
+        this.sessionSummary = null
         // 跳过已作答的题
         const nextIndex = data.items.findIndex((item) => !item.answered)
         this.currentIndex = nextIndex === -1 ? Math.max(0, data.items.length - 1) : nextIndex
+        this.lastAnswer = studyAnswerForItem(this.currentItem)
         return data
       } catch {
         // 会话已失效就安静地放弃恢复
@@ -217,10 +229,17 @@ export const useAppStore = defineStore('app', {
      */
     async submitAnswer({ wordId, optionIndex, hesitationMs, source = 'study', spellingMistake = false }) {
       if (!this.session) throw new Error('当前没有进行中的学习会话')
+      if (this.loading.answering) throw new Error('正在保存答案，请稍候。')
+      if (this.sessionSummary || this.session.status === 'finished') throw new Error('该学习会话已结束。')
+      const targetItem = this.items.find((entry) => Number(entry.wordId) === Number(wordId))
+      if (!targetItem) throw new Error('该单词不属于当前学习会话。')
+      if (targetItem.answered) throw new Error('该单词本轮已作答，可回看但不会重复计分。')
 
+      const sessionId = this.session.id
+      const requestId = ++this.answerRequestId
       this.loading.answering = true
       try {
-        const data = await api.study.answer(this.session.id, {
+        const data = await api.study.answer(sessionId, {
           wordId,
           optionIndex,
           hesitationMs,
@@ -228,32 +247,46 @@ export const useAppStore = defineStore('app', {
           spellingMistake,
         })
 
-        this.lastAnswer = data
+        // A route/session switch must not apply an old response to the new queue.
+        if (requestId !== this.answerRequestId || this.session?.id !== sessionId || !this.items.includes(targetItem)) return data
         if (data.plan) this.plan = data.plan
         if (data.unlockedBadges?.length) this.newBadges = data.unlockedBadges
 
         // 同步本地题目状态，让进度与结果统计立刻反映出来
-        const item = this.items.find((entry) => entry.wordId === wordId)
-        if (item) {
-          item.answered = true
-          item.correct = data.isCorrect
-        }
+        targetItem.answered = true
+        targetItem.correct = data.isCorrect
+        targetItem.answerResult = data
+        targetItem.selectedOptionIndex = Number.isInteger(optionIndex) ? optionIndex : null
+        if (this.currentItem === targetItem) this.lastAnswer = data
         return data
       } finally {
-        this.loading.answering = false
+        if (requestId === this.answerRequestId) this.loading.answering = false
       }
     },
 
+    goToQuestion(index) {
+      if (!this.session || this.sessionSummary || this.session.status === 'finished' || this.loading.answering ||
+          !Number.isInteger(index) || index < 0 || index >= this.items.length) return false
+      this.currentIndex = index
+      this.lastAnswer = studyAnswerForItem(this.currentItem)
+      return true
+    },
+
     nextQuestion() {
-      if (this.currentIndex < this.items.length - 1) {
-        this.currentIndex += 1
-        this.lastAnswer = null
-      }
+      return this.goToQuestion(this.currentIndex + 1)
+    },
+
+    previousQuestion() {
+      return this.goToQuestion(this.currentIndex - 1)
     },
 
     async finishSession() {
       if (!this.session) return null
-      const data = await api.study.finish(this.session.id)
+      if (!this.allAnswered) throw new Error('还有未作答的单词，请完成后再查看结果。')
+      if (this.loading.answering) throw new Error('正在保存答案，请稍候。')
+      const sessionId = this.session.id
+      const data = await api.study.finish(sessionId)
+      if (this.session?.id !== sessionId) return data
       this.sessionSummary = data.summary
       writeActiveSessionId(null)
       return data
@@ -266,6 +299,8 @@ export const useAppStore = defineStore('app', {
       this.currentIndex = 0
       this.lastAnswer = null
       this.sessionSummary = null
+      this.answerRequestId += 1
+      this.loading.answering = false
       writeActiveSessionId(null)
     },
 
