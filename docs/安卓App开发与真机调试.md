@@ -5,11 +5,11 @@
 ## 已配置的内容
 
 - Android 工程：`android/`，应用名“背了么”，应用 ID `com.beileme.app`。
-- 独立的 Android 网页构建：`.env.android` 默认连接 `http://127.0.0.1:3001/api/v1`，不改变浏览器版的接口配置。
+- 独立的 Android 网页构建：`.env.android` 默认连接 `http://127.0.0.1:3002/api/v1`，不改变浏览器版的接口配置。
 - 本机 SDK/JDK 路径自动检测及缓存：`.android.local.json` 和 `android/local.properties`，均不提交 Git。
 - 构建缓存默认位于 `%LOCALAPPDATA%\Beileme\AndroidCache\`，不修改系统环境变量，也不覆盖捏捏谷的 JDK。Gradle 公共缓存和 Android 用户配置分别位于其中的 `gradle/`、`android-user/`；项目缓存按工程路径的哈希分目录，避免不同工程相互混用。
 - `android:setup` 仅给已有后端配置合并 Android 本地来源 `https://localhost`，不修改数据库信息、JWT 密钥或 API Key。已运行的后端需重启一次才会读取新配置。
-- USB 转发：手机的 `127.0.0.1:3001` 转发到电脑同一端口，不要求手机和电脑连接同一 Wi-Fi，也无需开放电脑防火墙端口。
+- USB 转发：手机的 `127.0.0.1:3002` 转发到电脑同一端口，不要求手机和电脑连接同一 Wi-Fi，也无需开放电脑防火墙端口。
 - 已配置麦克风权限、系统返回键、状态栏与导航栏避让；安卓朗读使用系统文字转语音引擎，小结导出打开系统分享。
 
 USB 方式必须保持数据线连接、电脑后端和 MySQL 运行。拔线后，这个本地演示 APK 无法访问电脑数据；APK 内不包含后端、数据库或模型密钥。
@@ -32,7 +32,7 @@ npm run android:build
 output/android/beileme-debug.apk
 ```
 
-若当前机器已运行旧后端，先在其终端按 `Ctrl+C`，再运行 `npm run server`。如果后端通过原来的启动脚本在后台运行，先关闭那个旧进程，再双击 `start-beileme.cmd`。不要同时启动两个占用 `3001` 的后端。
+若当前机器已运行旧后端，先在其终端按 `Ctrl+C`，再运行 `npm run server`。如果后端通过原来的启动脚本在后台运行，先关闭那个旧进程，再双击 `start-beileme.cmd`。不要同时启动两个占用 `3002` 的后端。
 
 本机可复用的工具路径：
 

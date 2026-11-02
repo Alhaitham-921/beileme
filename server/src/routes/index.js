@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import authRoutes from './auth.js'
+import recoveryRoutes from './recovery.js'
 import profileRoutes from './profile.js'
 import wordRoutes from './words.js'
 import studyRoutes from './study.js'
@@ -12,6 +13,7 @@ import healthRoutes from './health.js'
 import assessmentRoutes from './assessment.js'
 import practiceRoutes from './practice.js'
 import speechRoutes from './speech.js'
+import ttsRoutes from './tts.js'
 
 /**
  * API 版本前缀统一为 /api/v1。
@@ -23,7 +25,9 @@ router.use('/health', healthRoutes)
 router.use('/assessment', assessmentRoutes)
 router.use('/practice', practiceRoutes)
 router.use('/speech', speechRoutes)
+router.use('/tts', ttsRoutes)
 router.use('/auth', authRoutes)
+router.use('/auth', recoveryRoutes)
 router.use('/profile', profileRoutes)
 router.use('/words', wordRoutes)
 router.use('/study', studyRoutes)

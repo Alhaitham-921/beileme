@@ -1,3 +1,4 @@
+import { listFollowups, getFollowup, saveShortPractice } from '../services/practiceFollowups.js'
 import { Router } from 'express'
 import { z } from 'zod'
 import { requireAuth } from '../middleware/auth.js'
@@ -19,6 +20,9 @@ import { listDialogues, startDialogue, getDialogue, addDialogueTurn, requestDial
 
 const router = Router()
 router.use(requireAuth)
+router.get('/followups/:id',validate({params:z.object({id:z.coerce.number().int().positive()})}),asyncHandler(async(req,res)=>ok(res,await getFollowup(req.user.id,req.valid.params.id))))
+router.get('/followups',validate({query:z.object({sourceId:z.coerce.number().int().positive().optional()})}),asyncHandler(async(req,res)=>ok(res,{tasks:await listFollowups(req.user.id,req.valid.query)})))
+router.post('/followups/:id/short',validate({params:z.object({id:z.coerce.number().int().positive()}),body:z.object({answer:z.string().trim().min(1).max(1000)})}),asyncHandler(async(req,res)=>ok(res,await saveShortPractice(req.user.id,req.valid.params.id,req.valid.body.answer))))
 router.get('/', asyncHandler(async (req, res) => {
   const rows = await query('SELECT id, scene, answer, feedback, created_at FROM context_attempts WHERE user_id = ? ORDER BY id DESC LIMIT 20', [req.user.id])
   return ok(res, { ...await listDialogues(req.user.id), legacyScenes: SCENES, history: rows.map(r => ({ ...r, feedback: parseJson(r.feedback, {}) })) })
@@ -30,6 +34,7 @@ const strictness = z.enum(['lenient', 'standard', 'strict'])
 const mode = z.enum(['free', 'task'])
 const maxTurns = z.union([z.literal(8), z.literal(16), z.literal(24)])
 router.post('/scenes/generate', validate({ body: z.object({
+  followupId: z.number().int().positive().optional(),
   wordIds: z.array(z.number().int().positive()).min(1).max(5).optional(),
   description: z.string().trim().min(10).max(1500), difficulty: difficulty.default('beginner'),
 }) }), asyncHandler(async (req, res) => ok(res, await generateScenario(req.user.id, req.valid.body), 201)))

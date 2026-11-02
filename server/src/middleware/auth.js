@@ -8,7 +8,7 @@ async function resolveUser(req) {
 
   const payload = verifyAccessToken(token)
   const user = await queryOne(
-    `SELECT id, email, phone, nickname, status, token_version, created_at
+    `SELECT id, email, phone, nickname, status, token_version, created_at, email_verified_at
        FROM users WHERE id = ?`,
     [payload.sub]
   )

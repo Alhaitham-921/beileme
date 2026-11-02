@@ -193,7 +193,7 @@ describe('提交作答：正确路径', () => {
 
     assert.equal(data.isCorrect, true)
     assert.equal(data.isNewWord, true)
-    assert.equal(data.quality, 5, '答对且快应为 5 分')
+    assert.equal(data.quality, 4, '正常回忆正确为4分')
     assert.equal(data.analysis.type, null, '答对不产生错因')
     assert.equal(data.analysis.confidence, 'high')
     assert.equal(data.confusableCard, null)
@@ -212,11 +212,11 @@ describe('提交作答：正确路径', () => {
     assert.equal(data.plan.status === 'done' || data.plan.status === 'partial', true)
   })
 
-  test('答对但犹豫久记为低置信度，复习间隔比熟练更短', async () => {
+  test('正常回忆不因用时降级，主动不确定才记低置信度', async () => {
     const fastUser = await createOnboardedUser(client)
     const slowUser = await createOnboardedUser(client)
 
-    async function firstAnswer(user, hesitationMs) {
+    async function firstAnswer(user, hesitationMs, recall = 'normal') {
       const created = await client.post('/api/v1/study/sessions', {
         token: user.token,
         body: { kind: 'daily' },
@@ -225,7 +225,7 @@ describe('提交作答：正确路径', () => {
       const optionIndex = await correctOptionIndex(session.id, items[0].wordId)
       const response = await client.post(`/api/v1/study/sessions/${session.id}/answers`, {
         token: user.token,
-        body: { wordId: items[0].wordId, optionIndex, hesitationMs },
+        body: { wordId: items[0].wordId, optionIndex, hesitationMs, recall },
       })
       return response.data
     }
@@ -233,10 +233,12 @@ describe('提交作答：正确路径', () => {
     const fast = await firstAnswer(fastUser, 900)
     const slow = await firstAnswer(slowUser, 7000)
 
-    assert.equal(fast.quality, 5)
-    assert.equal(slow.quality, 3, '答对但慢应为 3 分')
-    assert.equal(slow.analysis.confidence, 'low')
-    assert.match(slow.analysis.action, /低置信度/)
+    assert.equal(fast.quality,4)
+    assert.equal(slow.quality,4)
+    assert.equal(slow.analysis.confidence,'high')
+    const unsure=await firstAnswer(await createOnboardedUser(client),900,'hard')
+    assert.equal(unsure.quality,3)
+    assert.equal(unsure.analysis.confidence,'low')
   })
 
   test('同一单词首次作答后再次提交被拒绝', async () => {
@@ -562,7 +564,7 @@ describe('会话收尾与统计', () => {
     )
     assert.equal(Number(first.result), 1)
     assert.equal(Number(first.is_new_word), 1)
-    assert.equal(Number(first.quality), 5)
+    assert.equal(Number(first.quality), 4)
   })
 
   test('计划计数区分新词与复习', async () => {
@@ -628,4 +630,16 @@ describe('错题汇总接口（PRD 4.3.3）', () => {
     assert.deepEqual(response.data.wrongWords, [])
     assert.deepEqual(response.data.errorDistribution, [])
   })
+})
+
+test('new-only sessions exclude due reviews without completing them',async()=>{
+ const user=await createOnboardedUser(client)
+ await playSession(client,user,{strategy:'all-correct',maxAnswers:2})
+ await execute('UPDATE user_word_progress SET next_review_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY) WHERE user_id = ?',[user.userId])
+ await execute('UPDATE daily_plans SET new_target = 10, new_done = 2, review_target = 5, review_done = 0 WHERE user_id = ?',[user.userId])
+ const fresh=await client.post('/api/v1/study/sessions',{token:user.token,body:{kind:'daily',studyMode:'new-only'}})
+ assert.equal(fresh.status,201);assert.ok(fresh.data.items.length>0);assert.ok(fresh.data.items.every(i=>i.kind==='new'))
+ assert.equal(fresh.data.plan.reviewDone,0)
+ const mixed=await client.post('/api/v1/study/sessions',{token:user.token,body:{kind:'daily',studyMode:'review-first'}})
+ assert.equal(mixed.status,201);assert.equal(mixed.data.items[0].kind,'review')
 })

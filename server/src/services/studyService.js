@@ -2,6 +2,8 @@
 import { parseJson, toJson, clamp } from '../utils/json.js'
 import { todayKey, businessDayStartUtc } from '../utils/time.js'
 import { badRequest, conflict, notFound } from '../utils/errors.js'
+import { studyWorkload, taskCap } from './studyWorkload.js'
+import { selectDailyWords } from './studyQueue.js'
 import { grade, reviewItem, computeMemoryStrength } from './srs.js'
 import { classifyError, CONFUSION_INTERVAL_FACTOR, ERROR_TYPE_LABELS } from './errorAnalysis.js'
 import {
@@ -36,6 +38,8 @@ export function mapSessionRow(row) {
   if (!row) return null
   return {
     id: Number(row.id),
+    studyOptions: parseJson(row.study_options, {}),
+    pausedAt:row.paused_at || null,
     kind: row.kind,
     status: row.status,
     plannedCount: Number(row.planned_count ?? 0),
@@ -55,6 +59,8 @@ function buildQueueItem(wordRow, kind, options) {
   return {
     wordId: Number(wordRow.id),
     kind,
+    reviewReason: kind==='review'?(Number(wordRow.last_result)===0?'上次回忆不稳定，安排再次巩固':Number(wordRow.times_wrong)>0?'曾出现错误，且已到复习时间':'间隔复习已到期'):'新词首次学习',
+    nextReviewAt: wordRow.next_review_at || null,
     options: options.map((option, index) => ({
       index,
       text: option.text,
@@ -109,6 +115,8 @@ async function materializeItems(queueItems) {
     items.push({
       wordId: Number(item.wordId),
       kind: item.kind,
+      reviewReason: item.reviewReason || (item.kind==='review'?'按复习计划再次巩固':'新词学习'),
+      nextReviewAt: item.nextReviewAt || null,
       word: publicWord(row),
       options: publicOptions(item.options),
       answered: Boolean(item.answered),
@@ -126,32 +134,28 @@ async function materializeItems(queueItems) {
  * @param {number} userId
  * @param {{ kind?: 'daily'|'extra' }} options
  */
-export async function createSession(userId, { kind = 'daily' } = {}) {
+export async function createSession(userId, { kind = 'daily', studyMode = 'review-first', budgetMinutes = null } = {}) {
   if (!['daily', 'extra'].includes(kind)) throw badRequest('kind 只能是 daily 或 extra')
 
+  if (!['review-first', 'new-only'].includes(studyMode)) throw badRequest('学习模式不合法')
   // 按用户的学习目标取对应词书（四级 → CET4，考研 → 考研词表 …）
   const wordbook = await resolveWordbookForUser(userId)
   const plan = await getOrCreateDailyPlan(userId, todayKey())
   const queue = []
+  const workload=budgetMinutes?await studyWorkload(userId):null
+  const cap=taskCap(budgetMinutes,workload?.secondsPerWord)
 
   if (kind === 'daily') {
-    // 每日计划：先消化到期复习，再按剩余额度引入新词
-    const reviewQuota = clamp(plan.reviewTarget - plan.reviewDone, 0, MAX_SESSION_SIZE)
-    const newQuota = clamp(plan.newTarget - plan.newDone, 0, MAX_SESSION_SIZE)
-
-    const dueRows = reviewQuota > 0 ? await listDueWords(userId, { limit: reviewQuota }) : []
-    for (const row of dueRows) {
-      queue.push(buildQueueItem(row, 'review', await buildOptionsFor(mapWordRow(row))))
-    }
-
-    const freshRows = newQuota > 0 ? await listFreshWords(userId, wordbook.id, { limit: newQuota }) : []
-    for (const row of freshRows) {
-      queue.push(buildQueueItem(row, 'new', await buildOptionsFor(mapWordRow(row))))
-    }
+    const entries = await selectDailyWords({ plan, studyMode,
+      listDue: limit => limit > 0 ? listDueWords(userId, { limit }) : [],
+      listFresh: limit => limit > 0 ? listFreshWords(userId, wordbook.id, { limit }) : [],
+      maxSize: cap,
+    })
+    for (const {row, kind: itemKind} of entries) queue.push(buildQueueItem(row, itemKind, await buildOptionsFor(mapWordRow(row))))
   } else {
     // 「再学一组」：不受每日计划限制，提前复习 + 补充新词
     const freshRows = await listFreshWords(userId, wordbook.id, { limit: EXTRA_SESSION_SIZE })
-    const learnedRows = await listLearnedWords(userId, { limit: EXTRA_SESSION_SIZE })
+    const learnedRows = studyMode === 'new-only' ? [] : await listLearnedWords(userId, { limit: EXTRA_SESSION_SIZE })
 
     const mixed = shuffle([
       ...freshRows.map((row) => ({ row, kind: 'new' })),
@@ -169,6 +173,7 @@ export async function createSession(userId, { kind = 'daily' } = {}) {
     [userId, kind, queue.length, toJson(queue)]
   )
 
+  await execute('UPDATE study_sessions SET study_options=? WHERE id=?',[toJson({studyMode,budgetMinutes}),result.insertId])
   const session = await queryOne('SELECT * FROM study_sessions WHERE id = ?', [result.insertId])
 
   return {
@@ -269,6 +274,7 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
     hesitationMs = 0,
     source = 'study',
     spellingMistake = false,
+    recall = 'normal',
   } = payload
 
   const outcome = await withTransaction(async (conn) => {
@@ -352,12 +358,13 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
     const analysis = classifyError({
       isCorrect,
       hesitationMs: hesitation,
+      recall,
       spellingMistake,
       confusion,
     })
 
     // ── SRS 更新：易混词组间隔更短 ──
-    const quality = grade(hesitation, isCorrect)
+    const quality = grade(hesitation, isCorrect, recall)
     const priorConfusionHits = await confusionHistoryWithConn(conn, userId, wordId)
     const srs = reviewItem(existing || {}, quality, now.getTime(), {
       confusionFactor: priorConfusionHits > 0 ? CONFUSION_INTERVAL_FACTOR : 1,

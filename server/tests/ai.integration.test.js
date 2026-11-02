@@ -880,3 +880,15 @@ describe('跳过模型内部思考（真实踩到的「生成失败」根因）'
     }
   })
 })
+
+
+test('simultaneous identical card requests share model work and later requests reuse personal cache',async()=>{
+ const {user}=await userWithMockProvider(),{user:other}=await userWithMockProvider()
+ const rows=await query("SELECT w.id FROM words w JOIN wordbooks b ON b.id=w.wordbook_id WHERE b.code='fixture-demo' LIMIT 3"),wordIds=rows.map(w=>Number(w.id))
+ const {generateErrorCards}=await import('../src/services/ai/contentService.js')
+ resetReceived();const [a,b]=await Promise.all([generateErrorCards(user.userId,{wordIds,forceNew:true}),generateErrorCards(user.userId,{wordIds:[...wordIds].reverse(),forceNew:true})])
+ assert.equal(a.source,'ai');assert.equal(a.content.id,b.content.id)
+ const calls=()=>received.filter(item=>item.body.messages?.some(m=>m.content?.includes('对比记忆卡片'))).length
+ assert.equal(calls(),1);const cached=await generateErrorCards(user.userId,{wordIds});assert.equal(cached.source,'cache');assert.equal(calls(),1)
+ const privateResult=await generateErrorCards(other.userId,{wordIds});assert.equal(privateResult.source,'ai');assert.notEqual(privateResult.content.id,a.content.id);assert.equal(calls(),2)
+})

@@ -9,16 +9,14 @@ test('grade：答错一律计 1 分，不论反应快慢', () => {
   assert.equal(grade(9000, false), 1)
 })
 
-test('grade：答对且快（≤3s）计 5 分，答对但慢计 3 分', () => {
-  assert.equal(grade(1000, true), 5)
-  assert.equal(grade(SRS.FAST_RESPONSE_MS, true), 5)
-  assert.equal(grade(SRS.FAST_RESPONSE_MS + 1, true), 3)
-  assert.equal(grade(9000, true), 3)
+test('grade：正常正确不因3秒、读选项或长时间思考降级', () => {
+ for(const ms of [1000,3000,3001,9000,600000]) assert.equal(grade(ms,true),4)
+ assert.equal(grade(1000,true,'hard'),3)
+ assert.equal(grade(9000,false,'hard'),1)
 })
 
-test('grade：犹豫时长非法时按低置信度处理，而不是判为熟练', () => {
-  assert.equal(grade(undefined, true), 3)
-  assert.equal(grade(Number.NaN, true), 3)
+test('grade：未上报时间不推断低置信度', () => {
+ assert.equal(grade(undefined,true),4);assert.equal(grade(NaN,true),4)
 })
 
 test('reviewItem：首次答对间隔 1 天，第二次 6 天，其后按难度因子增长', () => {

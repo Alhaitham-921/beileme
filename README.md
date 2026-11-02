@@ -2,6 +2,21 @@
 
 Vue 3 + Node.js + MySQL 的学生英语学习项目，仅用于非商业学习与展示。
 
+## 0.2.4 更新
+
+- 接入本机 Kokoro 英语朗读，手机无需安装系统语音引擎，含音频缓存与准备状态。
+- 支持先复习或直接学新词，提供约 5／10 分钟任务；暂停后保留本组进度，重开应用可继续。
+- 正常答对不再因超过三秒被判为半熟；用户可主动标记不确定。
+- 情境小结生成后续巩固任务，支持保存短句、复习目标词及换情境检验独立使用。
+- 语音识别失败可回放、重试保留的录音；生成支持取消等待，同批错词卡片复用缓存和并发任务。
+- 增加邮箱验证、邮件找回密码；注册登录暂不强制验证邮箱，邮件找回需先验证邮箱。
+
+升级运行 `npm ci`、`npm run db:migrate`，再重启后端。保留原有 `server/.env`，不要用模板覆盖其中的数据库与加密配置。
+网页默认端口为 **5174**、API 为 **3002**、Kokoro 内部服务为 **3003**；保留旧版并行运行时使用独立目录、数据库和端口。
+已有安装若仍配置旧端口，需把本机 `server/.env` 的 `PORT` 调为 `3002`，并将 `http://localhost:5174`、`http://127.0.0.1:5174`、`https://localhost` 加入 `CORS_ORIGIN`；若有 `.env.android.local`，同步确认其接口地址。数据库和密钥项继续沿用原配置。
+首次在另一台电脑使用朗读，须按 [Kokoro 配置说明](docs/Kokoro-local.md) 安装 Python 环境并下载模型；这些大文件不随源码分发。
+详见 [连续练习与恢复](docs/learning-continuity.md)、[学习判定调整](docs/study-policy-update.md)、[邮箱验证与找回密码](docs/password-recovery-design.md)。
+
 ## 安卓 App
 
 已接入 Capacitor，复用现有 Vue 界面。Windows 本机执行 `npm run android:setup` 配置工具路径，
@@ -17,7 +32,7 @@ Vue 3 + Node.js + MySQL 的学生英语学习项目，仅用于非商业学习�
 1. `npm ci`。
 2. 将 `server/.env.example` 复制为 `server/.env`，设置数据库连接和固定的 `JWT_SECRET`。首次设置 `AI_KEY_ENCRYPTION_SECRET` 后请保持不变；已有密钥依赖当前加密配置，不要随意轮换。
 3. `npm run db:setup` 创建结构并导入词书；`node server/src/db/importIelts.js` 可单独导入项目保留的雅思词表。
-4. `npm run start:all`，打开 http://127.0.0.1:5173/ 。
+4. `npm run start:all`，打开 http://127.0.0.1:5174/ 。
 
 已有安装升级先运行 `npm run db:migrate`，再重启后端。
 
@@ -41,7 +56,7 @@ Vue 3 + Node.js + MySQL 的学生英语学习项目，仅用于非商业学习�
 - 雅思等词书、词根词缀拆解与记忆库。
 - 暖纸、磨砂暗黑和林间主题。
 
-麦克风识别需要独立的语音服务配置；AI 回复朗读使用浏览器自带能力。账号注册、API 配置和真机验收见 [情境练习接入待办](docs/情境练习接入待办.md)。
+麦克风识别需要独立的语音服务配置；AI 回复朗读由后端 Kokoro 合成，需先按 [配置说明](docs/Kokoro-local.md) 启动本机朗读服务。账号注册、API 配置和真机验收见 [情境练习接入待办](docs/情境练习接入待办.md)。
 
 ## 词库来源
 
@@ -89,7 +104,7 @@ npm run db:setup
 npm run start:all
 ```
 
-打开 http://localhost:5173/，注册自己的账号。文字 API 在网页偏好设置里配置；语音 API 可填写本机 `server/.env` 的 `SPEECH_API_KEY`（模板已填写硅基流动地址和 SenseVoiceSmall 模型），或按上面的管理员共享语音说明配置。密钥可稍后填写，没有语音 Key 时仍可打字。
+打开 http://localhost:5174/，注册自己的账号。文字 API 在网页偏好设置里配置；语音 API 可填写本机 `server/.env` 的 `SPEECH_API_KEY`（模板已填写硅基流动地址和 SenseVoiceSmall 模型），或按上面的管理员共享语音说明配置。密钥可稍后填写，没有语音 Key 时仍可打字。
 
 已克隆过项目的组员，先保存自己的代码改动，再执行：
 

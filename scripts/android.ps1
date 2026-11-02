@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $configPath = Join-Path $projectRoot '.android.local.json'
 $apkPath = Join-Path $projectRoot 'output/android/beileme-debug.apk'
-$backendHealth = 'http://127.0.0.1:3001/api/v1/health'
+$backendHealth = 'http://127.0.0.1:3002/api/v1/health'
 
 function Invoke-Tool([string]$File, [string[]]$Arguments) {
     & $File @Arguments
@@ -134,6 +134,7 @@ function Get-BackendResponse {
 
 function Connect-Device([string]$DeviceSerial) {
     Configure-Cors
+    & (Join-Path $PSScriptRoot 'start-kokoro.ps1')
     $response = Get-BackendResponse
     if (-not $response) {
         Write-Host 'Starting the existing local backend and web development server...'
@@ -145,7 +146,7 @@ function Connect-Device([string]$DeviceSerial) {
         $response.Headers['Access-Control-Allow-Origin'] -ne '*') {
         throw 'Backend CORS has not picked up the Android origin. Stop the running backend and start it again with npm run server (keep MySQL running), then retry. Other running processes are left untouched.'
     }
-    Invoke-Tool $adb @('-s', $DeviceSerial, 'reverse', 'tcp:3001', 'tcp:3001')
+    Invoke-Tool $adb @('-s', $DeviceSerial, 'reverse', 'tcp:3002', 'tcp:3002')
     Write-Host "USB forwarding is ready on $DeviceSerial. Keep the cable connected and the PC backend running."
 }
 
@@ -170,7 +171,7 @@ try {
                 } else {
                     Write-Host 'Backend is healthy, but Android CORS is missing or incorrect. Run android:setup, restart the backend, and then retry android:connect.'
                 }
-            } else { Write-Host 'Backend is not ready on port 3001. Connect will try the existing local start script.' }
+            } else { Write-Host 'Backend is not ready on port 3002. Connect will try the existing local start script.' }
             Write-Host "APK ready: $(Test-Path -LiteralPath $apkPath) ($apkPath)"
         }
         'Setup' {

@@ -1,6 +1,6 @@
 ﻿import test, { before, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { getTestServer, createClient, createOnboardedUser } from './helpers/setup.js'
+import { getTestServer, createClient, createOnboardedUser, config } from './helpers/setup.js'
 
 let client
 
@@ -71,10 +71,11 @@ describe('统一的错误响应格式', () => {
 
 describe('跨域配置', () => {
   test('允许配置内的前端来源', async () => {
+    const origin = config.corsOrigins.find(value => value !== '*') || 'http://localhost:5174'
     const response = await fetch(`${(await getTestServer()).baseUrl}/api/v1/health`, {
-      headers: { Origin: 'http://localhost:5173' },
+      headers: { Origin: origin },
     })
-    assert.equal(response.headers.get('access-control-allow-origin'), 'http://localhost:5173')
+    assert.equal(response.headers.get('access-control-allow-origin'), origin)
   })
 
   test('不在白名单内的来源不返回跨域许可头', async () => {

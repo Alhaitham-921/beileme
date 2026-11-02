@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import api from '../api/index.js'
+let cardsController=null, cardsGeneration=0
 
 /**
  * AI 内容与设置。
@@ -78,6 +79,7 @@ export const useAiStore = defineStore('ai', {
 
   actions: {
     resetAccount() {
+      cardsController?.abort();cardsGeneration++
       const revision = this.accountRevision + 1
       this.$reset()
       this.accountRevision = revision
@@ -322,11 +324,15 @@ export const useAiStore = defineStore('ai', {
     },
 
     /** 批量生成错词卡片：一次请求覆盖多个词 */
+    cancelCards() { cardsController?.abort(); cardsGeneration++; this.loading.generate=false },
     async generateErrorCards({ wordIds, limit = 6, forceNew = false } = {}) {
+      cardsController?.abort();cardsController=new AbortController()
+      const controller=cardsController, token=++cardsGeneration, revision=this.accountRevision
       this.loading.generate = true
       this.error = ''
       try {
-        const result = await api.content.generateErrorCards({ wordIds, limit, forceNew })
+        const result = await api.content.generateErrorCards({ wordIds, limit, forceNew },{signal:controller.signal})
+        if(token!==cardsGeneration || revision!==this.accountRevision)return null
         this.cards = result.cards || []
         this.cardsSource = result.source
         this.cardsMessage = result.message || ''
@@ -334,10 +340,10 @@ export const useAiStore = defineStore('ai', {
         await this.loadStatus().catch(() => {})
         return result
       } catch (error) {
-        this.error = error.message
+        if(token===cardsGeneration && revision===this.accountRevision)this.error = error.message
         throw error
       } finally {
-        this.loading.generate = false
+        if(token===cardsGeneration && revision===this.accountRevision)this.loading.generate = false
       }
     },
 

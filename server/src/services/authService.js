@@ -19,6 +19,7 @@ export function publicUser(row) {
   return {
     id: Number(row.id),
     email: row.email || null,
+    emailVerified: Boolean(row.email_verified_at),
     phone: row.phone || null,
     nickname: row.nickname || '',
     createdAt: row.created_at,

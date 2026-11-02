@@ -5,13 +5,13 @@ import { viteSingleFile } from 'vite-plugin-singlefile'
 export default defineConfig({
   plugins: [vue(), viteSingleFile()],
   server: {
-    port: 5173,
+    port: 5174,
     open: true,
     // 开发期把 /api 转发到本地后端，前端用相对路径请求即可，避免跨域与硬编码域名。
     // 后端端口通过 PORT 调整时，这里也要同步改。
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:3001',
+        target: 'http://127.0.0.1:3002',
         changeOrigin: true,
       },
     },

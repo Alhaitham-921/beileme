@@ -62,10 +62,10 @@ npm run server        # 前台运行
 npm run server:dev    # 文件变更自动重启
 
 # 4. 验证
-curl http://127.0.0.1:3001/api/v1/health
+curl http://127.0.0.1:3002/api/v1/health
 ```
 
-前端联调：`npm run dev` 启动 Vite 后，`/api` 会被代理到 `http://127.0.0.1:3001`
+前端联调：`npm run dev` 启动 Vite 后，`/api` 会被代理到 `http://127.0.0.1:3002`
 （见 `vite.config.js`），前端直接用相对路径请求即可，无需处理跨域。
 
 ### 可用脚本

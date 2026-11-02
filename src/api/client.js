@@ -11,6 +11,7 @@
  * HttpOnly Cookie。这一点在当前阶段接受，但记录在此以免遗忘。
  */
 
+import { mergeSignals, uploadRequest } from '../utils/uploadRequest.js'
 import { publishAiUsage, latestAiUsage } from '../stores/aiUsage.js'
 
 const STORAGE_KEY = 'beileme:auth'
@@ -175,7 +176,7 @@ function ensureRefreshed() {
  * @throws {ApiError}
  */
 export async function request(method, path, options = {}) {
-  const { body, query, auth = true, retryOn401 = true, timeoutMs } = options
+  const { body, query, auth = true, retryOn401 = true, timeoutMs, signal, onUploadComplete, timeoutMessage } = options
 
   const headers = {}
   if (body !== undefined) headers['Content-Type'] = 'application/json'
@@ -183,14 +184,17 @@ export async function request(method, path, options = {}) {
 
   let response
   try {
-    response = await fetch(buildUrl(path, query), {
+    const send = onUploadComplete ? uploadRequest : fetch
+    response = await send(buildUrl(path, query), {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
-      ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
+      signal: mergeSignals([signal, timeoutMs ? AbortSignal.timeout(timeoutMs) : null]),
+      ...(onUploadComplete ? {onUploadComplete} : {}),
     })
   } catch (error) {
-    if (error.name === 'TimeoutError' || error.name === 'AbortError') throw new ApiError(0, 'TIMEOUT', '保存响应超时，请恢复进度后继续，已保存的答案不会重复计分')
+    if (signal?.aborted) throw new ApiError(499, 'REQUEST_CANCELLED', '已取消等待；已提交的后台操作仍可能完成。')
+    if (error.name === 'TimeoutError' || error.name === 'AbortError') throw new ApiError(0, 'TIMEOUT', timeoutMessage || '请求超时，请稍后重试；已提交的操作可能仍在后台处理。')
     throw new ApiError(0, 'NETWORK_ERROR', '无法连接服务器，请确认后端已启动（npm run server）')
   }
 
@@ -202,7 +206,7 @@ export async function request(method, path, options = {}) {
       handleAuthExpired()
       throw new ApiError(401, 'UNAUTHORIZED', '登录状态已失效，请重新登录')
     }
-    return request(method, path, { body, query, auth, timeoutMs, retryOn401: false })
+    return request(method, path, { ...options, retryOn401: false })
   }
 
   const payload = await parseBody(response)

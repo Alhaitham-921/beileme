@@ -269,12 +269,12 @@ export function mapContentRow(row, { withBody = true } = {}) {
 
 async function findCached({ userId, cacheKey, type }) {
   const since = new Date(Date.now() - config.ai.cacheHours * 60 * 60 * 1000)
-  // 缓存池跨用户共享：相同词组合短期内被多个用户触发时优先复用（PRD 4.3.6 第 1 条）
+  // 通用内容可复用；包含个人错因的卡片仅复用当前账号的缓存。
   const row = await queryOne(
     `SELECT * FROM generated_contents
-      WHERE cache_key = ? AND type = ? AND created_at >= ?
+      WHERE cache_key = ? AND type = ? AND created_at >= ? AND (type <> 'error_card' OR user_id = ?)
       ORDER BY created_at DESC LIMIT 1`,
-    [cacheKey, type, since]
+    [cacheKey, type, since, userId]
   )
   return row ? mapContentRow(row) : null
 }
@@ -954,7 +954,15 @@ async function quizFallbackSuggestions(words) {
  * @param {number} userId
  * @param {{wordIds?:number[], limit?:number, forceNew?:boolean}} options
  */
-export async function generateErrorCards(
+const cardRequests=new Map()
+export async function generateErrorCards(userId, options={}) {
+ const key=JSON.stringify([userId,[...new Set(options.wordIds||[])].sort((a,b)=>a-b),options.limit||6,Boolean(options.forceNew),options.boost||1])
+ if(cardRequests.has(key))return cardRequests.get(key)
+ const pending=generateErrorCardsInner(userId,options)
+ cardRequests.set(key,pending)
+ try{return await pending}finally{if(cardRequests.get(key)===pending)cardRequests.delete(key)}
+}
+async function generateErrorCardsInner(
   userId,
   { wordIds, limit = MAX_CARDS_PER_REQUEST, forceNew = false, boost = 1 } = {}
 ) {

@@ -43,11 +43,11 @@ export const config = {
   isTest,
   // 只能由服务器运营者指定已有账号 ID；注册请求不能授予管理权限。
   adminUserIds: readList('ADMIN_USER_IDS', []),
-  port: readInt('PORT', 3001),
+  port: readInt('PORT', 3002),
   // 业务「今天」的时区偏移（分钟）。数据统一按 UTC 存储，但每日计划的日期归属按东八区切分，
   // 否则用户在晚上 8 点之后的学习会被算进 UTC 的第二天。
   timezoneOffsetMinutes: readInt('APP_TIMEZONE_OFFSET_MINUTES', 480),
-  corsOrigins: readList('CORS_ORIGIN', ['http://localhost:5173', 'http://127.0.0.1:5173', 'https://localhost']),
+  corsOrigins: readList('CORS_ORIGIN', ['http://localhost:5174', 'http://127.0.0.1:5174', 'https://localhost']),
 
   db: {
     host: readString('DB_HOST', '127.0.0.1'),

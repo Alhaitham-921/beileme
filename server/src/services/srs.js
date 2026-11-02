@@ -2,19 +2,19 @@
  * 间隔重复引擎（PRD 4.2.2）
  *
  * 在经典 SM-2 基础上扩展了三个输入维度：
- *  1. 犹豫时长 → 归一化为置信度，答对但慢的「低置信度正确」间隔要缩短
+ *  1. 主动标记不确定 → 适度缩短间隔；答题时长不参与置信度判定
  *  2. 历史错误次数 → 折算进记忆强度，决定复习优先级
  *  3. 易混词组 → 存在形近/近义混淆时，间隔按系数打折，因为混淆概率高于单纯遗忘
  *
- * 与前端 src/utils/srs.js 的 grade() 保持同一套判定口径，便于前后端对账。
+ * 评分与复习安排统一由后端负责。
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
 export const SRS = {
-  /** 答对且快于该阈值视为「熟练」 */
+  /** 旧版速度阈值，保留兼容；不再用于判定熟练度 */
   FAST_RESPONSE_MS: 3000,
-  /** 答对但慢于该阈值视为「半熟 / 低置信度」 */
+  /** 旧版描述性速度阈值，不再用于判定熟练度 */
   SLOW_RESPONSE_MS: 6000,
   INITIAL_EF: 2.5,
   MIN_EF: 1.3,
@@ -23,7 +23,7 @@ export const SRS = {
   MASTERED_INTERVAL_DAYS: 21,
   /** 存在形近/近义混淆时的间隔折扣 */
   CONFUSION_INTERVAL_FACTOR: 0.7,
-  /** low-confidence（答对但犹豫久）的间隔折扣 */
+  /** low-confidence（用户主动标记不确定）的间隔折扣 */
   LOW_CONFIDENCE_INTERVAL_FACTOR: 0.8,
   MAX_INTERVAL_DAYS: 365,
   /** 记忆强度低于该值的词优先进入复习队列 */
@@ -41,19 +41,17 @@ function round2(value) {
 /**
  * 由「对错 + 犹豫时长」推导 SM-2 质量分 0~5。
  * - 答错 → 1（生疏）
- * - 答对且快（≤3s）→ 5（熟练）
- * - 答对但慢（>3s）→ 3（半熟 / 低置信度）
+ * - 答对且主动标记不确定 → 3；正常回忆答对 → 4。时间不决定等级。
  */
-export function grade(hesitationMs, isCorrect) {
+export function grade(_hesitationMs, isCorrect, recall = 'normal') {
   if (!isCorrect) return 1
-  const hesitation = Number(hesitationMs)
-  if (!Number.isFinite(hesitation)) return 3
-  return hesitation <= SRS.FAST_RESPONSE_MS ? 5 : 3
+  // Reading options, motor speed and interruptions are not evidence of forgetting.
+  return recall === 'hard' ? 3 : 4
 }
 
 /**
  * 记忆强度 0~100：用于生成复习优先级队列。
- * 组成：连续答对次数 35% + 难度因子 25% + 历史正确率 25% + 反应速度 15%。
+ * 组成：连续答对次数 40% + 难度因子 30% + 历史正确率 30%。反应时间仅作描述性记录。
  * 最近一次答错则强制压低上限，避免「历史正确率很高但刚忘掉」的词被排到队尾。
  */
 export function computeMemoryStrength({
@@ -68,19 +66,7 @@ export function computeMemoryStrength({
   const efScore = clamp((ef - SRS.MIN_EF) / (SRS.MAX_EF - SRS.MIN_EF), 0, 1)
   const accScore = timesSeen > 0 ? clamp(timesCorrect / timesSeen, 0, 1) : 0
 
-  let speedScore = 0.5
-  if (Number.isFinite(Number(lastHesitationMs))) {
-    const hesitation = Number(lastHesitationMs)
-    if (hesitation <= SRS.FAST_RESPONSE_MS) speedScore = 1
-    else if (hesitation >= SRS.SLOW_RESPONSE_MS) speedScore = 0.3
-    else {
-      // 在快/慢之间线性过渡
-      const ratio = (hesitation - SRS.FAST_RESPONSE_MS) / (SRS.SLOW_RESPONSE_MS - SRS.FAST_RESPONSE_MS)
-      speedScore = 1 - ratio * 0.7
-    }
-  }
-
-  let strength = 100 * (0.35 * repsScore + 0.25 * efScore + 0.25 * accScore + 0.15 * speedScore)
+  let strength = 100 * (0.4 * repsScore + 0.3 * efScore + 0.3 * accScore)
 
   if (lastResult === 0 || lastResult === false) strength = Math.min(strength, 40)
   if (timesSeen === 0) strength = 0

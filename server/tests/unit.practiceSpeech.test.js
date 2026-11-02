@@ -182,6 +182,8 @@ test('live meter follows actual samples and empty transcript preserves playback 
   assert.equal(closed, 1)
   assert.equal(disconnected, 1)
   speech.cancel()
+  assert.ok(speech.recordingUrl.value.startsWith('blob:'))
+  speech.cancel({ discard: true })
   assert.equal(speech.recordingUrl.value, '')
 })
 
@@ -265,4 +267,22 @@ test('native microphone denial points to app permissions', async (t) => {
   await nextTick()
   await speech.start()
   assert.match(speech.error.value, /系统设置.*背了么.*麦克风/)
+})
+
+
+test('failed recognition retains the same audio for retry and exposes upload/recognition phases',async t=>{
+ let attempts=0,finish
+ const {speech,requests}=mountSpeech(t,{post:async(path,options)=>{attempts++;options.onUploadComplete?.();if(attempts===1)throw Object.assign(new Error('识别超时'),{code:'TIMEOUT'});return new Promise(resolve=>{finish=resolve})}})
+ await nextTick();await speech.start();await delay(220);speech.stop();await until(()=>speech.error.value)
+ const preview=speech.recordingUrl.value;assert.ok(preview.startsWith('blob:'));assert.equal(speech.canRetry.value,true);assert.match(speech.error.value,/已保留/)
+ const pending=speech.retryTranscription();await until(()=>attempts===2);assert.equal(speech.phase.value,'recognizing');assert.equal(requests[0].body.audioBase64,requests[1].body.audioBase64);assert.equal(speech.recordingUrl.value,preview)
+ finish({text:'I have a reservation.'});await pending;assert.equal(speech.transcript.value,'I have a reservation.');assert.equal(speech.phase.value,'idle')
+})
+
+test('cancel during recognition aborts the request, retains audio and ignores the old result after retry',async t=>{
+ const jobs=[];const {speech,requests}=mountSpeech(t,{post:()=>new Promise(resolve=>jobs.push(resolve))})
+ await nextTick();await speech.start();await delay(220);speech.stop();await until(()=>jobs.length===1)
+ const preview=speech.recordingUrl.value;speech.cancel();assert.equal(requests[0].signal.aborted,true);assert.equal(speech.recordingUrl.value,preview)
+ const pending=speech.retryTranscription();await until(()=>jobs.length===2);jobs[0]({text:'stale'});await nextTick();assert.equal(speech.transcript.value,'');assert.equal(speech.isTranscribing.value,true)
+ jobs[1]({text:'new result'});await pending;assert.equal(speech.transcript.value,'new result')
 })

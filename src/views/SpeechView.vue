@@ -1,4 +1,5 @@
 <script setup>
+import SpeechRecoveryControls from '../components/SpeechRecoveryControls.vue'
 import { ref, watch } from 'vue'
 import { usePracticeSpeech } from '../composables/usePracticeSpeech.js'
 import AppIcon from '../components/AppIcon.vue'
@@ -31,6 +32,7 @@ async function copy() {
         <button v-if="isRecording || isStarting || isTranscribing" class="btn" @click="speech.cancel">取消</button>
         <button v-else class="btn" :disabled="statusLoading" @click="speech.refreshStatus">刷新服务状态</button>
       </div>
+      <SpeechRecoveryControls :speech="speech" />
       <p v-if="error" class="error" role="alert">{{ error }}</p>
       <p v-if="isRecording" role="status">正在录音，停止后才会上传识别。</p>
       <label for="speech-result">识别结果（可编辑）</label>

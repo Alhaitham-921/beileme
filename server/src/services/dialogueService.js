@@ -1,3 +1,4 @@
+import { saveFollowups, getFollowup } from './practiceFollowups.js'
 import { randomUUID } from 'node:crypto'
 import { query, queryOne, execute, withTransaction } from '../db/pool.js'
 import { parseJson } from '../utils/json.js'
@@ -56,16 +57,18 @@ function withDifficulty(scene, difficulty) {
     showTranslation: level === 1, chineseTolerance: level === 1 ? 'high' : level === 2 ? 'medium' : 'low' }
 }
 
-export async function generateScenario(userId, { description, difficulty = 'beginner', wordIds = [] }) {
+export async function generateScenario(userId, { description, difficulty = 'beginner', wordIds = [], followupId }) {
   const words = await Promise.all([...new Set(wordIds)].map(getWordById))
-  const targetWords = [...new Set(words.map(w => w.spelling.toLowerCase()))]
+  const followup=followupId?await getFollowup(userId,followupId):null
+  const targetWords = followup?[followup.word.toLowerCase()]:[...new Set(words.map(w => w.spelling.toLowerCase()))]
+  if(followup) description=description.slice(0,1000)+'。这是迁移练习：地点必须不同于'+followup.sourceLocation+'，原场景是'+followup.sourceTitle+'，为目标词设计新的交流任务。'
   if (targetWords.some(w => !/^[a-z]+(?:['-][a-z]+)*$/.test(w))) throw badRequest('请选择单个英文单词作为情景目标词')
   const request = { description, difficulty, ...(targetWords.length ? { targetWords } : {}) }
   const generation = {}
   const { value, usage } = await generateValidated(userId, generation,
-    buildScenarioMessages(request), raw => validateScenario(raw, request), true)
+    buildScenarioMessages(request), raw => {const scene=validateScenario(raw,request);if(followup && scene.location===followup.sourceLocation)throw new Error('迁移场景需更换地点');return scene}, true)
   const saved = await execute(`INSERT INTO dialogue_scenes (user_id,source,difficulty,scene,generation_usage)
-    VALUES (?,'custom',?,?,?)`, [userId, difficulty, JSON.stringify({ ...value, description }), JSON.stringify(usage)])
+    VALUES (?,'custom',?,?,?)`, [userId, difficulty, JSON.stringify({ ...value, description, ...(followup?{followupId:followup.id}: {}) }), JSON.stringify(usage)])
   const scene = await savedSceneFor(userId, `custom-${saved.insertId}`)
   return { scene, usage }
 }
@@ -364,6 +367,7 @@ async function finalizeReport(userId, session, report, evidence, token) {
     }
     session.report = { ...report, usage: session.lastUsage, targetUsage: session.targetUsage, reviewWords, strengthenedWords,
       unmatchedWords: candidates.filter(w => !words.some(m => m.spelling_norm === w)), evidence }
+    await saveFollowups(conn,userId,session,session.report)
     session.reportError = null
     await conn.execute(`UPDATE dialogue_sessions SET state=?,status='finished',operation_token=NULL,lease_until=NULL,updated_at=UTC_TIMESTAMP() WHERE id=? AND operation_token=?`, [JSON.stringify(session), session.id, token])
   })

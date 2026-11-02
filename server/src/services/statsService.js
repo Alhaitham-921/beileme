@@ -196,11 +196,7 @@ export async function getWeakSummary(userId, { days = 7 } = {}) {
 
   const avgCorrectHesitation = Number(hesitationRow?.avg_correct_hesitation || 0)
   if (avgCorrectHesitation > 0) {
-    sentences.push(
-      avgCorrectHesitation > 4000
-        ? `答对的平均反应时间 ${Math.round(avgCorrectHesitation / 1000)} 秒，偏慢，属于「半熟」状态，复习间隔已自动缩短。`
-        : `答对的平均反应时间 ${Math.round(avgCorrectHesitation / 1000)} 秒，反应速度正常。`
-    )
+    sentences.push(`答对的平均用时 ${Math.round(avgCorrectHesitation / 1000)} 秒，仅供参考，不据此判定熟练度或缩短间隔。`)
   }
 
   if (dialogueGrammar.length) sentences.push(`情境对话中反复出现的语法问题：${dialogueGrammar.map(g => `${g.label}（${g.count} 次）`).join('、')}，建议完成小结里的短句强化。`)

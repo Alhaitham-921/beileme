@@ -1,4 +1,7 @@
 <script setup>
+import PracticeFollowups from '../components/PracticeFollowups.vue'
+import SpeechRecoveryControls from '../components/SpeechRecoveryControls.vue'
+import { http } from '../api/client.js'
 import AiUsage from '../components/AiUsage.vue'
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import PracticeWordPicker from '../components/PracticeWordPicker.vue'
@@ -18,6 +21,8 @@ const auth = useAuthStore()
 const app = useAppStore(), router = useRouter(), startingReview = ref(false)
 const scenes = ref([]), recommendations = ref([]), sessions = ref([]), legacyScenes = ref([]), history = ref([])
 const savedScenes = ref([]), libraryTab = ref('create'), description = ref(practiceWords.value.length ? '请围绕所选单词设计一个自然的日常交流情景，帮助我练习使用这些词。' : ''), latestGeneratedId = ref(''), generationUsage = ref(null)
+const followupId=ref(null),transferTask=ref(null)
+let sceneController=null,sceneRun=0
 const mode = ref('free'), maxTurns = ref(16), sceneFilter = ref(''), generating = ref(false)
 const sceneExamples = ['我想练习去国外咖啡店点餐。我对牛奶过敏，需要询问配料，再礼貌地更换饮品。', '模拟一次软件工程师英文面试。请追问我的项目经历，帮我练习解释技术方案和表达自己的优势。', '我想和新认识的外国同学聊电影，从推荐喜欢的电影开始，深入讨论角色的选择和不同的观点。']
 const sceneIcons = { restaurant: '☕', directions: '↗', bank: '≋', hotel: '⌂', interview: '◎', shopping: '♧', campus: '◇' }
@@ -104,6 +109,7 @@ async function load() {
   loading.value = true; error.value = ''
   try {
     await loadList()
+    if(route.query.followup){const task=await http.get('/practice/followups/'+encodeURIComponent(route.query.followup));startTransfer(task);return}
     const enteredDay = practiceDay()
     const resumable = selectPracticeResume(sessions.value, remembered())
     if (resumable && !practiceWords.value.length) {
@@ -134,15 +140,18 @@ function addSavedScene(value) {
 }
 async function generateScene() {
   if (working.value || description.value.trim().length < 10) return
+  sceneController=new AbortController();const run=++sceneRun
   generating.value = true; error.value = ''; notice.value = ''; generationUsage.value = null
   try {
-    const data = await practice.generateScene({ description: description.value.trim(), difficulty: difficulty.value, ...(practiceWords.value.length ? { wordIds: practiceWords.value } : {}) })
-    if (disposed) return
+    const data = await practice.generateScene({ description: description.value.trim(), difficulty: difficulty.value, ...(followupId.value?{followupId:followupId.value}:{}),...(practiceWords.value.length ? { wordIds: practiceWords.value } : {}) },{signal:sceneController.signal})
+    if (disposed || run!==sceneRun) return
     addSavedScene(data.scene); latestGeneratedId.value = data.scene.id; selectScene(data.scene.id)
     generationUsage.value = data.usage; notice.value = '场景已生成并保存到「我的场景」。先看看角色和词汇，再开始练习。'
-  } catch (e) { error.value = e.message; generationUsage.value = e.details?.usage || null }
-  finally { generating.value = false }
+  } catch (e) { if(run===sceneRun){error.value = e.message; generationUsage.value = e.details?.usage || null} }
+  finally { if(run===sceneRun)generating.value = false }
 }
+function cancelScene(){sceneRun++;sceneController?.abort();generating.value=false;notice.value='已取消等待，需求已保留。后台可能已生成场景，可先刷新我的场景，避免重复生成。'}
+function startTransfer(task){backToScenes();transferTask.value=task;followupId.value=task.id;practiceWords.value=[];libraryTab.value='create';description.value='请换一个不同于'+task.sourceTitle+'的日常场景，让我独立练习使用 '+task.word+'。';notice.value='请先修改下方需求，选择新的地点、角色和任务，再点击生成。'}
 async function saveScene() {
   if (working.value || sceneIsSaved.value || !currentScene.value?.id) return
   busy.value = true; error.value = ''
@@ -298,7 +307,7 @@ watch(sceneFilter, () => {
   if (libraryTab.value !== 'create' && !visibleScenes.value.some(item => item.id === sceneId.value)) selectScene(visibleScenes.value[0]?.id || '')
 })
 onMounted(load)
-onUnmounted(() => { disposed = true; clearTimers(); speech.cancel(); speech.stopSpeaking() })
+onUnmounted(() => { disposed = true; sceneRun++; sceneController?.abort(); clearTimers(); speech.cancel(); speech.stopSpeaking() })
 </script>
 
 <template>
@@ -315,6 +324,7 @@ onUnmounted(() => { disposed = true; clearTimers(); speech.cancel(); speech.stop
         <form @submit.prevent="generateScene">
           <PracticeWordPicker v-model="practiceWords" :disabled="working" />
           <label class="input-label" for="scenario-description">对话需求</label>
+<p v-if="transferTask" class="note">迁移练习：{{transferTask.word}} · 来源 {{transferTask.sourceTitle}}。请换一个地点和交流任务。<button class="text-button" @click="transferTask=null;followupId=null">退出迁移练习</button></p>
           <textarea id="scenario-description" v-model="description" rows="4" minlength="10" maxlength="1500" required :disabled="working" placeholder="例如：我准备独自去伦敦旅行，想练习酒店入住。我需要询问早餐时间，并解决房间太吵的问题，希望 AI 扮演前台，耐心地和我交流。"></textarea>
           <div class="description-meta"><span>越具体，越贴近你真正需要的表达</span><span>{{ description.trim().length }} / 1500</span></div>
           <div class="prompt-examples"><span class="muted">试试这些想法</span><button v-for="(example, index) in sceneExamples" :key="example" type="button" :disabled="working" @click="description = example">{{ ['☕ 旅行点餐', '◎ 求职面试', '◇ 电影深聊'][index] }}</button></div>
@@ -373,13 +383,16 @@ onUnmounted(() => { disposed = true; clearTimers(); speech.cancel(); speech.stop
           <div class="microphone-wave" aria-hidden="true"><span v-for="(level, index) in waveform" :key="index" :style="{ height: `${3 + level * 33}px` }"></span></div>
           <div class="microphone-details"><strong role="status">{{ inputStatus }}</strong><span>{{ microphoneName }} · {{ elapsedSeconds }} / {{ maxSeconds }} 秒</span></div>
         </div>
-        <div v-if="recordingUrl && !isRecording" class="recording-preview"><span>回放本次录音，检查人声是否清晰</span><audio :src="recordingUrl" controls preload="metadata" aria-label="回放本次麦克风录音"></audio></div>
         <p v-if="isRecording" class="recording-note">波形随实际输入音量变化；收到声音不代表已识别出文字。完成后先检查文字，再发送。</p><p v-if="voiceError" role="status" class="note error">{{ voiceError }}</p><p v-else-if="!voiceAvailable && !voiceLoading" class="note"><template v-if="!voiceSupported">当前浏览器无法录音，请使用支持麦克风的浏览器，并通过 HTTPS 或 localhost 打开。</template><template v-else>{{ voiceReason || '语音识别尚未配置，可先打字练习。' }} <router-link to="/settings" class="small-link">查看设置</router-link></template></p><p v-else class="note">{{ isTranscribing ? '语音正在转成文字，识别后可以修改。' : 'Ctrl / ⌘ + Enter 发送 · 点击目标词看释义 · 浅色下划线点开看建议' }}</p>
         <div class="session-footer"><span class="muted">帮助越少，独立使用的记忆证据越强。</span><button class="text-button" :disabled="working" @click="finish">结束对话，查看小结 →</button></div>
       </div>
     </section>
+<SpeechRecoveryControls :speech="speech" /><p v-if="!active && voiceError" role="alert" class="error">{{voiceError}}</p>
+<p v-if="generating" role="status">正在按需求生成情境… <button class="text-button" @click="cancelScene">取消等待</button></p>
+    <button v-if="!generating && notice.includes('取消等待')" class="text-button" @click="loadList">刷新已保存场景</button>
     <section v-if="session?.status === 'analyzing'" class="card report-status" aria-live="polite"><span class="eyebrow">对话已保存</span><h2>正在整理你的练习小结…</h2><p>检查完整对话、目标词义项和薄弱点，并准备一轮短句练习。</p><p class="muted">离开页面后也能从最近练习回来查看。</p><button class="text-button" :disabled="busy" @click="refreshCurrent">刷新小结</button></section>
     <section v-if="session?.status === 'report_failed'" class="card report-status" role="status"><h2>对话已保存，小结暂未生成</h2><p>{{ session.reportError || '暂时无法完成分析，请稍后重试。' }}</p><button class="btn btn-primary" :disabled="busy" @click="retryReport">{{ busy ? '正在重试…' : '重新生成小结' }}</button></section>
+    <PracticeFollowups v-if="!active && !loading" :source-id="report ? session.id : undefined" @transfer="startTransfer" />
     <section v-if="report" class="card report" aria-labelledby="report-title"><div class="section-heading report-heading"><div><span class="eyebrow">这一轮，你做得怎么样</span><h2 id="report-title">练习小结</h2></div><div class="button-row"><button class="btn btn-secondary compact" type="button" :disabled="working" @click="exportReport('pdf')">{{ exporting === 'pdf' ? '正在生成 PDF…' : '导出 PDF' }}</button><button class="btn btn-secondary compact" type="button" :disabled="working" @click="exportReport('png')">{{ exporting === 'png' ? '正在生成图片…' : '导出图片' }}</button></div></div><p class="note">导出包含词汇表现、纠错和短句参考答案，文件在本机生成。</p><p v-if="exportError" class="error" role="alert">{{ exportError }}</p><p v-if="exporting" role="status" class="note">正在排版完整小结，请稍候…</p><p>{{ report.summary }}</p>
       <h3>目标词使用情况</h3><div class="usage-report"><div v-for="target in report.targetUsage || targets" :key="target.word + ':' + target.sense" class="usage-row"><span><strong>{{ target.word }}</strong> · {{ target.sense }}</span><span :class="['usage-badge', target.status]">{{ usageLabels[target.status] || '待使用' }}<small v-if="target.helpLevel"> · 帮助 {{ target.helpLevel }} 级</small></span></div></div>
       <h3>值得改进的表达 <span class="muted">{{ (report.corrections || []).slice(0, 5).length }} 条</span></h3><p v-if="!report.corrections?.length" class="muted">这一轮没有需要展开的纠错，继续保持。</p><article v-for="(correction, index) in (report.corrections || []).slice(0, 5)" :key="index" class="correction-card"><span :class="['correction-tag', { sense: ['word_sense', 'sense', 'sense_misuse'].includes(correction.type) }]">{{ correctionLabels[correction.type] || '表达建议' }}</span><p class="original"><span>原句</span>{{ correction.originalSentence || correction.original }}</p><p class="corrected"><span>改后</span>{{ correction.correctedSentence || correction.replacement }}</p><p class="reason">{{ correction.explanation }}</p></article>

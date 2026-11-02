@@ -1,3 +1,5 @@
+import { execute, queryOne } from '../db/pool.js'
+import { studyWorkload } from '../services/studyWorkload.js'
 import { Router } from 'express'
 import { z } from 'zod'
 import { validate } from '../middleware/validate.js'
@@ -18,11 +20,25 @@ import { getRelatedWords } from '../services/wordService.js'
 const router = Router()
 
 router.use(requireAuth)
+router.get('/workload',asyncHandler(async(req,res)=>ok(res,await studyWorkload(req.user.id))))
+router.get('/paused-session', asyncHandler(async (req, res) => {
+  const row = await queryOne('SELECT id,status,paused_at,planned_count,answered_count FROM study_sessions WHERE user_id=? ORDER BY id DESC LIMIT 1', [req.user.id])
+  if (!row?.paused_at || row.status !== 'active' || Number(row.answered_count) >= Number(row.planned_count)) return ok(res, { session: null, items: [] })
+  return ok(res, await getSession(req.user.id, Number(row.id)))
+}))
+router.post('/sessions/:id/pause', validate({ params: z.object({ id: z.coerce.number().int().positive() }) }), asyncHandler(async (req, res) => {
+  await getSession(req.user.id, req.valid.params.id)
+  await execute("UPDATE study_sessions SET paused_at=UTC_TIMESTAMP() WHERE id=? AND user_id=? AND status='active'", [req.valid.params.id, req.user.id])
+  const data = await getSession(req.user.id, req.valid.params.id)
+  return ok(res, { ...data, savedCount: data.session.answeredCount, remaining: data.items.filter(i => !i.answered).length })
+}))
 
 const sessionParam = z.object({ id: z.coerce.number().int().positive() })
 
 const createSessionSchema = z.object({
   kind: z.enum(['daily', 'extra']).optional(),
+  budgetMinutes: z.union([z.literal(5),z.literal(10)]).nullable().optional(),
+  studyMode: z.enum(['review-first', 'new-only']).default('review-first'),
 })
 
 const answerSchema = z
@@ -32,6 +48,7 @@ const answerSchema = z
     // 无固定选项的场景（拼写 / 阅读题）可直接上报结果
     isCorrect: z.boolean().optional(),
     wrongOption: z.string().max(255).optional(),
+    recall: z.enum(['normal', 'hard']).default('normal'),
     hesitationMs: z.coerce.number().int().min(0).max(600000).optional(),
     source: z.enum(['study', 'review', 'game', 'reading']).optional(),
     spellingMistake: z.boolean().optional(),
@@ -46,7 +63,7 @@ router.post(
   '/sessions',
   validate({ body: createSessionSchema }),
   asyncHandler(async (req, res) => {
-    const result = await createSession(req.user.id, { kind: req.valid.body.kind || 'daily' })
+    const result = await createSession(req.user.id, { kind: req.valid.body.kind || 'daily', studyMode: req.valid.body.studyMode, budgetMinutes:req.valid.body.budgetMinutes })
     return created(res, result)
   })
 )

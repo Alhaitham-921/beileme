@@ -102,7 +102,7 @@ export function classifyError(input = {}, options = {}) {
 
   // 答对的情况：只区分「熟练」与「低置信度」，不产生错因标签
   if (isCorrect) {
-    const confidence = Number(hesitationMs) > 3000 ? 'low' : 'high'
+    const confidence = input.recall === 'hard' ? 'low' : 'high'
     return {
       type: null,
       label: null,

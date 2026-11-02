@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useAiStore } from '../stores/ai'
+import EmailRecoveryPanel from '../components/EmailRecoveryPanel.vue'
 import ThemePicker from '../components/ThemePicker.vue'
 import SpeechSettingsPanel from '../components/SpeechSettingsPanel.vue'
 
@@ -281,6 +282,8 @@ const typeLabels = { dialogue: '情境对话（含复盘与重试）',
       <button :class="{ active: settingsSection === 'ai' }" :aria-pressed="settingsSection === 'ai'" @click="settingsSection = 'ai'">AI 服务 <span>连接与用量</span></button>
       <button :class="{ active: settingsSection === 'speech' }" :aria-pressed="settingsSection === 'speech'" @click="settingsSection = 'speech'">语音服务 <span>共享语音输入</span></button>
     </div>
+    <EmailRecoveryPanel v-if="settingsSection === 'account'" />
+    <button class="btn btn-ghost" @click="settingsSection = 'account'">账号安全 · 邮箱验证</button>
     <ThemePicker v-show="settingsSection === 'appearance'" />
     <SpeechSettingsPanel v-if="settingsSection === 'speech'" />
     <section v-show="settingsSection === 'ai'" aria-label="AI 服务设置">

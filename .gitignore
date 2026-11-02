@@ -59,3 +59,9 @@ android/capacitor-cordova-android-plugins/
 *.aab
 *.jks
 *.keystore
+
+# Local Python environments and bytecode
+.venv/
+venv/
+__pycache__/
+*.py[cod]

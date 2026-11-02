@@ -1,4 +1,7 @@
 <script setup>
+import StudyTaskChooser from '../components/StudyTaskChooser.vue'
+import PracticeFollowups from '../components/PracticeFollowups.vue'
+import { http } from '../api/client.js'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { studyKey } from '../utils/studyKeyboard'
 import { studySwipeDirection } from '../utils/studySwipe.js'
@@ -14,6 +17,11 @@ const ai = useAiStore()
 const router = useRouter()
 
 const booting = ref(true)
+const choosingMode = ref(false)
+const studyMode = ref('review-first')
+const uncertain = ref(false)
+const paused=ref(null),preparingWordAudio=ref(false)
+let cardRun=0
 const bootError = ref('')
 const selectedIndex = ref(null)
 const cardShownAt = ref(Date.now())
@@ -35,6 +43,8 @@ const nextLabel = computed(() => app.isLastItem ? (app.allAnswered ? '查看结�
 const status = computed(() => {
   if (booting.value) return 'loading'
   if (bootError.value) return 'error'
+  if (choosingMode.value) return 'setup'
+  if (paused.value) return 'paused'
   if (app.sessionSummary) return 'finished'
   if (!app.items.length) return 'empty'
   if (answer.value) return 'answered'
@@ -69,8 +79,9 @@ async function boot() {
     // 刷新页面后优先恢复进行中的会话，没有才新开一轮
     if (!app.items.length || !app.session) {
       const restored = await app.restoreSession()
-      if (!restored) await app.startSession('daily')
+      if (!restored) choosingMode.value = true
     }
+    studyMode.value=app.session?.studyOptions?.studyMode || studyMode.value
     cardShownAt.value = Date.now()
     selectedIndex.value = app.currentItem?.selectedOptionIndex ?? null
   } catch (error) {
@@ -92,7 +103,7 @@ function onKey(event) {
   }
 }
 onMounted(() => { boot(); window.addEventListener('keydown', onKey) })
-onUnmounted(() => { window.removeEventListener('keydown', onKey); stopSpeaking() })
+onUnmounted(() => { window.removeEventListener('keydown', onKey); if(generating.value)cancelCards(); stopSpeaking() })
 
 // 每翻到新题都重置计时起点，犹豫时长才有意义
 watch(
@@ -100,6 +111,7 @@ watch(
   () => {
     selectedIndex.value = app.currentItem?.selectedOptionIndex ?? null
     cardShownAt.value = Date.now()
+    uncertain.value = false
     speechError.value = ''
     stopSpeaking()
   }
@@ -114,7 +126,7 @@ async function choose(index) {
   selectedIndex.value = index
 
   try {
-    await app.submitAnswer({ wordId: item.value.wordId, optionIndex: index, hesitationMs })
+    await app.submitAnswer({ wordId: item.value.wordId, optionIndex: index, hesitationMs, recall: uncertain.value ? 'hard' : 'normal' })
     if (continueRequested) { continueRequested = false; await advance() }
   } catch (error) {
     continueRequested = false
@@ -206,7 +218,7 @@ async function startExtra() {
   booting.value = true
   bootError.value = ''
   try {
-    await app.startSession('extra')
+    await app.startSession('extra', studyMode.value)
     cardShownAt.value = Date.now()
   } catch (error) {
     bootError.value = error.message
@@ -217,12 +229,14 @@ async function startExtra() {
 
 function speak() {
   if (!word.value) return
+  if (preparingWordAudio.value) { stopSpeaking(); return }
   stopSpeaking()
   speechError.value = ''
   if (nativeSpeech.isSupported()) {
     const token = speechGeneration
-    void nativeSpeech.speak(word.value.spelling, 0.9).catch(error => {
-      if (token === speechGeneration) speechError.value = error.message || '系统朗读失败，请检查手机的文字转语音设置。'
+    preparingWordAudio.value=true
+    void nativeSpeech.speak(word.value.spelling, 0.9,{onReady:()=>{if(token===speechGeneration)preparingWordAudio.value=false}}).catch(error => {
+      if (token === speechGeneration) {preparingWordAudio.value=false;speechError.value = error.message || '朗读失败，请稍后重试。'}
     })
     return
   }
@@ -239,6 +253,7 @@ function speak() {
 
 function stopSpeaking() {
   speechGeneration += 1
+  preparingWordAudio.value=false
   if (nativeSpeech.isSupported()) void nativeSpeech.stop().catch(() => {})
   window.speechSynthesis?.cancel()
 }
@@ -262,16 +277,32 @@ function goToArticle() {
 /** 批量生成错词卡片：一次请求覆盖本组所有错词 */
 async function makeErrorCards() {
   if (generating.value || !wrongWordIds.value.length) return
+  const run=++cardRun
   generating.value = true
   generateError.value = ''
   try {
     await ai.generateErrorCards({ wordIds: wrongWordIds.value.slice(0, 6) })
   } catch (error) {
-    generateError.value = error.message
+    if(run===cardRun)generateError.value = error.message
   } finally {
-    generating.value = false
+    if(run===cardRun)generating.value = false
   }
 }
+function cancelCards(){cardRun++;ai.cancelCards();generating.value=false;generateError.value='已取消等待。后台可能继续生成，再试时优先读取缓存。'}
+async function beginMode(mode, budgetMinutes = null) {
+  studyMode.value = mode
+  choosingMode.value = false
+  booting.value = true
+  bootError.value = ''
+  try { paused.value=null; await app.startSession('daily', mode, budgetMinutes); cardShownAt.value = Date.now(); uncertain.value = false }
+  catch (error) { bootError.value = error.message }
+  finally { booting.value = false }
+}
+async function pauseLearning(){
+ if(app.loading.answering||!app.session)return
+ try{paused.value=await http.post('/study/sessions/'+app.session.id+'/pause');stopSpeaking()}catch(e){navigationNotice.value=e.message}
+}
+function changeMode() { stopSpeaking(); choosingMode.value = true }
 </script>
 
 <template>
@@ -286,6 +317,16 @@ async function makeErrorCards() {
       <p class="muted">正在准备今天的单词…</p>
     </div>
 
+    <section v-else-if="status === 'setup'" class="card result-card">
+      <h1 class="result-title">这次想怎么学？</h1>
+      <p>可以先复习旧词，也可以直接学习新词。跳过的复习任务会保留。</p>
+      <StudyTaskChooser @start="beginMode" /><PracticeFollowups compact />
+      <div class="result-actions">
+        <button v-if="app.session && app.items.length" class="btn btn-ghost" @click="choosingMode = false">继续原来的学习</button>
+      </div>
+      <p class="muted">切换模式会重新安排未完成任务，已答记录保留，不会把跳过的复习计为完成。</p>
+    </section>
+    <section v-else-if="status === 'paused'" class="card result-card"><h1>先学到这里，也有收获</h1><p>已保存 {{paused.savedCount}} / {{paused.session.plannedCount}} 个词，剩余 {{paused.remaining}} 个词仍保留。</p><div class="result-actions"><button class="btn btn-primary" @click="paused=null">继续本组</button><button class="btn btn-ghost" @click="router.push('/')">返回首页</button></div></section>
     <!-- 出错 -->
     <div v-else-if="status === 'error'" class="card result-card">
       <h1 class="result-title">出了点问题</h1>
@@ -298,6 +339,7 @@ async function makeErrorCards() {
 
     <!-- 答题中 / 已作答 -->
     <template v-else-if="status === 'question' || status === 'answered'">
+      <button class="text-button" :disabled="app.loading.answering" @click="changeMode">选择学习方式</button><button class="text-button" :disabled="app.loading.answering" @click="pauseLearning">先学到这里，保存进度</button>
       <div class="study-head">
         <div class="study-head-left"><span class="badge" :class="item.kind">{{ item.kind === 'new' ? '新词学习' : '复习巩固' }}</span><span class="session-label">今日学习</span></div>
         <span class="progress-text mono-num">
@@ -309,11 +351,13 @@ async function makeErrorCards() {
         <span :style="{ width: (app.answeredCount / app.totalItems) * 100 + '%' }"></span>
       </div>
 
+      <p class="muted">{{item.reviewReason}}<span v-if="item.nextReviewAt"> · 本次到期：{{new Date(item.nextReviewAt).toLocaleDateString()}}</span></p>
       <div ref="wordCard" class="card word-card">
         <div class="word-row">
           <h1 class="word-spell">{{ word.spelling }}</h1><FavoriteWord :key="word.id" :word-id="word.id" compact-on-mobile />
           <button class="speak-btn" title="朗读单词" aria-label="朗读单词" @click="speak"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m11 4-6 5H2v6h3l6 5V4Z" /><path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" /></svg></button>
         </div>
+        <p v-if="preparingWordAudio" role="status">正在准备朗读音频…</p>
         <p v-if="speechError" class="error-text" role="status">{{ speechError }}</p>
         <p class="word-meta">
           <!-- 部分开源词表（初高中）没有音标，缺什么就不显示什么，避免留下空白占位 -->
@@ -352,6 +396,7 @@ async function makeErrorCards() {
           </button>
         </div>
 
+        <label v-if="status === 'question'" class="muted"><input type="checkbox" v-model="uncertain" :disabled="app.loading.answering" /> 这题不确定／靠猜测（可选，答对后会较早复习）</label>
         <div v-if="status === 'answered'" class="mobile-study-actions">
           <button class="btn btn-primary next-btn" :disabled="advancing || app.loading.answering" @click="advance">
             {{ nextLabel }} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
@@ -371,9 +416,11 @@ async function makeErrorCards() {
               <span class="analysis-action">{{ answer.analysis.action }}</span>
             </div>
             <p v-else-if="answer.analysis?.confidence === 'low'" class="analysis-note">
-              答对了，但想了一会儿 —— 已标记为「半熟」，复习间隔会自动缩短。
+              你主动标记了不确定，本次记为需要巩固；答对仍算正确，安排较早复习。
             </p>
 
+            <p v-if="answer.isCorrect && answer.analysis?.confidence !== 'low'" class="analysis-note">本次回忆正确，按正常间隔复习。长期掌握依据多轮复习表现，不要求秒答。</p>
+<p v-if="answer.progress?.nextReviewAt" class="muted">下次复习：{{new Date(answer.progress.nextReviewAt).toLocaleString()}}</p>
             <p v-if="word.example" class="example">
               <span class="ex-label">例句</span>{{ word.example }}
             </p>
@@ -429,7 +476,7 @@ async function makeErrorCards() {
     </template>
 
     <!-- 本轮完成 -->
-    <div v-else-if="status === 'finished'" class="card result-card">
+    <div v-else-if="status === 'finished'" class="card result-card"><PracticeFollowups compact />
       <span class="state-icon completed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="m8 12 3 3 5-6" /></svg></span>
       <p class="result-eyebrow">每一次专注，都在积累</p>
       <h1 class="result-title">这一组，完成了。</h1>
@@ -479,6 +526,8 @@ async function makeErrorCards() {
         <p class="ai-hint">
           生成前会先显示预估用量；错词卡片支持一次生成多个，比分次调用省得多。
         </p>
+        <p v-if="generating" role="status">正在检查历史缓存或生成错词卡片，请稍候… <button class="text-button" @click="cancelCards">取消等待</button></p>
+        <p v-if="ai.cardsSource === 'cache'" role="status">已复用这组词的历史卡片，无需重新生成。</p>
         <p v-if="generateError" class="ai-error">{{ generateError }}</p>
 
         <!-- 降级提示：如实告知这是本地算法结果而不是 AI 生成 -->
@@ -511,7 +560,7 @@ async function makeErrorCards() {
       </div>
 
       <div class="result-actions">
-        <button class="btn btn-ghost" @click="startExtra">再学一组</button>
+        <button class="btn btn-ghost" @click="changeMode">选择学习方式</button><button class="btn btn-ghost" @click="startExtra">再学一组</button>
         <button class="btn btn-primary" @click="router.push('/')">返回首页</button>
       </div>
     </div>
@@ -519,8 +568,8 @@ async function makeErrorCards() {
     <!-- 今天没有要学的 -->
     <div v-else class="card result-card">
       <span class="state-icon completed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="m8 12 3 3 5-6" /></svg></span>
-      <h1 class="result-title">今天的计划，已完成。</h1>
-      <p class="result-sub">新词与待复习都学完了，休息一下，或者再巩固一组。</p>
+      <h1 class="result-title">本模式下暂无待学单词。</h1>
+      <p class="result-sub">可能已完成本模式的今日额度；跳过的新词或复习任务仍保留，可切换学习方式查看。</p>
       <div class="result-actions">
         <button class="btn btn-ghost" @click="startExtra">再学一组</button>
         <button class="btn btn-primary" @click="router.push('/')">返回首页</button>

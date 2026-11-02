@@ -37,3 +37,13 @@ test('login restores saved AI settings and logout clears the page cache', async 
     assert.equal(ai.key, null)
   } finally { api.auth.login = old.login; api.auth.logout = old.logout; api.ai.status = old.status }
 })
+
+
+test('cancelled cards cannot overwrite a newer generation even when the old request finishes late',async()=>{
+ setActivePinia(createPinia());const old=api.content.generateErrorCards,oldStatus=api.ai.status,jobs=[]
+ api.content.generateErrorCards=(body,options)=>new Promise(resolve=>jobs.push({resolve,options}));api.ai.status=async()=>({mode:'none'})
+ try{const ai=useAiStore(),first=ai.generateErrorCards({wordIds:[1]});ai.cancelCards();assert.equal(jobs[0].options.signal.aborted,true)
+ const second=ai.generateErrorCards({wordIds:[2]});jobs[0].resolve({cards:[{spelling:'old'}]});await first;assert.equal(ai.loading.generate,true);assert.deepEqual(ai.cards,[])
+ jobs[1].resolve({cards:[{spelling:'current'}]});await second;assert.equal(ai.cards[0].spelling,'current');assert.equal(ai.loading.generate,false)
+ }finally{api.content.generateErrorCards=old;api.ai.status=oldStatus}
+})

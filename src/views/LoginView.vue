@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { http } from '../api/client.js'
 import logo from '../assets/logo.png'
 
 const auth = useAuthStore()
@@ -10,6 +11,20 @@ const route = useRoute()
 
 /** 'login' | 'register' */
 const mode = ref('login')
+const recovery=ref({email:'',code:'',password:'',confirm:''})
+const recoveryNotice=ref('')
+const recoveryBusy=ref(false)
+async function recover(reset=false){
+ if(recoveryBusy.value)return
+ recoveryBusy.value=true;formError.value='';recoveryNotice.value=''
+ try{
+  if(reset){
+   if(recovery.value.password!==recovery.value.confirm)throw new Error('两次输入的新密码不一致')
+   await http.post('/auth/reset-password',{auth:false,body:{email:recovery.value.email.trim(),code:recovery.value.code.trim(),newPassword:recovery.value.password}})
+   form.value.account=recovery.value.email.trim();form.value.password='';recovery.value.code='';recovery.value.password='';recovery.value.confirm='';mode.value='login';recoveryNotice.value='密码已重置，请使用新密码登录。'
+  }else{recoveryNotice.value=(await http.post('/auth/forgot-password',{auth:false,body:{email:recovery.value.email.trim()}})).message}
+ }catch(e){formError.value=e.message}finally{recoveryBusy.value=false}
+}
 
 const form = ref({ account: '', email: '', password: '', confirm: '', nickname: '' })
 const formError = ref('')
@@ -92,13 +107,13 @@ async function submit() {
 
     <div class="card auth-card">
       <div class="tabs">
-        <button class="tab" :class="{ active: !isRegister }" @click="switchMode('login')">登录</button>
+        <button class="tab" :class="{ active: mode === 'login' }" @click="switchMode('login')">登录</button>
         <button class="tab" :class="{ active: isRegister }" @click="switchMode('register')">
           注册
         </button>
       </div>
 
-      <form class="form" @submit.prevent="submit">
+      <form v-if="mode !== 'recover'" class="form" @submit.prevent="submit">
         <template v-if="isRegister">
           <label class="field">
             <span class="field-label">邮箱</span>
@@ -106,7 +121,7 @@ async function submit() {
               v-model="form.email"
               type="email"
               autocomplete="email"
-              placeholder="you@example.com"
+              placeholder="例如：123456789@qq.com"
               class="input"
             />
           </label>
@@ -170,10 +185,28 @@ async function submit() {
         </button>
       </form>
 
+      <button v-if="mode === 'login'" class="text-button" @click="switchMode('recover')">忘记密码？</button>
+      <section v-if="mode === 'recover'" aria-label="找回密码">
+       <h2>通过邮箱找回密码</h2>
+       <p>仅支持已验证的注册邮箱。旧账号请先登录，在偏好设置 → 账号安全中完成邮箱验证；无法登录且邮箱未验证时，请联系管理员核验。</p>
+       <form class="form" @submit.prevent="recover(false)">
+        <label class="field"><span>注册邮箱</span><input class="input" v-model="recovery.email" type="email" autocomplete="email" required maxlength="190" /></label>
+        <button class="btn btn-secondary" :disabled="recoveryBusy">获取重置码</button>
+       </form>
+       <form class="form" @submit.prevent="recover(true)">
+        <label class="field"><span>邮件中的32位重置码</span><input class="input" v-model="recovery.code" autocomplete="one-time-code" autocapitalize="none" spellcheck="false" required minlength="32" maxlength="32" /></label>
+        <label class="field"><span>新密码</span><input class="input" v-model="recovery.password" type="password" autocomplete="new-password" required minlength="8" maxlength="128" placeholder="至少8位，包含字母和数字" /></label>
+        <label class="field"><span>确认新密码</span><input class="input" v-model="recovery.confirm" type="password" autocomplete="new-password" required minlength="8" maxlength="128" /></label>
+        <button class="btn btn-primary" :disabled="recoveryBusy">重置密码</button>
+       </form>
+       <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
+       <p class="muted">重置码15分钟有效。重新获取需间隔60秒，请同时检查垃圾邮件。</p>
+      </section>
+      <p v-if="recoveryNotice" role="status">{{ recoveryNotice }}</p>
       <p class="hint">
         学习记录保存在服务器上，换设备登录也能接着背。
         <br />
-        账号仅用于隔离各自的学习数据，不会发送任何邮件。
+        邮箱用于账号隔离、归属验证和密码找回，不发送营销邮件。
       </p>
     </div>
   </div>

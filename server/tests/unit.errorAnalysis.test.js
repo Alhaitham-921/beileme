@@ -16,7 +16,8 @@ test('答对不产生错因标签，只区分置信度', () => {
 
   const slow = classifyError({ isCorrect: true, hesitationMs: 8000 })
   assert.equal(slow.type, null)
-  assert.equal(slow.confidence, 'low')
+  assert.equal(slow.confidence, 'high')
+  assert.equal(classifyError({isCorrect:true,hesitationMs:1000,recall:'hard'}).confidence,'low')
 })
 
 test('极短时间就选错 → 盲猜，并按全新学习缩短复习间隔（PRD 4.2.3）', () => {

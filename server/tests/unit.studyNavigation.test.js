@@ -172,3 +172,16 @@ test('starting a review clears the old feedback and completed summary', async t 
   assert.equal(app.currentIndex, 0)
   assert.equal(app.answeredCount, 0)
 })
+
+
+test('a paused group can be restored from server after browser session storage is gone',async t=>{
+ const {app}=setup(t);const data={session:{id:15,status:'active',pausedAt:'2026-11-02T00:00:00Z'},items:items()};data.items[0].answered=true;data.items[0].correct=true
+ t.mock.method(api.study,'pausedSession',async()=>data)
+ const restored=await app.restoreSession();assert.equal(restored.session.id,15);assert.equal(app.currentIndex,1);assert.equal(app.items.filter(i=>i.answered).length,1)
+})
+
+test('network recovery failure preserves the session pointer for another attempt',async t=>{
+ const {app,values}=setup(t);values.set('beileme:activeSession','15')
+ t.mock.method(api.study,'getSession',async()=>{throw Object.assign(new Error('offline'),{status:0})})
+ await assert.rejects(app.restoreSession(),/offline/);assert.equal(values.get('beileme:activeSession'),'15')
+})

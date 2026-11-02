@@ -38,6 +38,10 @@ export function usePracticeSpeech() {
   const maxBytes = ref(2097152)
   const remaining = ref(0)
   const isSpeaking = ref(false)
+  const isPreparingSpeech = ref(false)
+  const phase = ref('idle')
+  const canRetry = ref(false)
+  let lastRecording = null, transcribeController = null
   const inputLevel = ref(0)
   const waveform = ref(Array(32).fill(0))
   const meterReady = ref(false)
@@ -78,6 +82,7 @@ export function usePracticeSpeech() {
   let meterSource = null
 
   function clearPreview() {
+    lastRecording = null; canRetry.value = false
     if (recordingUrl.value) URL.revokeObjectURL(recordingUrl.value)
     recordingUrl.value = ''
   }
@@ -130,10 +135,14 @@ export function usePracticeSpeech() {
     if (typeof window !== 'undefined') window.speechSynthesis?.cancel()
     utterance = null
     isSpeaking.value = false
+    isPreparingSpeech.value = false
   }
 
-  function cancel() {
-    clearPreview()
+  function cancel({discard=false} = {}) {
+    transcribeController?.abort()
+    transcribeController=null
+    if(discard || !lastRecording) clearPreview()
+    phase.value='idle'
     generation += 1
     const activeRecorder = recorder
     recorder = null
@@ -179,8 +188,30 @@ export function usePracticeSpeech() {
     releaseMicrophone()
   }
 
+  async function transcribeRecording(token) {
+    if(!lastRecording)return
+    transcribeController=new AbortController()
+    const controller=transcribeController
+    isTranscribing.value=true;phase.value='preparing'
+    try {
+      const audioBase64=await readBase64(lastRecording.blob)
+      if(token!==generation || disposed)return
+      phase.value='uploading'
+      const result=await http.post('/speech/transcribe',{body:{audioBase64,mimeType:lastRecording.mimeType,durationMs:lastRecording.durationMs},signal:controller.signal,onUploadComplete:()=>{if(token===generation)phase.value='recognizing'},timeoutMs:45000,timeoutMessage:'识别等待超时，录音已保留，可以回放后重试。'})
+      if(token!==generation || disposed)return
+      if(!result?.text?.trim())throw new Error('未识别出文字，请回放录音后重试。')
+      transcript.value=result.text.trim();remaining.value=result.remaining ?? Math.max(0,remaining.value-1)
+    } finally {if(token===generation){isTranscribing.value=false;phase.value='idle';transcribeController=null}}
+  }
+  async function retryTranscription(){
+    if(!lastRecording || isTranscribing.value || isRecording.value)return
+    error.value=''
+    const token=++generation
+    try{await transcribeRecording(token)}catch(cause){if(token===generation)error.value=cause.message || '识别失败，录音已保留。'}
+  }
   async function start() {
     if (isStarting.value || isRecording.value || isTranscribing.value || disposed) return
+    phase.value='recording'
     error.value = ''
     transcript.value = ''
     elapsedSeconds.value = 0
@@ -247,16 +278,10 @@ export function usePracticeSpeech() {
         try {
           const blob = new Blob(chunks, { type: activeRecorder.mimeType || mimeType })
           recordingUrl.value = URL.createObjectURL(blob)
-          const audioBase64 = await readBase64(blob)
-          if (token !== generation || disposed) return
-          const result = await http.post('/speech/transcribe', {
-            body: { audioBase64, mimeType, durationMs: Math.min(actualDuration, maxSeconds.value * 1000) },
-            timeoutMs: 45000,
-          })
-          if (token !== generation || disposed) return
-          if (typeof result?.text !== 'string' || !result.text.trim()) throw new Error('语音服务未识别出文字，请回放录音检查。')
-          transcript.value = result.text.trim()
-          remaining.value = result.remaining ?? Math.max(0, remaining.value - 1)
+          lastRecording={blob,mimeType,durationMs:Math.min(actualDuration,maxSeconds.value*1000)}
+          canRetry.value=true
+          await transcribeRecording(token)
+
         } catch (cause) {
           if (token === generation && !disposed) {
             error.value = cause.code === 'SPEECH_EMPTY_TRANSCRIPT'
@@ -265,7 +290,7 @@ export function usePracticeSpeech() {
                 : meterReady.value
                   ? '本次未检测到明显声音。请回放录音，并检查浏览器选用的麦克风和系统输入音量。'
                   : '语音服务没有识别出文字。请回放录音检查是否有人声，再重试或继续打字。'
-              : cause.code === 'TIMEOUT' ? '语音识别超时，请重新录音或继续打字。' : microphoneError(cause)
+              : cause.code === 'TIMEOUT' ? '识别等待超时，录音已保留，可以回放后重试或继续打字。' : microphoneError(cause)
             void refreshStatus()
           }
         } finally {
@@ -294,10 +319,11 @@ export function usePracticeSpeech() {
       error.value = ''
       const token = speechGeneration
       isSpeaking.value = true
-      void nativeSpeech.speak(text, rate).catch(cause => {
+      isPreparingSpeech.value=true
+      void nativeSpeech.speak(text, rate, {onReady:()=>{if(token===speechGeneration)isPreparingSpeech.value=false}}).catch(cause => {
         if (token === speechGeneration && !disposed) error.value = cause.message || '系统朗读失败，请检查手机的文字转语音设置。'
       }).finally(() => {
-        if (token === speechGeneration) isSpeaking.value = false
+        if (token === speechGeneration) {isSpeaking.value = false;isPreparingSpeech.value=false}
       })
       return
     }
@@ -325,7 +351,7 @@ export function usePracticeSpeech() {
     stopSpeaking()
     if (isRecording.value || isStarting.value || isTranscribing.value) {
       cancel()
-      error.value = '页面切到后台，录音已停止。返回后可以重新录音。'
+      error.value = lastRecording ? '页面切到后台，已停止等待。录音已保留，返回后可重试。' : '页面切到后台，录音已停止。返回后可以重新录音。'
     }
   }
 
@@ -337,15 +363,15 @@ export function usePracticeSpeech() {
     window.addEventListener?.('pagehide', onPageHide)
   })
   onBeforeUnmount(() => {
+    cancel({discard:true})
     disposed = true
-    cancel()
     stopSpeaking()
     document.removeEventListener('visibilitychange', onVisibilityChange)
     window.removeEventListener?.('pagehide', onPageHide)
     navigator.mediaDevices?.removeEventListener?.('devicechange', refreshMicrophones)
   })
 
-  return { supported, available, configured, statusLoading, statusReason, isStarting, isRecording, isTranscribing,
+  return { phase, canRetry, retryTranscription, isPreparingSpeech, supported, available, configured, statusLoading, statusReason, isStarting, isRecording, isTranscribing,
     inputLevel, waveform, meterReady, detectedSound, microphoneName, recordingUrl, inputStatus,
     microphones, selectedMicrophone, rawAudio, deviceError, refreshMicrophones,
     error, transcript, elapsedSeconds, maxSeconds, remaining, refreshStatus, start, stop, cancel, speak, stopSpeaking, isSpeaking }

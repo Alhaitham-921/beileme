@@ -5,13 +5,13 @@
 import http from './client.js'
 export const practice = {
   list: () => http.get('/practice'),
-  generateScene: (body) => http.post('/practice/scenes/generate', { body, timeoutMs: 150000 }),
+  generateScene: (body, options = {}) => http.post('/practice/scenes/generate', { body, timeoutMs: 150000, ...options }),
   saveScene: (body) => http.post('/practice/scenes/save', { body }),
   repeatSession: (id, body = {}) => http.post(`/practice/sessions/${encodeURIComponent(id)}/repeat`, { body, timeoutMs: 150000 }),
   submit: (body) => http.post('/practice', { body }),
   startSession: (body) => http.post('/practice/sessions', { body, timeoutMs: 150000 }),
   getSession: (id) => http.get(`/practice/sessions/${encodeURIComponent(id)}`, { timeoutMs: 15000 }),
-  turn: (id, body) => http.post(`/practice/sessions/${encodeURIComponent(id)}/turns`, { body, timeoutMs: 150000 }),
+  turn: (id, body, options = {}) => http.post(`/practice/sessions/${encodeURIComponent(id)}/turns`, { body, timeoutMs: 150000, ...options }),
   help: (id, body) => http.post(`/practice/sessions/${encodeURIComponent(id)}/help`, { body, timeoutMs: 150000 }),
   finish: (id) => http.post(`/practice/sessions/${encodeURIComponent(id)}/finish`, { timeoutMs: 150000 }),
   retryReport: (id) => http.post(`/practice/sessions/${encodeURIComponent(id)}/retry-report`, { timeoutMs: 150000 }),
@@ -56,7 +56,8 @@ export const words = {
 }
 
 export const study = {
-  createSession: (kind = 'daily') => http.post('/study/sessions', { body: { kind } }),
+  pausedSession: () => http.get('/study/paused-session'),
+  createSession: (kind = 'daily', studyMode = 'review-first', budgetMinutes = null) => http.post('/study/sessions', { body: { kind, studyMode, budgetMinutes } }),
   /** 针对指定单词开一轮「错词重练」，不受每日计划限制 */
   createReviewSession: (wordIds) => http.post('/study/review-sessions', { body: { wordIds } }),
   /** 今日错词 + 今日生成的短文（回顾页用） */
@@ -97,7 +98,7 @@ export const content = {
   generateArticle: (body) => http.post('/content/articles', { body }),
   generateQuiz: (body) => http.post('/content/quizzes', { body }),
   /** 批量生成易错词卡片：一次请求覆盖多个词，比逐词调用省得多 */
-  generateErrorCards: (body) => http.post('/content/error-cards', { body }),
+  generateErrorCards: (body, options = {}) => http.post('/content/error-cards', { body, timeoutMs:120000,timeoutMessage:'错词卡片等待超时。再次尝试会优先检查已生成的缓存。', ...options }),
   list: (query) => http.get('/content', { query }),
   detail: (id) => http.get(`/content/${id}`),
 }

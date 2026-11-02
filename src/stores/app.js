@@ -131,7 +131,7 @@ export const useAppStore = defineStore('app', {
      * 开始一轮学习。
      * @param {'daily'|'extra'} kind daily=按今日计划，extra=再学一组
      */
-    async startSession(kind = 'daily') {
+    async startSession(kind = 'daily', studyMode = 'review-first', budgetMinutes = null) {
       this.loading.session = true
       this.error = ''
       this.lastAnswer = null
@@ -139,7 +139,7 @@ export const useAppStore = defineStore('app', {
       this.answerRequestId += 1
       this.loading.answering = false
       try {
-        const data = await api.study.createSession(kind)
+        const data = await api.study.createSession(kind, studyMode, budgetMinutes)
         this.session = data.session
         this.items = data.items
         this.currentIndex = 0
@@ -199,11 +199,13 @@ export const useAppStore = defineStore('app', {
     /** 刷新页面后恢复进行中的会话 */
     async restoreSession(force = false) {
       const sessionId = force ? this.session?.id || readActiveSessionId() : readActiveSessionId()
-      if (!sessionId || (!force && this.session?.id === sessionId)) return null
+      if (sessionId && !force && this.session?.id === sessionId) return null
 
       this.loading.session = true
       try {
-        const data = await api.study.getSession(sessionId)
+        const data = sessionId ? await api.study.getSession(sessionId) : await api.study.pausedSession()
+        if (!data.session || data.session.status !== 'active') { writeActiveSessionId(null); return null }
+        writeActiveSessionId(data.session.id)
         this.session = data.session
         this.items = data.items
         this.answerRequestId += 1
@@ -214,8 +216,9 @@ export const useAppStore = defineStore('app', {
         this.currentIndex = nextIndex === -1 ? Math.max(0, data.items.length - 1) : nextIndex
         this.lastAnswer = studyAnswerForItem(this.currentItem)
         return data
-      } catch {
-        // 会话已失效就安静地放弃恢复
+      } catch (error) {
+        if (error.status !== 404) throw error
+        // 失效的会话才清除。
         writeActiveSessionId(null)
         return null
       } finally {
@@ -227,7 +230,7 @@ export const useAppStore = defineStore('app', {
      * 提交作答。对错由服务端判定，这里只上报选项下标与犹豫时长。
      * @returns {Promise<object>} 含 isCorrect / analysis / confusableCard / progress
      */
-    async submitAnswer({ wordId, optionIndex, hesitationMs, source = 'study', spellingMistake = false }) {
+    async submitAnswer({ wordId, optionIndex, hesitationMs, source = 'study', spellingMistake = false, recall = 'normal' }) {
       if (!this.session) throw new Error('当前没有进行中的学习会话')
       if (this.loading.answering) throw new Error('正在保存答案，请稍候。')
       if (this.sessionSummary || this.session.status === 'finished') throw new Error('该学习会话已结束。')
@@ -243,6 +246,7 @@ export const useAppStore = defineStore('app', {
           wordId,
           optionIndex,
           hesitationMs,
+          recall,
           source,
           spellingMistake,
         })
