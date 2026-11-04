@@ -981,7 +981,7 @@ async function generateErrorCardsInner(
     wordIds: words.map((word) => word.id),
     difficulty: 3,
     goal: profile.goal,
-    topic: '',
+    topic: 'usage-v2',
   })
 
   if (!forceNew) {

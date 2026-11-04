@@ -1,4 +1,6 @@
 <script setup>
+import WordLearningCard from '../components/WordLearningCard.vue'
+import { readAutoPronounce, saveAutoPronounce, wordAudioIdentity } from '../utils/wordAudio.js'
 import StudyTaskChooser from '../components/StudyTaskChooser.vue'
 import PracticeFollowups from '../components/PracticeFollowups.vue'
 import { http } from '../api/client.js'
@@ -27,6 +29,9 @@ const selectedIndex = ref(null)
 const cardShownAt = ref(Date.now())
 const advancing = ref(false)
 const speechError = ref('')
+const autoPronounce = ref(readAutoPronounce())
+const pageVisible = ref(document.visibilityState !== 'hidden')
+function onVisibilityChange() { pageVisible.value = document.visibilityState !== 'hidden' }
 const navigationNotice = ref('')
 const wordCard = ref(null)
 let swipe = null
@@ -96,6 +101,7 @@ async function boot() {
 }
 
 function onKey(event) {
+  if (event.target?.closest?.('.word-learning-card, .speak-btn')) return
   const key = studyKey(event)
   if (key === null || advancing.value) return
   if (key === 'next' && (status.value === 'answered' || app.loading.answering)) {
@@ -106,12 +112,12 @@ function onKey(event) {
     event.preventDefault(); choose(options.value[key].index)
   }
 }
-onMounted(() => { boot(); window.addEventListener('keydown', onKey) })
-onUnmounted(() => { window.removeEventListener('keydown', onKey); if(generating.value)cancelCards(); stopSpeaking() })
+onMounted(() => { boot(); window.addEventListener('keydown', onKey); document.addEventListener('visibilitychange', onVisibilityChange) })
+onUnmounted(() => { window.removeEventListener('keydown', onKey); document.removeEventListener('visibilitychange', onVisibilityChange); if(generating.value)cancelCards(); stopSpeaking() })
 
 // 每翻到新题都重置计时起点，犹豫时长才有意义
 watch(
-  () => app.currentIndex,
+  () => `${app.session?.id}:${app.currentIndex}:${word.value?.id}`,
   () => {
     selectedIndex.value = app.currentItem?.selectedOptionIndex ?? null
     cardShownAt.value = Date.now()
@@ -246,8 +252,12 @@ async function startExtra() {
 }
 
 function speak() {
-  if (!word.value) return
   if (preparingWordAudio.value) { stopSpeaking(); return }
+  playWord()
+}
+
+function playWord() {
+  if (!word.value) return
   stopSpeaking()
   speechError.value = ''
   if (nativeSpeech.isSupported()) {
@@ -275,6 +285,17 @@ function stopSpeaking() {
   if (nativeSpeech.isSupported()) void nativeSpeech.stop().catch(() => {})
   window.speechSynthesis?.cancel()
 }
+
+// Answering keeps the same key; only entering another card/session or resuming triggers audio.
+const playbackKey = computed(() => wordAudioIdentity({
+  active: ['question', 'answered'].includes(status.value) && pageVisible.value,
+  sessionId: app.session?.id, index: app.currentIndex, wordId: word.value?.id,
+}))
+watch([playbackKey, autoPronounce], ([key, enabled]) => {
+  stopSpeaking()
+  if (key && enabled) playWord()
+}, { flush: 'post' })
+watch(autoPronounce, saveAutoPronounce)
 
 /** 本组答错的词，用于生成错词卡片 */
 const wrongWordIds = computed(() =>
@@ -370,8 +391,9 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
       <div ref="wordCard" class="card word-card">
         <div class="word-row">
           <h1 class="word-spell">{{ word.spelling }}</h1><FavoriteWord :key="word.id" :word-id="word.id" compact-on-mobile />
-          <button class="speak-btn" title="朗读单词" aria-label="朗读单词" @click="speak"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m11 4-6 5H2v6h3l6 5V4Z" /><path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" /></svg></button>
+          <button class="speak-btn" title="朗读单词" aria-label="朗读单词" @click="speak()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m11 4-6 5H2v6h3l6 5V4Z" /><path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" /></svg></button>
         </div>
+        <label class="auto-pronounce"><input type="checkbox" v-model="autoPronounce" /> 单词自动发音</label>
         <p v-if="preparingWordAudio" role="status">正在准备朗读音频…</p>
         <p v-if="speechError" class="error-text" role="status">{{ speechError }}</p>
         <p class="word-meta">
@@ -436,37 +458,9 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
 
             <p v-if="answer.isCorrect && answer.analysis?.confidence !== 'low'" class="analysis-note">本次回忆正确，按正常间隔复习。长期掌握依据多轮复习表现，不要求秒答。</p>
 <p v-if="answer.progress?.nextReviewAt" class="muted">下次复习：{{new Date(answer.progress.nextReviewAt).toLocaleString()}}</p>
-            <p v-if="word.example" class="example">
-              <span class="ex-label">例句</span>{{ word.example }}
-            </p>
             <p class="def-line">释义：{{ word.definitions.join('；') }}</p>
+            <WordLearningCard :key="`${app.session?.id}:${word.id}`" :word="word" :initial-contrast="answer.confusableCard" />
             <MorphologyCard :key="word.spelling" :word="word.spelling" />
-
-            <!-- 易混词对比记忆卡片 -->
-            <div v-if="answer.confusableCard" class="contrast-card">
-              <p class="contrast-title">对比记忆</p>
-              <div
-                v-for="contrast in answer.confusableCard.contrasts"
-                :key="contrast.wordId"
-                class="contrast-row"
-              >
-                <div class="contrast-words">
-                  <span class="cw">
-                    {{ contrast.diff.prefix
-                    }}<b class="hl">{{ contrast.diff.aMiddle }}</b>{{ contrast.diff.suffix }}
-                  </span>
-                  <span class="cw-vs">vs</span>
-                  <span class="cw">
-                    {{ contrast.diff.prefix
-                    }}<b class="hl">{{ contrast.diff.bMiddle }}</b>{{ contrast.diff.suffix }}
-                  </span>
-                  <span class="cw-tag">{{ contrast.relationType === 'form' ? '形近' : '近义' }}</span>
-                </div>
-                <p class="contrast-meaning">
-                  {{ contrast.meaningContrast.current }}　vs　{{ contrast.meaningContrast.related }}
-                </p>
-              </div>
-            </div>
 
             <!-- 记忆进度反馈 -->
             <p v-if="answer.progress" class="next-review">
@@ -672,6 +666,8 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
   overflow-wrap: anywhere;
 }
 
+.auto-pronounce { display:flex; align-items:center; gap:6px; margin:12px 0; color:var(--ink-soft); font-size:13px; width:fit-content; cursor:pointer; }
+.auto-pronounce input { accent-color:var(--accent-deep); width:16px; height:16px; }
 .speak-btn {
   background: var(--accent-soft);
   color: var(--accent-deep);

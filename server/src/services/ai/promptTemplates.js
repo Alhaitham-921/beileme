@@ -222,10 +222,10 @@ ${items}
 学习者：${profileLineCompact(profile)}
 
 每个词都要给出：一句话点明核心区别、各词的核心语义与用法差异、能体现区别的英文例句及中文翻译、
-一句好记的记忆口诀（要结合上面的错因，不要空泛）。错因以形近为主就重点讲词形差异，以语义为主就重点讲使用场景。
+一句好记的记忆口诀（要结合上面的错因，不要空泛）。另为目标词提供 2 条自然、实用的短语搭配及中文翻译，collocations 只放目标词的搭配。错因以形近为主就重点讲词形差异，以语义为主就重点讲使用场景。
 
 只输出 JSON：
-{"cards":[{"spelling":"单词","headline":"一句话核心区别","distinctions":[{"spelling":"单词","coreMeaning":"核心语义","usage":"用法差异","example":"英文例句","translation":"中文翻译"}],"mnemonic":"记忆口诀","formTip":"词形差异提示"}]}`
+{"cards":[{"spelling":"单词","headline":"一句话核心区别","distinctions":[{"spelling":"单词","coreMeaning":"核心语义","usage":"用法差异","example":"英文例句","translation":"中文翻译"}],"collocations":[{"phrase":"目标词的短语搭配","translation":"中文含义"}],"mnemonic":"记忆口诀","formTip":"词形差异提示"}]}`
 
   return { system: SYSTEM_PROMPT, user }
 }

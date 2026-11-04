@@ -8,5 +8,8 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(BeilemeSpeechPlugin.class);
         super.onCreate(savedInstanceState);
+        // Word pronunciation starts when a learning card appears, using our Kokoro audio.
+        // Users can disable automatic pronunciation in the learning screen.
+        getBridge().getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false);
     }
 }

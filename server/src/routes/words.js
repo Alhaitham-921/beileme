@@ -11,6 +11,7 @@ import {
   getRelatedWords,
   recentLearnedWords,
 } from '../services/wordService.js'
+import { getWordLearningCard } from '../services/wordLearningService.js'
 import { buildConfusableCard } from '../services/studyService.js'
 
 import { listCollectionWords, collectionWordIds } from '../services/collectionService.js'
@@ -152,5 +153,9 @@ router.get(
     return ok(res, { card })
   })
 )
+
+// Free dictionary reads never call AI; generation requires the separate explicit content action.
+router.get('/:id/learning-card', requireAuth, validate({ params: wordIdParam }), asyncHandler(async (req,res) =>
+  ok(res, { card: await getWordLearningCard(req.user.id, req.valid.params.id) })))
 
 export default router
