@@ -16,6 +16,7 @@ import {
 } from './wordService.js'
 import {
   addAnswerToPlan,
+  countDueWords,
   getOrCreateDailyPlan,
   listDueWords,
   listFreshWords,
@@ -137,7 +138,7 @@ async function materializeItems(queueItems) {
 export async function createSession(userId, { kind = 'daily', studyMode = 'review-first', budgetMinutes = null } = {}) {
   if (!['daily', 'extra'].includes(kind)) throw badRequest('kind 只能是 daily 或 extra')
 
-  if (!['review-first', 'new-only'].includes(studyMode)) throw badRequest('学习模式不合法')
+  if (!['review-first', 'review-only', 'new-only'].includes(studyMode)) throw badRequest('学习模式不合法')
   // 按用户的学习目标取对应词书（四级 → CET4，考研 → 考研词表 …）
   const wordbook = await resolveWordbookForUser(userId)
   const plan = await getOrCreateDailyPlan(userId, todayKey())
@@ -145,7 +146,7 @@ export async function createSession(userId, { kind = 'daily', studyMode = 'revie
   const workload=budgetMinutes?await studyWorkload(userId):null
   const cap=taskCap(budgetMinutes,workload?.secondsPerWord)
 
-  if (kind === 'daily') {
+  if (kind === 'daily' || studyMode === 'review-only') {
     const entries = await selectDailyWords({ plan, studyMode,
       listDue: limit => limit > 0 ? listDueWords(userId, { limit }) : [],
       listFresh: limit => limit > 0 ? listFreshWords(userId, wordbook.id, { limit }) : [],
@@ -179,6 +180,7 @@ export async function createSession(userId, { kind = 'daily', studyMode = 'revie
   return {
     session: mapSessionRow(session),
     plan,
+    remainingDueCount: await countDueWords(userId),
     items: await materializeItems(queue),
   }
 }
@@ -515,25 +517,39 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
 
 /** 结束会话，返回本轮统计 */
 export async function finishSession(userId, sessionId) {
-  const session = await queryOne(
-    'SELECT * FROM study_sessions WHERE id = ? AND user_id = ?',
-    [sessionId, userId]
-  )
-  if (!session) throw notFound('学习会话不存在')
-
-  const mapped = mapSessionRow(session)
-
-  if (mapped.status !== 'finished') {
-    await execute(
-      "UPDATE study_sessions SET status = 'finished', finished_at = ? WHERE id = ? AND user_id = ?",
-      [new Date(), sessionId, userId]
+  const mapped = await withTransaction(async (conn) => {
+    const [rows] = await conn.execute(
+      'SELECT * FROM study_sessions WHERE id = ? AND user_id = ? FOR UPDATE',
+      [sessionId, userId]
     )
-  }
+    if (!rows.length) throw notFound('学习会话不存在')
+    const session = rows[0]
+    const mapped = mapSessionRow(session)
+    const queue = parseJson(session.queue, [])
+    // Lock against concurrent answers; rejecting finish leaves unanswered words
+    // and their SRS untouched, so the group can still be resumed.
+    if (queue.some(item => !item.answered) || mapped.answeredCount < mapped.plannedCount) {
+      throw conflict('本组还有未作答的单词，请完成或暂停后继续')
+    }
+    if (mapped.status !== 'finished') {
+      const finishedAt = new Date()
+      await conn.execute(
+        "UPDATE study_sessions SET status = 'finished', finished_at = ? WHERE id = ? AND user_id = ?",
+        [finishedAt, sessionId, userId]
+      )
+      return { ...mapped, status: 'finished', finishedAt }
+    }
+    return mapped
+  })
 
+  const remainingDueCount = await countDueWords(userId)
+  const plan = await getOrCreateDailyPlan(userId, todayKey())
   const total = mapped.correctCount + mapped.wrongCount
   return {
-    session: { ...mapped, status: 'finished' },
+    session: mapped,
+    plan,
     summary: {
+      remainingDueCount,
       plannedCount: mapped.plannedCount,
       answeredCount: mapped.answeredCount,
       newCount: mapped.newCount,

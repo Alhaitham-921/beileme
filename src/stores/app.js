@@ -134,12 +134,12 @@ export const useAppStore = defineStore('app', {
     async startSession(kind = 'daily', studyMode = 'review-first', budgetMinutes = null) {
       this.loading.session = true
       this.error = ''
-      this.lastAnswer = null
-      this.sessionSummary = null
       this.answerRequestId += 1
       this.loading.answering = false
       try {
         const data = await api.study.createSession(kind, studyMode, budgetMinutes)
+        this.lastAnswer = null
+        this.sessionSummary = null
         this.session = data.session
         this.items = data.items
         this.currentIndex = 0
@@ -162,12 +162,12 @@ export const useAppStore = defineStore('app', {
     async startReviewSession(wordIds) {
       this.loading.session = true
       this.error = ''
-      this.lastAnswer = null
-      this.sessionSummary = null
       this.answerRequestId += 1
       this.loading.answering = false
       try {
         const data = await api.study.createReviewSession(wordIds)
+        this.lastAnswer = null
+        this.sessionSummary = null
         this.session = data.session
         this.items = data.items
         this.currentIndex = 0
@@ -203,7 +203,12 @@ export const useAppStore = defineStore('app', {
 
       this.loading.session = true
       try {
-        const data = sessionId ? await api.study.getSession(sessionId) : await api.study.pausedSession()
+        let data
+        if (sessionId) {
+          try { data = await api.study.getSession(sessionId) }
+          catch (error) { if (error.status !== 404) throw error }
+        }
+        if (!data?.session || data.session.status !== 'active') data = await api.study.pausedSession()
         if (!data.session || data.session.status !== 'active') { writeActiveSessionId(null); return null }
         writeActiveSessionId(data.session.id)
         this.session = data.session
@@ -291,7 +296,9 @@ export const useAppStore = defineStore('app', {
       const sessionId = this.session.id
       const data = await api.study.finish(sessionId)
       if (this.session?.id !== sessionId) return data
+      this.session = data.session || this.session
       this.sessionSummary = data.summary
+      if (data.plan) this.plan = data.plan
       writeActiveSessionId(null)
       return data
     },

@@ -18,7 +18,7 @@ const router = useRouter()
 
 const booting = ref(true)
 const choosingMode = ref(false)
-const studyMode = ref('review-first')
+const studyMode = ref('review-only')
 const uncertain = ref(false)
 const paused=ref(null),preparingWordAudio=ref(false)
 let cardRun=0
@@ -37,6 +37,8 @@ const item = computed(() => app.currentItem)
 const word = computed(() => item.value?.word)
 const options = computed(() => item.value?.options || [])
 const answer = computed(() => app.lastAnswer)
+const reviewOnly = computed(() => studyMode.value !== 'new-only')
+const remainingDueCount = computed(() => app.sessionSummary?.remainingDueCount ?? null)
 const nextLabel = computed(() => app.isLastItem ? (app.allAnswered ? '查看结果' : '继续未答单词') : '下一个单词')
 
 /** 页面状态机：把「该显示什么」收敛到一个字段，模板里只做分支渲染 */
@@ -76,7 +78,8 @@ async function boot() {
   bootError.value = ''
 
   try {
-    // 刷新页面后优先恢复进行中的会话，没有才新开一轮
+    if (app.sessionSummary) choosingMode.value = true
+    // 刷新页面后优先恢复进行中的会话，没有才选择学习内容
     if (!app.items.length || !app.session) {
       const restored = await app.restoreSession()
       if (!restored) choosingMode.value = true
@@ -139,6 +142,15 @@ async function choose(index) {
     }
     bootError.value = error.message
   }
+}
+
+function requestAdvance() {
+  if (app.loading.answering) {
+    continueRequested = true
+    navigationNotice.value = '已收到，答案保存后会继续。'
+    return
+  }
+  void advance()
 }
 
 async function advance() {
@@ -214,11 +226,13 @@ function endSwipe(event) {
 }
 
 async function startExtra() {
-  app.clearSession()
   booting.value = true
   bootError.value = ''
   try {
-    await app.startSession('extra', studyMode.value)
+    paused.value = null
+    continueRequested = false
+    studyMode.value = reviewOnly.value ? 'review-only' : 'new-only'
+    await app.startSession(reviewOnly.value ? 'daily' : 'extra', studyMode.value)
     cardShownAt.value = Date.now()
   } catch (error) {
     bootError.value = error.message
@@ -294,7 +308,7 @@ async function beginMode(mode, budgetMinutes = null) {
   choosingMode.value = false
   booting.value = true
   bootError.value = ''
-  try { paused.value=null; await app.startSession('daily', mode, budgetMinutes); cardShownAt.value = Date.now(); uncertain.value = false }
+  try { paused.value=null; continueRequested=false; await app.startSession('daily', mode, budgetMinutes); cardShownAt.value = Date.now(); uncertain.value = false }
   catch (error) { bootError.value = error.message }
   finally { booting.value = false }
 }
@@ -317,14 +331,9 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
       <p class="muted">正在准备今天的单词…</p>
     </div>
 
-    <section v-else-if="status === 'setup'" class="card result-card">
-      <h1 class="result-title">这次想怎么学？</h1>
-      <p>可以先复习旧词，也可以直接学习新词。跳过的复习任务会保留。</p>
-      <StudyTaskChooser @start="beginMode" /><PracticeFollowups compact />
-      <div class="result-actions">
-        <button v-if="app.session && app.items.length" class="btn btn-ghost" @click="choosingMode = false">继续原来的学习</button>
-      </div>
-      <p class="muted">切换模式会重新安排未完成任务，已答记录保留，不会把跳过的复习计为完成。</p>
+    <section v-else-if="status === 'setup'" class="card mode-card">
+      <StudyTaskChooser :disabled="booting" @start="beginMode" />
+      <button v-if="app.session && app.items.length && !app.sessionSummary" class="text-button resume-button" @click="choosingMode = false">继续本组</button>
     </section>
     <section v-else-if="status === 'paused'" class="card result-card"><h1>先学到这里，也有收获</h1><p>已保存 {{paused.savedCount}} / {{paused.session.plannedCount}} 个词，剩余 {{paused.remaining}} 个词仍保留。</p><div class="result-actions"><button class="btn btn-primary" @click="paused=null">继续本组</button><button class="btn btn-ghost" @click="router.push('/')">返回首页</button></div></section>
     <!-- 出错 -->
@@ -333,13 +342,14 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
       <p class="result-sub">{{ bootError }}</p>
       <div class="result-actions">
         <button class="btn btn-ghost" @click="boot">重试</button>
+        <button v-if="app.items.length && (app.sessionSummary || app.session?.status === 'active')" class="btn btn-ghost" @click="bootError = ''; choosingMode = false">返回本组</button>
         <button class="btn btn-primary" @click="router.push('/')">返回首页</button>
       </div>
     </div>
 
     <!-- 答题中 / 已作答 -->
     <template v-else-if="status === 'question' || status === 'answered'">
-      <button class="text-button" :disabled="app.loading.answering" @click="changeMode">选择学习方式</button><button class="text-button" :disabled="app.loading.answering" @click="pauseLearning">先学到这里，保存进度</button>
+      <button class="text-button" :disabled="app.loading.answering" @click="changeMode">选择学习内容</button><button class="text-button" :disabled="app.loading.answering" @click="pauseLearning">先学到这里，保存进度</button>
       <div class="study-head">
         <div class="study-head-left"><span class="badge" :class="item.kind">{{ item.kind === 'new' ? '新词学习' : '复习巩固' }}</span><span class="session-label">今日学习</span></div>
         <span class="progress-text mono-num">
@@ -397,9 +407,9 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
         </div>
 
         <label v-if="status === 'question'" class="muted"><input type="checkbox" v-model="uncertain" :disabled="app.loading.answering" /> 这题不确定／靠猜测（可选，答对后会较早复习）</label>
-        <div v-if="status === 'answered'" class="mobile-study-actions">
-          <button class="btn btn-primary next-btn" :disabled="advancing || app.loading.answering" @click="advance">
-            {{ nextLabel }} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
+        <div v-if="status === 'answered' || (app.loading.answering && selectedIndex !== null)" class="mobile-study-actions">
+          <button class="btn btn-primary next-btn" :disabled="advancing || continueRequested" @click="requestAdvance">
+            {{ continueRequested ? '保存后继续…' : nextLabel }} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
           </button>
         </div>
         <p v-if="navigationNotice" class="navigation-notice" role="status">{{ navigationNotice }}</p>
@@ -465,12 +475,12 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
       <div class="study-foot">
         <p class="keyboard-hints"><span><kbd>1</kbd> – <kbd>4</kbd> 选择释义</span><span><kbd>Space</kbd> 作答后继续</span></p>
         <button
-          v-if="status === 'answered'"
+          v-if="status === 'answered' || (app.loading.answering && selectedIndex !== null)"
           class="btn btn-primary btn-lg next-btn"
-          :disabled="advancing"
-          @click="advance"
+          :disabled="advancing || continueRequested"
+          @click="requestAdvance"
         >
-          {{ nextLabel }} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
+          {{ continueRequested ? '保存后继续…' : nextLabel }} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
         </button>
       </div>
     </template>
@@ -559,20 +569,23 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
         </div>
       </div>
 
+      <p v-if="reviewOnly && remainingDueCount !== null" class="result-sub" role="status">{{ remainingDueCount > 0 ? '还有 ' + remainingDueCount + ' 个到期旧词，可以继续下一组。' : '当前到期旧词已复习完成。' }}</p>
       <div class="result-actions">
-        <button class="btn btn-ghost" @click="changeMode">选择学习方式</button><button class="btn btn-ghost" @click="startExtra">再学一组</button>
-        <button class="btn btn-primary" @click="router.push('/')">返回首页</button>
+        <button class="btn btn-primary" :disabled="reviewOnly && remainingDueCount === 0" @click="startExtra">{{ reviewOnly ? '继续复习下一组' : '再学一组新词' }}</button>
+        <button class="btn btn-ghost" @click="changeMode">选择学习内容</button>
+        <button class="btn btn-ghost" @click="router.push('/')">返回首页</button>
       </div>
     </div>
 
     <!-- 今天没有要学的 -->
     <div v-else class="card result-card">
       <span class="state-icon completed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="m8 12 3 3 5-6" /></svg></span>
-      <h1 class="result-title">本模式下暂无待学单词。</h1>
-      <p class="result-sub">可能已完成本模式的今日额度；跳过的新词或复习任务仍保留，可切换学习方式查看。</p>
+      <h1 class="result-title">{{ reviewOnly ? '当前没有到期旧词' : '本组暂无新词' }}</h1>
+      <p class="result-sub">{{ reviewOnly ? '已学单词仍会按各自的复习时间再次安排。' : '可以继续加学新词，或返回选择复习旧词。' }}</p>
       <div class="result-actions">
-        <button class="btn btn-ghost" @click="startExtra">再学一组</button>
-        <button class="btn btn-primary" @click="router.push('/')">返回首页</button>
+        <button v-if="!reviewOnly" class="btn btn-ghost" @click="startExtra">再学一组新词</button>
+        <button class="btn btn-primary" @click="changeMode">选择学习内容</button>
+        <button class="btn btn-ghost" @click="router.push('/')">返回首页</button>
       </div>
     </div>
   </div>
@@ -580,6 +593,9 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
 
 <style scoped>
 .study { max-width: 800px; margin: 0 auto; }
+.mode-card { padding: 32px 24px; text-align: center; }
+.resume-button { margin-top: 20px; }
+.choice, .next-btn { touch-action: manipulation; }
 .mobile-study-actions { display: none; }
 .navigation-notice { margin: 12px 0 0; color: var(--ink-soft); font-size: 12px; }
 .word-card { scroll-margin-top: 12px; touch-action: pan-y pinch-zoom; }

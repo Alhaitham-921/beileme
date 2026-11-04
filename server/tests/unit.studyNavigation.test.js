@@ -185,3 +185,34 @@ test('network recovery failure preserves the session pointer for another attempt
  t.mock.method(api.study,'getSession',async()=>{throw Object.assign(new Error('offline'),{status:0})})
  await assert.rejects(app.restoreSession(),/offline/);assert.equal(values.get('beileme:activeSession'),'15')
 })
+
+
+test('failed next group preserves the completed result, queue and retry context', async t => {
+  const { app, values } = setup(t)
+  app.items.forEach(item => { item.answered = true; item.correct = true })
+  app.sessionSummary = { answeredCount: 3, remainingDueCount: 13 }
+  app.lastAnswer = result(3)
+  values.set('beileme:activeSession', '10')
+  t.mock.method(api.study, 'createSession', async () => { throw new Error('offline') })
+  await assert.rejects(app.startSession('daily', 'review-only'), /offline/)
+  assert.equal(app.session.id, 10)
+  assert.equal(app.items.length, 3)
+  assert.equal(app.sessionSummary.remainingDueCount, 13)
+  assert.equal(app.lastAnswer.correctText, '释义3')
+  assert.equal(values.get('beileme:activeSession'), '10')
+  assert.equal(app.loading.session, false)
+})
+
+test('a stale session pointer falls back to an older resumable group', async t => {
+  const { app, values } = setup(t)
+  app.clearSession()
+  values.set('beileme:activeSession', '99')
+  t.mock.method(api.study, 'getSession', async () => { throw Object.assign(new Error('not found'), { status: 404 }) })
+  const restored = items()
+  restored[0].answered = true
+  t.mock.method(api.study, 'pausedSession', async () => ({ session: { id: 20, status: 'active' }, items: restored }))
+  await app.restoreSession()
+  assert.equal(app.session.id, 20)
+  assert.equal(app.currentIndex, 1)
+  assert.equal(values.get('beileme:activeSession'), '20')
+})

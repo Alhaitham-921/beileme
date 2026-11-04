@@ -10,7 +10,7 @@ import onnxruntime as ort
 ROOT = Path(__file__).resolve().parents[2]
 MODEL_DIR = Path(os.environ.get('KOKORO_MODEL_DIR', ROOT / 'output/kokoro/models'))
 options = ort.SessionOptions()
-options.intra_op_num_threads = max(1, min(4, os.cpu_count() or 2))
+options.intra_op_num_threads = max(1, min(4, int(os.environ.get('KOKORO_THREADS', '4')), os.cpu_count() or 2))
 options.inter_op_num_threads = 1
 session = ort.InferenceSession(str(MODEL_DIR / 'kokoro-v1.0.onnx'), sess_options=options, providers=['CPUExecutionProvider'])
 model = Kokoro.from_session(session, str(MODEL_DIR / 'voices-v1.0.bin'))
@@ -72,5 +72,6 @@ class Handler(BaseHTTPRequestHandler):
 
 print('Warming up Kokoro English voice...', flush=True)
 synthesize('Welcome to Beileme.', 1)
-print('Kokoro ready at http://127.0.0.1:3003', flush=True)
-HTTPServer(('127.0.0.1', 3003), Handler).serve_forever()
+bind_host = os.environ.get('KOKORO_BIND_HOST', '127.0.0.1')
+print(f'Kokoro ready at http://{bind_host}:3003', flush=True)
+HTTPServer((bind_host, 3003), Handler).serve_forever()

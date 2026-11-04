@@ -1,21 +1,31 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { reactive, toRefs, onMounted, onUnmounted } from 'vue'
 import { assessment } from '../api'
 import { studyKey } from '../utils/studyKeyboard'
-const session = ref(null), history = ref([]), busy = ref(false), error = ref('')
-const selected = ref(null), pending = ref(null)
-let continueRequested = false
-let shownAt = 0
+import { createAssessmentNavigation } from '../utils/assessmentNavigation'
+const state = reactive({ session: null, history: [], busy: false, error: '', selected: null, pending: null, continueRequested: false })
+const { session, history, busy, error, selected, continueRequested } = toRefs(state)
+const navigation = createAssessmentNavigation({
+  state,
+  submit: assessment.answer,
+  onAdvance(next) {
+    if (next.result) history.value = [next, ...history.value.filter(s => s.id !== next.id)]
+  },
+})
+const { answer, advance, retry } = navigation
+let operation = 0
 async function load() {
+  if (busy.value || selected.value !== null) return
+  const currentOperation = ++operation
   busy.value = true
   error.value = ''
   try {
-    history.value = (await assessment.history()).items
-    session.value = history.value.find(s => !s.result) || history.value[0] || null
-    selected.value = null; pending.value = null; continueRequested = false
-    shownAt = performance.now()
-  } catch (e) { error.value = e.message }
-  finally { busy.value = false }
+    const { items } = await assessment.history()
+    if (currentOperation !== operation) return
+    history.value = items
+    navigation.reset(items.find(s => !s.result) || items[0] || null)
+  } catch (e) { if (currentOperation === operation) error.value = e.message }
+  finally { if (currentOperation === operation) busy.value = false }
 }
 function onKey(event) {
   const key = studyKey(event)
@@ -28,31 +38,16 @@ function onKey(event) {
   }
 }
 onMounted(() => { load(); window.addEventListener('keydown', onKey) })
-onUnmounted(() => window.removeEventListener('keydown', onKey))
+onUnmounted(() => { operation++; navigation.dispose(); window.removeEventListener('keydown', onKey) })
 async function start() {
-  busy.value = true; error.value = ''
-  try { session.value = await assessment.start(); selected.value = null; pending.value = null; continueRequested = false; shownAt = performance.now() }
-  catch (e) { error.value = e.message }
-  finally { busy.value = false }
-}
-async function answer(selectedIndex) {
-  if (busy.value || selected.value !== null) return
-  selected.value = selectedIndex
+  if (busy.value) return
+  const currentOperation = ++operation
   busy.value = true; error.value = ''
   try {
-    pending.value = await assessment.answer(session.value.id, { wordId: session.value.question.wordId, selectedIndex, rtMs: Math.min(3600000, Math.round(performance.now() - shownAt)) })
-  } catch (e) { error.value = e.message }
-  finally {
-    busy.value = false
-    if (continueRequested && pending.value) advance()
-  }
-}
-function advance() {
-  if (busy.value) { continueRequested = true; return }
-  if (!pending.value) return
-  session.value = pending.value; pending.value = null; selected.value = null; continueRequested = false
-  shownAt = performance.now()
-  if (session.value.result) history.value = [session.value, ...history.value.filter(s => s.id !== session.value.id)]
+    const next = await assessment.start()
+    if (currentOperation === operation) navigation.reset(next)
+  } catch (e) { if (currentOperation === operation) error.value = e.message }
+  finally { if (currentOperation === operation) busy.value = false }
 }
 </script>
 <template>
@@ -60,19 +55,27 @@ function advance() {
     <p class="page-eyebrow">FIND YOUR STARTING POINT</p>
     <h1 class="section-title">了解你的词汇起点</h1>
     <p class="section-sub">约 3–5 分钟 · 30–35 题 · 不消耗 AI 额度</p>
-    <p v-if="error" role="alert" class="error">{{ error }} <button class="btn" :disabled="busy" @click="load">恢复测评</button></p>
+    <p v-if="error" role="alert" class="error">
+      {{ error }}
+      <template v-if="selected !== null">已保留本题选择，请重试保存。 <button class="btn" :disabled="busy" @click="retry">重试保存</button></template>
+      <button v-else class="btn" :disabled="busy" @click="load">恢复测评</button>
+    </p>
     <section v-if="session?.question" class="card">
       <p>已完成 {{ session.answered }} / {{ session.total }}</p>
       <progress :value="session.answered" :max="session.total" aria-label="测评进度"></progress>
       <p>请选择这个词的含义。不确定时选“不认识”，无需猜测或查词。</p>
       <h2 class="word">{{ session.question.spelling }}</h2>
       <div class="choices">
-        <button v-for="(option, i) in session.question.options" :key="session.question.wordId + ':' + i" class="btn btn-secondary" :class="{ selected: selected === i }" :aria-pressed="selected === i" :disabled="busy || selected !== null" @click="answer(i)"><kbd>{{ i + 1 }}</kbd> {{ option }}</button>
-        <button class="btn" :class="{ selected: selected === -1 }" :disabled="busy || selected !== null" @click="answer(-1)">不认识 / 不确定</button>
+        <button v-for="(option, i) in session.question.options" :key="session.question.wordId + ':' + i" class="btn btn-secondary" :class="{ selected: selected === i }" :aria-pressed="selected === i" :disabled="busy || selected !== null" @click="answer(i)"><kbd class="desktop-shortcut">{{ i + 1 }}</kbd> {{ option }}</button>
+        <button class="btn" :class="{ selected: selected === -1 }" :aria-pressed="selected === -1" :disabled="busy || selected !== null" @click="answer(-1)">不认识 / 不确定</button>
       </div>
-      <p class="muted">数字键 1–4 选择 · 空格进入下一题</p>
-      <button v-if="selected !== null && !error" class="btn btn-primary" @click="advance">{{ busy ? '保存中，可按空格等待继续' : session.answered + 1 === session.total ? '查看结果 · 空格' : '下一题 · 空格' }}</button>
-      <p v-if="busy" role="status">正在保存选择…</p>
+      <p class="muted desktop-shortcut">数字键 1–4 选择 · 空格进入下一题</p>
+      <button v-if="selected !== null && !error" class="btn btn-primary next-button" :disabled="continueRequested" @click="advance">
+        {{ continueRequested ? '已请求，保存后继续' : session.answered + 1 === session.total ? '查看结果' : '下一题' }}<span v-if="!continueRequested" class="desktop-shortcut"> · 空格</span>
+      </button>
+      <p v-if="selected !== null && !error" role="status" aria-live="polite" class="muted">
+        {{ busy ? continueRequested ? '正在保存选择，完成后将继续，请稍候…' : '正在保存选择，可点击按钮等待继续…' : '选择已保存，请继续。' }}
+      </p>
     </section>
     <section v-else-if="session?.result" class="card">
       <h2>{{ session.result.bookName }}：约掌握 {{ session.result.estimatedKnown }} 词</h2>
@@ -93,7 +96,7 @@ function advance() {
     </section>
     <section v-if="!session?.question && history.some(s => s.result)" class="history">
       <h2>历史测评</h2>
-      <button v-for="item in history.filter(s => s.result)" :key="item.id" class="btn" :disabled="busy" @click="session = item">{{ item.takenAt ? new Date(item.takenAt).toLocaleDateString() : '' }} · {{ item.result.bookName }} · 约 {{ item.result.estimatedKnown }} 词</button>
+      <button v-for="item in history.filter(s => s.result)" :key="item.id" class="btn" :disabled="busy" @click="navigation.reset(item)">{{ item.takenAt ? new Date(item.takenAt).toLocaleDateString() : '' }} · {{ item.result.bookName }} · 约 {{ item.result.estimatedKnown }} 词</button>
     </section>
   </main>
 </template>
@@ -103,9 +106,12 @@ function advance() {
 .choices { display: grid; gap: 12px; }
 .choices button { white-space: normal; text-align: left; min-height: 48px; }
 .choices .selected { outline: 2px solid var(--accent); opacity: 1; background: var(--accent-soft); }
+.assessment button { touch-action: manipulation; }
+.next-button { display: flex; width: 100%; margin-top: 12px; }
 kbd { border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font: inherit; }
 progress { width: 100%; accent-color: var(--accent); }
 .band { display: grid; grid-template-columns: 150px 1fr 50px; align-items: center; gap: 10px; margin: 18px 0; }
 .error { color: var(--bad); }.history { margin-top: 30px; }.history button { display: block; margin-bottom: 10px; }
+@media (max-width: 820px), (hover: none) and (pointer: coarse) { .desktop-shortcut { display: none; } }
 @media (max-width: 480px) { .band { grid-template-columns: 1fr 1fr 40px; font-size: 13px; } }
 </style>

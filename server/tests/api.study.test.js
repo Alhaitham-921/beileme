@@ -494,9 +494,11 @@ describe('错因分析引擎（PRD 4.2.3）', () => {
 })
 
 describe('会话收尾与统计', () => {
-  test('结束会话返回本轮统计', async () => {
+  test('全部作答后结束会话返回本轮统计', async () => {
     const user = await createOnboardedUser(client)
+    await execute('UPDATE daily_plans SET new_target = 3 WHERE user_id = ?', [user.userId])
     const { session, results } = await playSession(client, user, { strategy: 'all-correct', maxAnswers: 3 })
+    assert.equal(session.plannedCount, 3)
 
     const finished = await client.post(`/api/v1/study/sessions/${session.id}/finish`, {
       token: user.token,
@@ -511,15 +513,34 @@ describe('会话收尾与统计', () => {
     assert.ok(finished.data.summary.avgHesitationMs > 0, '平均犹豫时长应被统计')
   })
 
+  test('未全部作答不能结束，会话与未答题保留且可以继续', async () => {
+    const user = await createOnboardedUser(client)
+    const { session, items } = await playSession(client, user, { maxAnswers: 1 })
+    assert.ok(items.length > 1)
+    const finished = await client.post(`/api/v1/study/sessions/${session.id}/finish`, { token: user.token })
+    assert.equal(finished.status, 409)
+    assert.match(finished.error.message, /未作答/)
+    const restored = await client.get(`/api/v1/study/sessions/${session.id}`, { token: user.token })
+    assert.equal(restored.data.session.status, 'active')
+    assert.equal(restored.data.session.answeredCount, 1)
+    assert.equal(restored.data.items.filter(item => !item.answered).length, items.length - 1)
+    const plan = await client.get('/api/v1/plan/today', { token: user.token })
+    assert.equal(plan.data.plan.newDone, 1)
+    const answer = await client.post(`/api/v1/study/sessions/${session.id}/answers`, {
+      token: user.token,
+      body: { wordId: items[1].wordId, optionIndex: await correctOptionIndex(session.id, items[1].wordId) },
+    })
+    assert.equal(answer.status, 201)
+  })
+
   test('会话结束后不能再提交作答', async () => {
     const user = await createOnboardedUser(client)
-    const created = await client.post('/api/v1/study/sessions', {
-      token: user.token,
-      body: { kind: 'daily' },
-    })
-    const { session, items } = created.data
+    await execute('UPDATE daily_plans SET new_target = 1 WHERE user_id = ?', [user.userId])
+    const { session, items } = await playSession(client, user, { maxAnswers: 1 })
+    assert.equal(session.plannedCount, 1)
 
-    await client.post(`/api/v1/study/sessions/${session.id}/finish`, { token: user.token })
+    const finished = await client.post(`/api/v1/study/sessions/${session.id}/finish`, { token: user.token })
+    assert.equal(finished.status, 200)
 
     const response = await client.post(`/api/v1/study/sessions/${session.id}/answers`, {
       token: user.token,

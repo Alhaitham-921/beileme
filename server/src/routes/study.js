@@ -22,7 +22,9 @@ const router = Router()
 router.use(requireAuth)
 router.get('/workload',asyncHandler(async(req,res)=>ok(res,await studyWorkload(req.user.id))))
 router.get('/paused-session', asyncHandler(async (req, res) => {
-  const row = await queryOne('SELECT id,status,paused_at,planned_count,answered_count FROM study_sessions WHERE user_id=? ORDER BY id DESC LIMIT 1', [req.user.id])
+  const row = await queryOne(`SELECT id,status,paused_at,planned_count,answered_count FROM study_sessions
+    WHERE user_id=? AND status='active' AND paused_at IS NOT NULL AND answered_count<planned_count
+    ORDER BY id DESC LIMIT 1`, [req.user.id])
   if (!row?.paused_at || row.status !== 'active' || Number(row.answered_count) >= Number(row.planned_count)) return ok(res, { session: null, items: [] })
   return ok(res, await getSession(req.user.id, Number(row.id)))
 }))
@@ -38,7 +40,7 @@ const sessionParam = z.object({ id: z.coerce.number().int().positive() })
 const createSessionSchema = z.object({
   kind: z.enum(['daily', 'extra']).optional(),
   budgetMinutes: z.union([z.literal(5),z.literal(10)]).nullable().optional(),
-  studyMode: z.enum(['review-first', 'new-only']).default('review-first'),
+  studyMode: z.enum(['review-first', 'review-only', 'new-only']).default('review-first'),
 })
 
 const answerSchema = z

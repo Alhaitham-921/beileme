@@ -2,6 +2,13 @@
 
 Vue 3 + Node.js + MySQL 的学生英语学习项目，仅用于非商业学习与展示。
 
+## 0.2.5 更新
+
+- 手机词汇评测隐藏序号和快捷键提示，下一题与选项等宽；电脑保留数字键、空格操作。
+- 单词学习入口精简为“复习旧词／选择新词”。到期旧词每组最多十个，完成后可继续下一组，不受已完成的今日复习额度阻断。
+- 未答完不能结束本组；下一组请求失败保留原结果，较新的其他会话不会遮住已暂停的一组。
+- 云端版 APK 使用服务器接口，手机覆盖安装更新即可，日常使用无需 USB。
+
 ## 0.2.4 更新
 
 - 接入本机 Kokoro 英语朗读，手机无需安装系统语音引擎，含音频缓存与准备状态。
@@ -17,12 +24,17 @@ Vue 3 + Node.js + MySQL 的学生英语学习项目，仅用于非商业学习�
 首次在另一台电脑使用朗读，须按 [Kokoro 配置说明](docs/Kokoro-local.md) 安装 Python 环境并下载模型；这些大文件不随源码分发。
 详见 [连续练习与恢复](docs/learning-continuity.md)、[学习判定调整](docs/study-policy-update.md)、[邮箱验证与找回密码](docs/password-recovery-design.md)。
 
+## Linux / Docker 部署
+
+支持四服务隔离部署及普通账号的 Rootless Docker；默认网页入口只监听宿主机 loopback，避免占用现有 80/443。配置、迁移和临时 HTTPS 测试方法见 [Docker 部署说明](docs/Docker部署.md)。
+
 ## 安卓 App
 
 已接入 Capacitor，复用现有 Vue 界面。Windows 本机执行 `npm run android:setup` 配置工具路径，
 再执行 `npm run android:build` 生成 `output/android/beileme-debug.apk`。
 安卓手机开启 USB 调试并授权电脑后，执行 `npm run android:install`，或双击 `start-android.cmd`。
-调试版通过 USB 使用电脑后端，需保持数据线连接、MySQL 和后端运行；无需购买云服务器。
+本机调试版通过 USB 转发使用电脑后端，需保持数据线连接、MySQL 和后端运行。云端版将 `.env.android.local` 的 `VITE_API_BASE_URL` 指向服务器 HTTPS 地址后重新打包，手机可下载 APK 覆盖安装，日常使用无需数据线。
+云端配置可参考 `.env.android.example`，复制为 `.env.android.local` 并填写地址后运行 `npm run android:build`；已有本机配置直接沿用。
 手机操作、缓存路径、重连与云端地址配置见 [安卓 App 开发与真机调试](docs/安卓App开发与真机调试.md)。
 
 ## 本地启动

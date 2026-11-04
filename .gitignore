@@ -65,3 +65,8 @@ android/capacitor-cordova-android-plugins/
 venv/
 __pycache__/
 *.py[cod]
+
+# Generated Docker API environment (server-only credentials)
+deploy/api.env
+deploy/.api.env.*
+deploy/backups/

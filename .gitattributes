@@ -1,0 +1,6 @@
+# Shell and deployment files must remain runnable on Linux from Windows clones.
+*.sh text eol=lf
+*.Dockerfile text eol=lf
+compose.yaml text eol=lf
+.dockerignore text eol=lf
+server/src/db/migrations/*.sql text eol=lf

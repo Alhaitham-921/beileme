@@ -364,7 +364,7 @@ describe('契约：背词会话（前端最核心的链路）', () => {
     await freshUser()
     const created = await api.study.createSession('daily')
 
-    for (const item of created.items.slice(0, 3)) {
+    for (const item of created.items) {
       await api.study.answer(created.session.id, { wordId: item.wordId, optionIndex: 0 })
     }
 
@@ -373,7 +373,7 @@ describe('契约：背词会话（前端最核心的链路）', () => {
     for (const field of ['answeredCount', 'correctCount', 'wrongCount', 'accuracy', 'avgHesitationMs']) {
       assert.ok(field in data.summary, `summary 缺少字段 ${field}`)
     }
-    assert.equal(data.summary.answeredCount, 3)
+    assert.equal(data.summary.answeredCount, created.items.length)
   })
 
   test('刷新后可按 sessionId 恢复同一组题', async () => {
