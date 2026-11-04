@@ -323,6 +323,46 @@ async function generateReport(userId, id) {
   } finally { await release(id, token) }
 }
 
+/** Operator recovery only; not exposed as an HTTP endpoint.
+ * Reuses a provider response already obtained with the account owner's approval.
+ * No extra model call and no change to the three-attempt limit. The normal strict
+ * validator, account ownership, lease and atomic SRS/report transaction still apply.
+ * Diagnostic usage must have been charged to dialogue_daily_usage by its caller.
+ */
+export async function restoreFailedDialogueReport(userId, id, { raw, usage, expectedTurn } = {}) {
+  if (!Number.isInteger(expectedTurn) || expectedTurn < 0 || expectedTurn > 24) throw badRequest('缺少修复来源的对话轮次')
+  const previous = fromRow(await rowFor(userId, id))
+  if (previous.status === 'finished') return getDialogue(userId, id)
+  const { token, session } = await claim(userId, id, expectedTurn, ['report_failed'])
+  try {
+    const report = validateReport(raw, session)
+    const evidence = buildEvidence(session, report)
+    if (usage) {
+      const provider = await resolveProvider(userId)
+      const total = addUsage(emptyUsage(), usage, provider.model)
+      session.lastUsage = usageReport(total, provider)
+      session.usage = usageReport({
+        promptTokens: Number(session.usage?.promptTokens || 0) + total.promptTokens,
+        completionTokens: Number(session.usage?.completionTokens || 0) + total.completionTokens,
+        calls: Number(session.usage?.calls || 0) + total.calls,
+        unknownCalls: Number(session.usage?.unknownCalls || 0) + total.unknownCalls,
+      }, provider)
+    }
+    const updated = await execute(`UPDATE dialogue_sessions SET status='analyzing'
+      WHERE id=? AND user_id=? AND operation_token=? AND status='report_failed'`, [id, userId, token])
+    if (!updated.affectedRows) throw conflict('小结状态已更新，请重新检查')
+    if (session.lastAiError) session.lastAiError.recovered = true
+    session.reportRecovery = { source: 'saved_provider_response', at: new Date().toISOString() }
+    await finalizeReport(userId, session, report, evidence, token)
+  } catch (error) {
+    // finalizeReport rolls back all evidence/SRS writes on failure. Preserve the
+    // original state instead of persisting partial usage/report mutations.
+    await execute("UPDATE dialogue_sessions SET status='report_failed' WHERE id=? AND user_id=? AND operation_token=?", [id, userId, token])
+    throw error
+  } finally { await release(id, token) }
+  return getDialogue(userId, id)
+}
+
 async function finalizeReport(userId, session, report, evidence, token) {
   const book = await resolveWordbookForUser(userId)
   const candidates = [...new Set(evidence.map(e => e.word.toLowerCase()))]
