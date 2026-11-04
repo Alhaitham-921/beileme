@@ -90,6 +90,8 @@ function generateArticleForToday() {
       <button class="btn btn-ghost" :disabled="loading" @click="loadReview">{{ loading ? '加载中…' : '重新加载' }}</button>
     </div>
 
+    <p><router-link class="text-button" :to="{path:'/notebooks',query:{source:'mistakes'}}">查看全部历史错词 →</router-link></p>
+
     <div class="tabs" role="group" aria-label="回顾内容">
       <button class="tab" :class="{ active: tab === 'wrong' }" :aria-pressed="tab === 'wrong'" @click="tab = 'wrong'">
         今日错词 <span v-if="wrongWords.length" class="tab-count">{{ wrongWords.length }}</span>

@@ -44,6 +44,7 @@ export const useAppStore = defineStore('app', {
     lastAnswer: null,
     answerRequestId: 0,
     sessionSummary: null,
+    reviewBatch: null,
     newBadges: [],
 
     // 看板
@@ -140,6 +141,7 @@ export const useAppStore = defineStore('app', {
         const data = await api.study.createSession(kind, studyMode, budgetMinutes)
         this.lastAnswer = null
         this.sessionSummary = null
+        this.reviewBatch = data.reviewBatch || null
         this.session = data.session
         this.items = data.items
         this.currentIndex = 0
@@ -168,6 +170,7 @@ export const useAppStore = defineStore('app', {
         const data = await api.study.createReviewSession(wordIds)
         this.lastAnswer = null
         this.sessionSummary = null
+        this.reviewBatch = data.reviewBatch || null
         this.session = data.session
         this.items = data.items
         this.currentIndex = 0
@@ -180,6 +183,38 @@ export const useAppStore = defineStore('app', {
       } finally {
         this.loading.session = false
       }
+    },
+
+    async startCollectionReview(wordIds) {
+      return this.loadCollectionReview(() => api.study.createCollectionReview(wordIds))
+    },
+
+    async continueCollectionReview(id = this.reviewBatch?.id) {
+      return this.loadCollectionReview(() => api.study.continueCollectionReview(id))
+    },
+
+    async loadCollectionReview(load) {
+      if (this.loading.session) throw new Error('正在准备复习，请稍候。')
+      this.loading.session = true
+      this.error = ''
+      try {
+        const data = await load()
+        this.session = data.session
+        this.items = data.items
+        const index = data.items.findIndex(item => !item.answered)
+        this.currentIndex = index === -1 ? Math.max(0,data.items.length-1) : index
+        this.lastAnswer = studyAnswerForItem(this.currentItem)
+        this.sessionSummary = null
+        this.reviewBatch = data.reviewBatch || null
+        this.plan = data.plan || this.plan
+        this.answerRequestId++
+        this.loading.answering = false
+        writeActiveSessionId(data.session.id)
+        return data
+      } catch (error) {
+        this.error = error.message
+        throw error
+      } finally { this.loading.session = false }
     },
 
     /** 今日回顾：今天答错的词 + 今天生成的短文 */
@@ -216,6 +251,7 @@ export const useAppStore = defineStore('app', {
         this.answerRequestId += 1
         this.loading.answering = false
         this.sessionSummary = null
+        this.reviewBatch = data.reviewBatch || null
         // 跳过已作答的题
         const nextIndex = data.items.findIndex((item) => !item.answered)
         this.currentIndex = nextIndex === -1 ? Math.max(0, data.items.length - 1) : nextIndex
@@ -298,6 +334,7 @@ export const useAppStore = defineStore('app', {
       if (this.session?.id !== sessionId) return data
       this.session = data.session || this.session
       this.sessionSummary = data.summary
+      this.reviewBatch = data.reviewBatch || null
       if (data.plan) this.plan = data.plan
       writeActiveSessionId(null)
       return data
@@ -310,6 +347,7 @@ export const useAppStore = defineStore('app', {
       this.currentIndex = 0
       this.lastAnswer = null
       this.sessionSummary = null
+      this.reviewBatch = null
       this.answerRequestId += 1
       this.loading.answering = false
       writeActiveSessionId(null)

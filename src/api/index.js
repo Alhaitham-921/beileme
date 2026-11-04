@@ -39,6 +39,8 @@ export const profile = {
 }
 
 export const words = {
+  collection: (query) => http.get('/words/collections', {query}),
+  collectionIds: (query) => http.get('/words/collections/ids', {query}),
   favorites: () => http.get('/words/favorites'),
   notebooks: (wordId) => http.get('/words/notebooks', { query: wordId ? { wordId } : {} }),
   createNotebook: (name) => http.post('/words/notebooks', { body: { name } }),
@@ -56,6 +58,9 @@ export const words = {
 }
 
 export const study = {
+  activeCollectionReview: () => http.get('/study/review-batches/active'),
+  createCollectionReview: (wordIds) => http.post('/study/review-batches', {body:{wordIds}}),
+  continueCollectionReview: (id) => http.post(`/study/review-batches/${id}/continue`),
   pausedSession: () => http.get('/study/paused-session'),
   createSession: (kind = 'daily', studyMode = 'review-first', budgetMinutes = null) => http.post('/study/sessions', { body: { kind, studyMode, budgetMinutes } }),
   /** 针对指定单词开一轮「错词重练」，不受每日计划限制 */

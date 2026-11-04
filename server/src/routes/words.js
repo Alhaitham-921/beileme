@@ -13,6 +13,7 @@ import {
 } from '../services/wordService.js'
 import { buildConfusableCard } from '../services/studyService.js'
 
+import { listCollectionWords, collectionWordIds } from '../services/collectionService.js'
 import { listNotebooks, createNotebook, notebookWords, allFavorites, setNotebookWord } from '../services/notebookService.js'
 
 const router = Router()
@@ -80,6 +81,18 @@ router.get(
     })
   })
 )
+
+const collectionQuery = z.object({
+  source: z.enum(['favorites','notebook','mistakes','all']).default('favorites'),
+  notebookId: z.coerce.number().int().min(0).default(0),
+  q: z.string().trim().max(100).default(''),
+  page: z.coerce.number().int().min(1).default(1),
+  size: z.coerce.number().int().min(1).max(100).default(50),
+})
+router.get('/collections', requireAuth, validate({query:collectionQuery}), asyncHandler(async(req,res) =>
+  ok(res, await listCollectionWords(req.user.id, req.valid.query))))
+router.get('/collections/ids', requireAuth, validate({query:collectionQuery}), asyncHandler(async(req,res) =>
+  ok(res, {wordIds:await collectionWordIds(req.user.id, req.valid.query)})))
 
 // Account-owned notebooks; id 0 preserves the original default favorites.
 const notebookId = z.coerce.number().int().min(0)

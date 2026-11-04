@@ -216,3 +216,16 @@ test('a stale session pointer falls back to an older resumable group', async t =
   assert.equal(app.currentIndex, 1)
   assert.equal(values.get('beileme:activeSession'), '20')
 })
+
+
+test('selected-word batch restores its progress and a failed continuation preserves the current result',async t=>{
+  const {app}=setup(t)
+  const batch={id:9,totalCount:73,completedCount:10,remainingCount:63,hasMore:true}
+  t.mock.method(api.study,'createCollectionReview',async()=>({session:{id:40,status:'active',studyOptions:{reviewBatchId:9}},items:items(),reviewBatch:batch}))
+  await app.startCollectionReview([1,2,3])
+  assert.equal(app.reviewBatch.id,9)
+  app.sessionSummary={answeredCount:10}
+  t.mock.method(api.study,'continueCollectionReview',async()=>{throw new Error('offline')})
+  await assert.rejects(app.continueCollectionReview(),/offline/)
+  assert.equal(app.sessionSummary.answeredCount,10);assert.equal(app.reviewBatch.remainingCount,63);assert.equal(app.session.id,40)
+})

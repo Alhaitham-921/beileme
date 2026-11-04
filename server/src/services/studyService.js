@@ -2,6 +2,7 @@
 import { parseJson, toJson, clamp } from '../utils/json.js'
 import { todayKey, businessDayStartUtc } from '../utils/time.js'
 import { badRequest, conflict, notFound } from '../utils/errors.js'
+import { reviewBatchState } from './reviewBatchState.js'
 import { studyWorkload, taskCap } from './studyWorkload.js'
 import { selectDailyWords } from './studyQueue.js'
 import { grade, reviewItem, computeMemoryStrength } from './srs.js'
@@ -194,7 +195,9 @@ export async function getSession(userId, sessionId) {
   if (!session) throw notFound('学习会话不存在')
   // 队列直接从原始行读取：它包含答案标记，不能随会话对象一起下发
   const queue = parseJson(session.queue, [])
-  return { session: mapSessionRow(session), items: await materializeItems(queue) }
+  const mapped = mapSessionRow(session)
+  return { session: mapped, items: await materializeItems(queue),
+    ...(mapped.studyOptions.reviewBatchId ? {reviewBatch:await reviewBatchState(userId, mapped.studyOptions.reviewBatchId)} : {}) }
 }
 
 /**
@@ -546,6 +549,7 @@ export async function finishSession(userId, sessionId) {
   const plan = await getOrCreateDailyPlan(userId, todayKey())
   const total = mapped.correctCount + mapped.wrongCount
   return {
+    ...(mapped.studyOptions.reviewBatchId ? {reviewBatch:await reviewBatchState(userId, mapped.studyOptions.reviewBatchId)} : {}),
     session: mapped,
     plan,
     summary: {
@@ -572,6 +576,25 @@ export async function finishSession(userId, sessionId) {
  * @param {number} userId
  * @param {number[]} wordIds
  */
+export async function buildSelectedReviewQueue(userId, ids) {
+  if (!ids.length) throw badRequest('请至少选择一个单词')
+  const placeholders = ids.map(() => '?').join(',')
+  const [rows, learned] = await Promise.all([
+    query(`SELECT * FROM words WHERE id IN (${placeholders})`, ids),
+    query(`SELECT word_id FROM user_word_progress WHERE user_id=? AND word_id IN (${placeholders})`, [userId, ...ids]),
+  ])
+  const byId = new Map(rows.map(row => [Number(row.id),row]))
+  if (rows.length !== ids.length) throw badRequest('所选单词已被移除，请返回单词本重新选择；未完成任务仍保留')
+  const seen = new Set(learned.map(row => Number(row.word_id)))
+  const queue = []
+  for (const id of ids) {
+    const item = buildQueueItem(byId.get(id), seen.has(id) ? 'review' : 'new', await buildOptionsFor(mapWordRow(byId.get(id))))
+    item.reviewReason = seen.has(id) ? '从单词本或错题本中自主选择复习' : '从单词本中选择的新词'
+    queue.push(item)
+  }
+  return queue
+}
+
 export async function createReviewSession(userId, wordIds = []) {
   const ids = [...new Set(wordIds.map((id) => Number(id)).filter(Number.isFinite))]
   if (!ids.length) throw badRequest('请先指定要重练的单词')

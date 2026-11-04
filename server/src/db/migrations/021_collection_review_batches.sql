@@ -1,0 +1,13 @@
+CREATE TABLE IF NOT EXISTS collection_review_batches (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  word_ids JSON NOT NULL,
+  total_count INT UNSIGNED NOT NULL,
+  next_offset INT UNSIGNED NOT NULL DEFAULT 0,
+  active_session_id BIGINT UNSIGNED NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_collection_batch_user (user_id, updated_at, id),
+  CONSTRAINT fk_collection_batch_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

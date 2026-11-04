@@ -14,6 +14,7 @@ import {
   finishSession,
   getErrorDigest,
 } from '../services/studyService.js'
+import { createCollectionReview, continueCollectionReview, activeCollectionReview } from '../services/reviewBatchService.js'
 import { getOrCreateDailyPlan } from '../services/planService.js'
 import { getRelatedWords } from '../services/wordService.js'
 
@@ -34,6 +35,12 @@ router.post('/sessions/:id/pause', validate({ params: z.object({ id: z.coerce.nu
   const data = await getSession(req.user.id, req.valid.params.id)
   return ok(res, { ...data, savedCount: data.session.answeredCount, remaining: data.items.filter(i => !i.answered).length })
 }))
+
+router.get('/review-batches/active', asyncHandler(async(req,res) => ok(res, {batch:await activeCollectionReview(req.user.id)})))
+router.post('/review-batches', validate({body:z.object({wordIds:z.array(z.number().int().positive()).min(1).max(50000)})}),
+  asyncHandler(async(req,res) => created(res, await createCollectionReview(req.user.id, req.valid.body.wordIds))))
+router.post('/review-batches/:id/continue', validate({params:z.object({id:z.coerce.number().int().positive()})}),
+  asyncHandler(async(req,res) => ok(res, await continueCollectionReview(req.user.id, req.valid.params.id))))
 
 const sessionParam = z.object({ id: z.coerce.number().int().positive() })
 

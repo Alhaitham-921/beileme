@@ -37,6 +37,7 @@ const item = computed(() => app.currentItem)
 const word = computed(() => item.value?.word)
 const options = computed(() => item.value?.options || [])
 const answer = computed(() => app.lastAnswer)
+const selectedReview = computed(() => Boolean(app.reviewBatch?.id))
 const reviewOnly = computed(() => studyMode.value !== 'new-only')
 const remainingDueCount = computed(() => app.sessionSummary?.remainingDueCount ?? null)
 const nextLabel = computed(() => app.isLastItem ? (app.allAnswered ? '查看结果' : '继续未答单词') : '下一个单词')
@@ -231,8 +232,11 @@ async function startExtra() {
   try {
     paused.value = null
     continueRequested = false
-    studyMode.value = reviewOnly.value ? 'review-only' : 'new-only'
-    await app.startSession(reviewOnly.value ? 'daily' : 'extra', studyMode.value)
+    if (selectedReview.value) await app.continueCollectionReview()
+    else {
+      studyMode.value = reviewOnly.value ? 'review-only' : 'new-only'
+      await app.startSession(reviewOnly.value ? 'daily' : 'extra', studyMode.value)
+    }
     cardShownAt.value = Date.now()
   } catch (error) {
     bootError.value = error.message
@@ -350,6 +354,7 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
     <!-- 答题中 / 已作答 -->
     <template v-else-if="status === 'question' || status === 'answered'">
       <button class="text-button" :disabled="app.loading.answering" @click="changeMode">选择学习内容</button><button class="text-button" :disabled="app.loading.answering" @click="pauseLearning">先学到这里，保存进度</button>
+      <p v-if="selectedReview" class="muted">所选词复习：共 {{app.reviewBatch.totalCount}} 词，剩余分组会保留，可随时暂停。</p>
       <div class="study-head">
         <div class="study-head-left"><span class="badge" :class="item.kind">{{ item.kind === 'new' ? '新词学习' : '复习巩固' }}</span><span class="session-label">今日学习</span></div>
         <span class="progress-text mono-num">
@@ -569,9 +574,10 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
         </div>
       </div>
 
-      <p v-if="reviewOnly && remainingDueCount !== null" class="result-sub" role="status">{{ remainingDueCount > 0 ? '还有 ' + remainingDueCount + ' 个到期旧词，可以继续下一组。' : '当前到期旧词已复习完成。' }}</p>
+      <p v-if="selectedReview" class="result-sub" role="status">所选 {{app.reviewBatch.totalCount}} 词，已完成 {{app.reviewBatch.completedCount}} 词，剩余 {{app.reviewBatch.remainingCount}} 词。</p>
+      <p v-else-if="reviewOnly && remainingDueCount !== null" class="result-sub" role="status">{{ remainingDueCount > 0 ? '还有 ' + remainingDueCount + ' 个到期旧词，可以继续下一组。' : '当前到期旧词已复习完成。' }}</p>
       <div class="result-actions">
-        <button class="btn btn-primary" :disabled="reviewOnly && remainingDueCount === 0" @click="startExtra">{{ reviewOnly ? '继续复习下一组' : '再学一组新词' }}</button>
+        <button class="btn btn-primary" :disabled="selectedReview ? !app.reviewBatch.hasMore : reviewOnly && remainingDueCount === 0" @click="startExtra">{{ selectedReview ? '继续复习所选词' : reviewOnly ? '继续复习下一组' : '再学一组新词' }}</button>
         <button class="btn btn-ghost" @click="changeMode">选择学习内容</button>
         <button class="btn btn-ghost" @click="router.push('/')">返回首页</button>
       </div>
