@@ -6,7 +6,7 @@ import AiUsage from '../components/AiUsage.vue'
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import PracticeWordPicker from '../components/PracticeWordPicker.vue'
 import { useRoute, useRouter } from 'vue-router'
-import { practice } from '../api'
+import { ai, practice } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { usePracticeSpeech } from '../composables/usePracticeSpeech'
@@ -21,6 +21,8 @@ const auth = useAuthStore()
 const app = useAppStore(), router = useRouter(), startingReview = ref(false)
 const scenes = ref([]), recommendations = ref([]), sessions = ref([]), legacyScenes = ref([]), history = ref([])
 const savedScenes = ref([]), libraryTab = ref('create'), description = ref(practiceWords.value.length ? '请围绕所选单词设计一个自然的日常交流情景，帮助我练习使用这些词。' : ''), latestGeneratedId = ref(''), generationUsage = ref(null)
+const generatedSelections = new Map()
+const aiMode = ref(null)
 const followupId=ref(null),transferTask=ref(null)
 let sceneController=null,sceneRun=0
 const mode = ref('free'), maxTurns = ref(16), sceneFilter = ref(''), generating = ref(false)
@@ -40,6 +42,9 @@ const { available: voiceAvailable, supported: voiceSupported, statusLoading: voi
   microphones, selectedMicrophone, rawAudio, deviceError } = speech
 let pollTimer, idleTimer, disposed = false, pollFailures = 0
 const scene = computed(() => [...savedScenes.value, ...scenes.value].find(item => item.id === sceneId.value))
+const selectionKey = computed(() => [...practiceWords.value].sort((a, b) => a - b).join(','))
+const needsWordScene = computed(() => practiceWords.value.length > 0 &&
+  generatedSelections.get(sceneId.value) !== selectionKey.value)
 const visibleScenes = computed(() => (libraryTab.value === 'saved' ? savedScenes.value : scenes.value).filter(item =>
   `${item.title} ${item.task} ${(item.words || []).join(' ')}`.toLowerCase().includes(sceneFilter.value.trim().toLowerCase())))
 const chosenVariant = computed(() => {
@@ -140,11 +145,17 @@ function addSavedScene(value) {
 }
 async function generateScene() {
   if (working.value || description.value.trim().length < 10) return
+  if (aiMode.value === 'none') {
+    error.value = '请先配置文字 AI 服务，或打开示范练习。'
+    return
+  }
+  const requestedWords = selectionKey.value
   sceneController=new AbortController();const run=++sceneRun
   generating.value = true; error.value = ''; notice.value = ''; generationUsage.value = null
   try {
     const data = await practice.generateScene({ description: description.value.trim(), difficulty: difficulty.value, ...(followupId.value?{followupId:followupId.value}:{}),...(practiceWords.value.length ? { wordIds: practiceWords.value } : {}) },{signal:sceneController.signal})
     if (disposed || run!==sceneRun) return
+    generatedSelections.set(data.scene.id, requestedWords)
     addSavedScene(data.scene); latestGeneratedId.value = data.scene.id; selectScene(data.scene.id)
     generationUsage.value = data.usage; notice.value = '场景已生成并保存到「我的场景」。先看看角色和词汇，再开始练习。'
   } catch (e) { if(run===sceneRun){error.value = e.message; generationUsage.value = e.details?.usage || null} }
@@ -175,6 +186,16 @@ async function repeatSession(id) {
 }
 async function start() {
   if (working.value || !sceneId.value) return
+  if (needsWordScene.value) {
+    const { title, location, userRole, role, task } = selectedScene.value
+    description.value = [`请以「${title}」为模板，把所选词自然融入对话。`, location && `地点为${location}。`,
+      userRole && `我的身份是${userRole}。`, role && `AI 扮演${role}。`, task].filter(Boolean).join('').slice(0, 1500)
+    changeTab('create')
+    notice.value = '已带入场景和所选词。确认需求后，生成包含这些词的新场景。'
+    await nextTick()
+    document.getElementById('scenario-description')?.focus()
+    return
+  }
   busy.value = true; error.value = ''; notice.value = ''; draft.value = ''; startError.value = null
   speech.cancel(); speech.stopSpeaking(); clearTimers(); pollFailures = 0
   try {
@@ -307,6 +328,9 @@ watch(sceneFilter, () => {
   if (libraryTab.value !== 'create' && !visibleScenes.value.some(item => item.id === sceneId.value)) selectScene(visibleScenes.value[0]?.id || '')
 })
 onMounted(load)
+onMounted(async () => {
+  try { aiMode.value = (await ai.status()).mode } catch { /* Start and generation handle service errors. */ }
+})
 onUnmounted(() => { disposed = true; sceneRun++; sceneController?.abort(); clearTimers(); speech.cancel(); speech.stopSpeaking() })
 </script>
 
@@ -317,6 +341,11 @@ onUnmounted(() => { disposed = true; sceneRun++; sceneController?.abort(); clear
     <p v-if="notice" role="status" class="notice">{{ notice }}</p>
     <p v-if="loading" role="status">正在准备你的练习场景…</p>
     <template v-if="!session && !loading">
+      <p class="note"><router-link class="small-link" to="/practice/demo">先试一轮示范 →</router-link>
+        · {{ aiMode === 'none' ? '正式对话需要配置文字 AI 服务。' : '示范使用预设内容，免费体验。' }}
+        <router-link v-if="aiMode === 'none'" class="small-link" to="/settings">去设置</router-link>
+      </p>
+      <p v-if="practiceWords.length && libraryTab !== 'create'" class="note">已选 {{ practiceWords.length }} 个词。可选一个场景作模板，再生成包含所选词的情境。</p>
       <nav class="library-tabs" aria-label="选择场景来源"><button v-for="tab in [{ id: 'create', label: '✦ AI 自定义' }, { id: 'classic', label: '经典场景' }, { id: 'saved', label: '我的场景' }]" :key="tab.id" type="button" :class="{ selected: libraryTab === tab.id }" :aria-pressed="libraryTab === tab.id" :disabled="working" @click="changeTab(tab.id)">{{ tab.label }}<span v-if="tab.id === 'saved'" class="tab-count">{{ savedScenes.length }}</span></button></nav>
       <section v-if="libraryTab === 'create'" class="card scene-studio" aria-labelledby="create-scene-title">
         <div class="section-heading"><div><span class="eyebrow">01 / 说说你的练习想法</span><h2 id="create-scene-title">今天，想用英语聊什么？</h2></div><span class="studio-badge">AI 场景生成</span></div>
@@ -348,7 +377,7 @@ onUnmounted(() => { disposed = true; sceneRun++; sceneController?.abort(); clear
         <h3 class="vocab-title">带上这些词，试着聊一聊 <span>展开查看搭配与例句</span></h3>
         <div class="vocabulary-preview"><details v-for="target in selectedScene.targets || []" :key="target.word" class="vocabulary-item"><summary><strong>{{ target.word }}</strong><span>{{ target.sense }}</span></summary><p class="phrase">{{ target.phrase }}</p><p>{{ target.example }}</p><button type="button" class="text-button" @click="read(target.example)">◖ 听例句</button></details></div>
         <div class="settings-grid"><label>对话难度<select v-model="difficulty" :disabled="working"><option value="beginner">入门 · 短句 + 中文提示</option><option value="intermediate">进阶 · 日常交流</option><option value="advanced">挑战 · 更完整的表达</option></select></label><label>纠错严格度<select v-model="strictness" :disabled="working"><option value="lenient">宽松 · 先把意思说清楚</option><option value="standard">标准 · 兼顾准确和流畅</option><option value="strict">严格 · 适合考试备考</option></select></label><label>对话方式<select v-model="mode" :disabled="working"><option value="free">自由交流 · 延伸话题，深入追问</option><option value="task">任务练习 · 完成目标后复盘</option></select></label><label>本次练习长度<select v-model="maxTurns" :disabled="working"><option :value="8">8 轮 · 轻量热身</option><option :value="16">16 轮 · 充分交流</option><option :value="24">24 轮 · 深入练习</option></select></label></div>
-        <p class="note">{{ mode === 'free' ? '不用按顺序完成任务，跟着兴趣聊下去，随时可以结束并复盘。' : '围绕交流目标练习，完成任务后由 AI 引导收尾。' }} 最多 {{ maxTurns }} 轮，记录自动保存。</p><button class="btn btn-primary" :disabled="working" :aria-describedby="startError ? 'practice-start-error' : undefined" @click="start">{{ busy ? '正在准备对话…' : '进入场景，开始对话 →' }}</button>
+        <p class="note">{{ mode === 'free' ? '不用按顺序完成任务，跟着兴趣聊下去，随时可以结束并复盘。' : '围绕交流目标练习，完成任务后由 AI 引导收尾。' }} 最多 {{ maxTurns }} 轮，记录自动保存。</p><button class="btn btn-primary" :disabled="working" :aria-describedby="startError ? 'practice-start-error' : undefined" @click="start">{{ busy ? '正在准备对话…' : needsWordScene ? '用这个情境练所选词 →' : '进入场景，开始对话 →' }}</button>
         <div v-if="startError" id="practice-start-error" ref="startErrorElement" class="start-error" role="alert">
           <strong>{{ startError.code === 'AI_NOT_CONFIGURED' ? '先配置 AI 对话服务' : '对话暂时无法开始' }}</strong>
           <p>{{ startError.message }}</p>

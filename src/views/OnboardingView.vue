@@ -205,6 +205,7 @@ function startLearning() {
     </div>
 
     <template v-else>
+      <router-link to="/practice/demo" class="btn btn-ghost btn-full">先看看情境练习示范</router-link>
       <div class="dots">
         <span
           v-for="(s, i) in steps"

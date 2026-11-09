@@ -1,3 +1,4 @@
+import { scheduleDialogueRecall } from '../services/wordRecallService.js'
 import { listFollowups, getFollowup, saveShortPractice } from '../services/practiceFollowups.js'
 import { Router } from 'express'
 import { z } from 'zod'
@@ -20,6 +21,8 @@ import { listDialogues, startDialogue, getDialogue, addDialogueTurn, requestDial
 
 const router = Router()
 router.use(requireAuth)
+router.post('/followups/:id/recall', validate({ params: z.object({ id: z.coerce.number().int().positive() }) }),
+  asyncHandler(async (req, res) => ok(res, await scheduleDialogueRecall(req.user.id, req.valid.params.id))))
 router.get('/followups/:id',validate({params:z.object({id:z.coerce.number().int().positive()})}),asyncHandler(async(req,res)=>ok(res,await getFollowup(req.user.id,req.valid.params.id))))
 router.get('/followups',validate({query:z.object({sourceId:z.coerce.number().int().positive().optional()})}),asyncHandler(async(req,res)=>ok(res,{tasks:await listFollowups(req.user.id,req.valid.query)})))
 router.post('/followups/:id/short',validate({params:z.object({id:z.coerce.number().int().positive()}),body:z.object({answer:z.string().trim().min(1).max(1000)})}),asyncHandler(async(req,res)=>ok(res,await saveShortPractice(req.user.id,req.valid.params.id,req.valid.body.answer))))

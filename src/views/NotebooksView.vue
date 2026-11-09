@@ -65,6 +65,10 @@ async function selectEverything() {
   catch (e) { error.value = e.message }
   finally { selectingAll.value = false }
 }
+function practiceSelected() {
+  if (selected.value.size < 1 || selected.value.size > 5) return
+  router.push({ name: 'practice', query: { words: [...selected.value].join(',') } })
+}
 async function startReview(batchId = null) {
   if (starting.value || (!batchId && !selected.value.size)) return
   starting.value = true; error.value = ''
@@ -113,6 +117,10 @@ onUnmounted(() => { alive=false; version++; clearTimeout(timer) })
           <span class="selected-count" role="status">已选 {{selected.size}} 词（去重）</span>
           <button class="text-button" :disabled="!selected.size||selectingAll||starting" @click="selected=new Set()">清空选择</button>
           <button class="btn btn-primary start-review" :disabled="!selected.size||starting||selectingAll" @click="startReview()">{{starting?'准备中…':'复习所选（'+selected.size+'）'}}</button>
+        </div>
+        <div v-if="source==='mistakes'" class="selection-tools">
+          <button class="btn btn-secondary" :disabled="!selected.size||selected.size>5||starting||selectingAll" @click="practiceSelected">用这些词练情境</button>
+          <span class="list-hint">选择 1–5 个词，带入自定义情境。</span>
         </div>
         <p class="list-hint">切换单词本、错题本或翻页会保留选择；全选包含当前列表所有页，每组复习十词，可继续下一组。</p>
         <p v-if="mask!=='none'" class="list-hint">先回想，再点击遮罩查看答案。</p>

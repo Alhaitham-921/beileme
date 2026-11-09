@@ -121,3 +121,55 @@ test('imported book forms match by source difficulty and part of speech without 
   assert.equal(used.size, 60)
   assert.equal(buildMatchedForms(rows.filter(row => row.difficulty < 4), 'sparse'), null)
 })
+
+test('dialogue recall reuses a pending sense, schedules other senses separately and keeps dialogue grades intact', async () => {
+  const user = await createOnboardedUser(client)
+  const other = await createOnboardedUser(client)
+  const auth = { token: user.token }
+  const word = await queryOne("SELECT id FROM words WHERE spelling='bank' LIMIT 1")
+  const wordId = Number(word.id)
+  async function addFollowup(sense) {
+    const session = await execute("INSERT INTO dialogue_sessions (user_id,scene,status,state) VALUES (?,'bank','finished','{}')",
+      [user.userId])
+    const details = { word: 'bank', sense, reason: '本轮尚未尝试使用', sourceTitle: '银行练习', reference: 'Where is the bank?' }
+    const followup = await execute(`INSERT INTO practice_followups
+      (user_id,source_session_id,spelling,word_id,details,next_check_at) VALUES (?,?,'bank',?,?,UTC_TIMESTAMP())`,
+    [user.userId, session.insertId, wordId, JSON.stringify(details)])
+    return { id: followup.insertId, sourceId: session.insertId, url: '/api/v1/practice/followups/' + followup.insertId + '/recall' }
+  }
+
+  const finance = await addFollowup('银行')
+  const repeat = await addFollowup(' 银行 ')
+  const river = await addFollowup('河岸')
+  assert.equal((await client.post(finance.url, { token: other.token })).status, 404)
+  const scheduled = await Promise.all([finance, finance, repeat, river].map(item => client.post(item.url, auth)))
+  for (const response of scheduled) {
+    assert.equal(response.status, 200)
+    assert.equal(response.data.dueOn, addDays(todayKey(), 1))
+  }
+  assert.equal(Number((await queryOne('SELECT COUNT(*) AS n FROM dialogue_recall_tasks WHERE user_id=?', [user.userId])).n), 2)
+  assert.equal(Number((await queryOne('SELECT COUNT(*) AS n FROM word_recall_attempts WHERE user_id=?', [user.userId])).n), 0)
+  const listUrl = '/api/v1/practice/followups?sourceId=' + repeat.sourceId
+  assert.equal((await client.get(listUrl, auth)).data.tasks[0].recall.dueOn, addDays(todayKey(), 1))
+  const startRetest = async () => (await client.post('/api/v1/recall', { ...auth, body: { mode: 'retest' } })).data.session
+  assert.equal(await startRetest(), null)
+  await execute('UPDATE dialogue_recall_tasks SET due_on=? WHERE user_id=?', [todayKey(), user.userId])
+  assert.equal((await client.get('/api/v1/recall', auth)).data.due, 2)
+  const first = await startRetest()
+  assert.equal(first.total, 1)
+  assert.equal(first.question.wordId, wordId)
+  assert.equal(first.question.changedContext, true)
+  assert.equal(first.question.spelling, undefined)
+  assert.match(first.question.blank, /___/)
+  assert.match(first.question.cue, /银行|河岸/)
+  const answer = session => client.post('/api/v1/recall/' + session.id + '/answers', { ...auth, body: { wordId, answer: 'bank' } })
+  const firstResult = (await answer(first)).data.results[0]
+  assert.equal(firstResult.result, 'independent')
+  assert.equal(firstResult.dialogue.reason, '本轮尚未尝试使用')
+  const second = await startRetest()
+  assert.notEqual(second.question.cue, first.question.cue)
+  await client.post('/api/v1/recall/' + second.id + '/hint', { ...auth, body: { wordId } })
+  assert.equal((await answer(second)).data.results[0].nextDate, addDays(todayKey(), 1))
+  assert.equal((await client.get(listUrl, auth)).data.tasks[0].status, 'pending')
+  assert.equal((await client.get('/api/v1/recall', auth)).data.due, 0)
+})

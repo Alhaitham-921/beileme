@@ -1,4 +1,5 @@
 import { query, queryOne, execute } from '../db/pool.js'
+import { toDateKey } from '../utils/time.js'
 import { parseJson } from '../utils/json.js'
 import { notFound } from '../utils/errors.js'
 
@@ -25,7 +26,7 @@ export function followupCandidates(session, report) {
       const exercise = (report.reinforcement || []).find(x => x.word === t.word)
       return {
         word: t.word, sense: t.sense || target.sense || '',
-        reason: t.status === 'unused' ? '本轮尚未尝试使用' : t.helpLevel > 1 ? '本轮使用过提示，需要再独立尝试' : '本轮表达仍需巩固',
+        reason: t.status === 'unused' ? '本轮尚未尝试使用' : (t.status === 'assisted' || t.helpLevel > 1) ? '本轮使用过提示，需要再独立尝试' : '本轮表达仍需巩固',
         quote: quote.slice(0, 500), explanation: correction?.explanation || '',
         prompt: exercise?.prompt || ('试着用 ' + t.word + ' 写一句更短的英语表达。'),
         reference: exercise?.answer || target.example || '',
@@ -72,10 +73,14 @@ export async function listFollowups(userId, { sourceId } = {}) {
     const session = { ...parseJson(row.state, {}), id: Number(row.id) }
     if (session.report) await saveFollowups(connection, userId, { ...session, scene: { ...session.scene, followupId: null } }, session.report)
   }
-  const rows = await query("SELECT * FROM practice_followups WHERE user_id=?" + (sourceId ? ' AND source_session_id=?' : '') +
-    " ORDER BY (status='pending') DESC,next_check_at ASC,id DESC LIMIT 20", params)
+  const rows = await query(`SELECT f.*, r.due_on AS recall_due_on, r.last_result AS recall_result
+    FROM practice_followups f LEFT JOIN dialogue_recall_tasks r ON r.id=f.recall_task_id AND r.user_id=f.user_id
+    WHERE f.user_id=?` + (sourceId ? ' AND f.source_session_id=?' : '') +
+    " ORDER BY (f.status='pending') DESC,f.next_check_at ASC,f.id DESC LIMIT 20", params)
   return rows.map(r => ({ ...parseJson(r.details, {}), id: Number(r.id), sourceSessionId: Number(r.source_session_id),
-    wordId: r.word_id ? Number(r.word_id) : null, status: r.status, nextCheckAt: r.next_check_at, due: new Date(r.next_check_at) <= new Date() }))
+    wordId: r.word_id ? Number(r.word_id) : null,
+    recall: r.recall_task_id ? { dueOn: toDateKey(r.recall_due_on), result: r.recall_result } : null,
+    status: r.status, nextCheckAt: r.next_check_at, due: new Date(r.next_check_at) <= new Date() }))
 }
 
 export async function getFollowup(userId, id) {

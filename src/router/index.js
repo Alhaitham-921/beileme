@@ -6,6 +6,7 @@ const routes = [
   { path: '/speech', name: 'speech', component: () => import('../views/SpeechView.vue') },
   { path: '/roots', name: 'roots', component: () => import('../views/RootsView.vue') },
   { path: '/practice', name: 'practice', component: () => import('../views/PracticeView.vue') },
+  { path: '/practice/demo', name: 'practice-demo', component: () => import('../views/PracticeDemoView.vue') },
   { path: '/recall', name: 'recall', component: () => import('../views/WordRecallView.vue') },
   { path: '/assessment', name: 'assessment', component: () => import('../views/AssessmentView.vue') },
   { path: '/login', name: 'login', component: () => import('../views/LoginView.vue'), meta: { public: true } },
@@ -47,7 +48,7 @@ router.beforeEach(async (to) => {
     return { name: auth.isOnboarded ? 'home' : 'onboarding' }
   }
 
-  if (!auth.isOnboarded && !['onboarding', 'speech'].includes(to.name)) {
+  if (!auth.isOnboarded && !['onboarding', 'speech', 'practice-demo'].includes(to.name)) {
     return { name: 'onboarding' }
   }
 

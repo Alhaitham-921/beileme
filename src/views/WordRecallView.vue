@@ -77,7 +77,7 @@ onMounted(load)
     <p v-if="message" role="status" class="recall-message">{{ message }}</p>
     <section v-if="!session" class="card recall-card">
       <template v-if="state">
-        <p>今天有 {{ state.due }} 个词到期复测。</p>
+        <p>今天有 {{ state.due }} 项到期复测，包含错词专项和对话后加入的词义。</p>
         <p v-if="state.nextDate && !state.due">下一次复测日期 · {{ state.nextDate }}</p>
         <div class="recall-actions">
           <button class="btn btn-primary" :disabled="busy" @click="start('practice')">练 5 个错词</button>
@@ -95,6 +95,7 @@ onMounted(load)
       <p v-if="feedback.example" lang="en" class="recall-context">{{ feedback.example }}</p>
       <p v-if="feedback.translation">{{ feedback.translation }}</p>
       <p v-if="feedback.collocation"><strong lang="en">{{ feedback.collocation.phrase }}</strong> · {{ feedback.collocation.translation }}</p>
+      <p v-if="feedback.dialogue">对话「{{ feedback.dialogue.sourceTitle }}」· {{ feedback.dialogue.reason }}。本次填词 · {{ labels[feedback.result] }}。</p>
       <p v-if="feedback.previous">上次 {{ labels[feedback.previous] }} · 本次 {{ labels[feedback.result] }}</p>
       <p v-if="feedback.nextDate" class="muted">复测日期 · {{ feedback.nextDate }}</p>
       <button class="btn btn-primary" @click="showFeedback = false">{{ question ? '下一词' : '查看本组结果' }}</button>
@@ -122,6 +123,7 @@ onMounted(load)
         <li v-for="item in results" :key="item.wordId">
           <strong lang="en">{{ item.spelling }}</strong>
           <span v-if="item.previous">上次 {{ labels[item.previous] }} · </span>本次 {{ labels[item.result] }}
+          <small v-if="item.dialogue">对话「{{ item.dialogue.sourceTitle }}」· {{ item.dialogue.reason }}</small>
           <small v-if="item.nextDate">复测 {{ item.nextDate }}</small>
         </li>
       </ul>
