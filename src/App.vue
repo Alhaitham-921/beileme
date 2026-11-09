@@ -26,7 +26,7 @@ const links = [
   { to: '/roots', icon: 'layers', label: '词根词缀' },
   { to: '/dashboard', icon: 'chart', label: '学习足迹' },
 ]
-const pageLabel = computed(() => [...links, { to: '/settings', label: '偏好设置' }, { to: '/article', label: '阅读巩固' }, { to: '/assessment', label: '词汇测评' }].find(item => item.to === route.path)?.label || '学习空间')
+const pageLabel = computed(() => [...links, { to: '/settings', label: '偏好设置' }, { to: '/article', label: '阅读巩固' }, { to: '/assessment', label: '学习起点' }, { to: '/recall', label: '错词专项' }].find(item => item.to === route.path)?.label || '学习空间')
 
 async function closeMenu(restoreFocus = true) {
   menuOpen.value = false

@@ -104,6 +104,7 @@ onUnmounted(() => { alive=false; version++; clearTimeout(timer) })
       <section class="card notebook-content" :aria-busy="loading">
         <div class="notebook-title"><h2>{{title}}</h2><span>共 {{total}} 个单词</span></div>
         <p v-if="source==='mistakes'" class="list-hint">收录所有曾答错的单词，答对后仍保留，方便随时回顾。</p>
+        <router-link v-if="source==='mistakes'" to="/recall" class="btn btn-primary">错词专项与隔天复测</router-link>
         <p v-if="error" class="book-error" role="alert">{{error}} <button type="button" class="text-button" @click="refresh">重试</button></p>
         <div class="list-controls"><label class="search-label">查找单词<input v-model="search" type="search" maxlength="100" placeholder="搜索英文或中文"></label><fieldset><legend>回顾模式</legend><button v-for="option in [{value:'none',label:'中英对照'},{value:'zh',label:'遮住中文'},{value:'en',label:'遮住英文'}]" :key="option.value" type="button" :class="{chosen:mask===option.value}" :aria-pressed="mask===option.value" @click="changeMask(option.value)">{{option.label}}</button></fieldset></div>
         <div class="selection-tools" aria-label="批量选择复习词">

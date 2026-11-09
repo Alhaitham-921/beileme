@@ -88,7 +88,9 @@ export async function listLearnedWords(userId, { limit = 50 } = {}) {
 }
 
 /** 尚未学过的新词，按词频优先、组内乱序（避免按字母顺序背词） */
-export async function listFreshWords(userId, wordbookId, { limit = 20 } = {}) {
+export async function listFreshWords(userId, wordbookId, { limit = 20, studyStartLevel } = {}) {
+  const preferred = { foundation: [1, 2], standard: [2, 3], challenge: [4, 5] }[studyStartLevel]
+  const order = preferred ? 'CASE WHEN w.difficulty BETWEEN ? AND ? THEN 0 ELSE 1 END, ' : ''
   const cap = clamp(Number.parseInt(limit, 10) || 20, 1, 100)
   const rows = await query(
     `SELECT w.* FROM words w
@@ -96,9 +98,9 @@ export async function listFreshWords(userId, wordbookId, { limit = 20 } = {}) {
         AND NOT EXISTS (
           SELECT 1 FROM user_word_progress p WHERE p.user_id = ? AND p.word_id = w.id
         )
-      ORDER BY FIELD(w.freq, 'high', 'med', 'low'), w.difficulty ASC, RAND()
+      ORDER BY ${order}FIELD(w.freq, 'high', 'med', 'low'), w.difficulty ASC, RAND()
       LIMIT ${cap}`,
-    [wordbookId, userId]
+    [wordbookId, userId, ...(preferred || [])]
   )
   return rows
 }

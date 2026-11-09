@@ -35,6 +35,8 @@ export function mapProfileRow(row) {
     goal: row.goal || '',
     examDate: toDateKey(row.exam_date),
     selfLevel: row.self_level || '',
+    studyStartLevel: row.study_start_level || null,
+    studyStartChangedAt: row.study_start_changed_at || null,
     dailyTime: row.daily_time || '',
     newPerDay: Number(row.new_per_day ?? 15),
     reviewPerDay: Number(row.review_per_day ?? 30),
@@ -64,7 +66,7 @@ export async function getProfile(userId) {
   const row = await queryOne('SELECT * FROM user_profiles WHERE user_id = ?', [userId])
   if (!row) return ensureProfile(userId)
   const profile = mapProfileRow(row)
-  const latest = await queryOne('SELECT state, completed_at FROM assessment_sessions WHERE user_id = ? AND completed_at IS NOT NULL ORDER BY id DESC LIMIT 1', [userId])
+  const latest = await queryOne("SELECT state, completed_at FROM assessment_sessions WHERE user_id = ? AND completed_at IS NOT NULL AND JSON_EXTRACT(state, '$.methodVersion') IS NULL ORDER BY id DESC LIMIT 1", [userId])
   profile.assessment = latest ? { ...parseJson(latest.state, {}).result, takenAt: latest.completed_at } : null
   return profile
 }
@@ -161,7 +163,9 @@ export async function completeOnboarding(
   await execute(
     `UPDATE user_profiles SET
        goal = ?, exam_date = ?, self_level = ?, daily_time = ?,
-       new_per_day = ?, wordbook_id = ?, memory_prefs = ?, needs_writing = ?, onboarded_at = NOW()
+       new_per_day = ?, wordbook_id = ?, memory_prefs = ?, needs_writing = ?, onboarded_at = NOW(),
+       study_start_changed_at = IF(? IS NULL OR study_start_level <=> ?, study_start_changed_at, UTC_TIMESTAMP()),
+       study_start_level = COALESCE(?, study_start_level)
      WHERE user_id = ?`,
     [
       goal,
@@ -172,6 +176,9 @@ export async function completeOnboarding(
       wordbookId,
       toJson(Array.isArray(answers.memoryPrefs) ? answers.memoryPrefs.filter((p) => MEMORY_PREFS.includes(p)) : []),
       answers.needsWriting ? 1 : 0,
+      answers.studyStartLevel ?? null,
+      answers.studyStartLevel ?? null,
+      answers.studyStartLevel ?? null,
       userId,
     ]
   )

@@ -15,6 +15,7 @@ import {
 import { resolveWordbookForGoal, listWordbooks } from '../services/wordService.js'
 import { getOrCreateDailyPlan } from '../services/planService.js'
 import { queryOne } from '../db/pool.js'
+import { START_LEVELS } from '../services/placementService.js'
 
 const router = Router()
 
@@ -46,6 +47,7 @@ const onboardingSchema = z.object({
   dailyTime: z.enum(DAILY_TIMES),
   selfLevel: z.enum(SELF_LEVELS).optional(),
   memoryPrefs: z.array(z.enum(MEMORY_PREFS)).optional(),
+  studyStartLevel: z.enum(START_LEVELS).optional(),
   needsWriting: z.boolean().optional(),
 })
 

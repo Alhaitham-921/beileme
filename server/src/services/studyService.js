@@ -140,6 +140,8 @@ export async function createSession(userId, { kind = 'daily', studyMode = 'revie
   if (!['review-first', 'review-only', 'new-only'].includes(studyMode)) throw badRequest('学习模式不合法')
   // 按用户的学习目标取对应词书（四级 → CET4，考研 → 考研词表 …）
   const wordbook = await resolveWordbookForUser(userId)
+  const profile = await queryOne('SELECT study_start_level FROM user_profiles WHERE user_id=?', [userId])
+  const studyStartLevel = profile?.study_start_level || null
   const plan = await getOrCreateDailyPlan(userId, todayKey())
   const queue = []
   const workload=budgetMinutes?await studyWorkload(userId):null
@@ -148,13 +150,13 @@ export async function createSession(userId, { kind = 'daily', studyMode = 'revie
   if (kind === 'daily' || studyMode === 'review-only') {
     const entries = await selectDailyWords({ plan, studyMode,
       listDue: limit => limit > 0 ? listDueWords(userId, { limit }) : [],
-      listFresh: limit => limit > 0 ? listFreshWords(userId, wordbook.id, { limit }) : [],
+      listFresh: limit => limit > 0 ? listFreshWords(userId, wordbook.id, { limit, studyStartLevel }) : [],
       maxSize: cap,
     })
     for (const {row, kind: itemKind} of entries) queue.push(buildQueueItem(row, itemKind, await buildOptionsFor(mapWordRow(row))))
   } else {
     // 「再学一组」：不受每日计划限制，提前复习 + 补充新词
-    const freshRows = await listFreshWords(userId, wordbook.id, { limit: EXTRA_SESSION_SIZE })
+    const freshRows = await listFreshWords(userId, wordbook.id, { limit: EXTRA_SESSION_SIZE, studyStartLevel })
     const learnedRows = studyMode === 'new-only' ? [] : await listLearnedWords(userId, { limit: EXTRA_SESSION_SIZE })
 
     const mixed = shuffle([
@@ -173,7 +175,7 @@ export async function createSession(userId, { kind = 'daily', studyMode = 'revie
     [userId, kind, queue.length, toJson(queue)]
   )
 
-  await execute('UPDATE study_sessions SET study_options=? WHERE id=?',[toJson({studyMode,budgetMinutes}),result.insertId])
+  await execute('UPDATE study_sessions SET study_options=? WHERE id=?',[toJson({ studyMode, budgetMinutes, studyStartLevel, wordbookId: wordbook.id }),result.insertId])
   const session = await queryOne('SELECT * FROM study_sessions WHERE id = ?', [result.insertId])
 
   return {

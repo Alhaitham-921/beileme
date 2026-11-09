@@ -17,9 +17,17 @@ export const practice = {
   retryReport: (id) => http.post(`/practice/sessions/${encodeURIComponent(id)}/retry-report`, { timeoutMs: 150000 }),
 }
 export const assessment = {
-  history: () => http.get('/assessment', { timeoutMs: 8000 }),
-  start: () => http.post('/assessment', { timeoutMs: 8000 }),
+  history: () => http.get('/assessment/placement', { timeoutMs: 8000 }),
+  start: () => http.post('/assessment/placement', { timeoutMs: 8000 }),
+  setPreference: (level) => http.put('/assessment/placement/preference', { body: { level }, timeoutMs: 8000 }),
   answer: (id, body) => http.post(`/assessment/${id}/answers`, { body, timeoutMs: 8000 }),
+}
+
+export const recall = {
+  status: () => http.get('/recall', { timeoutMs: 10000 }),
+  start: (mode) => http.post('/recall', { body: { mode }, timeoutMs: 10000 }),
+  hint: (id, wordId) => http.post(`/recall/${id}/hint`, { body: { wordId }, timeoutMs: 10000 }),
+  answer: (id, wordId, answer) => http.post(`/recall/${id}/answers`, { body: { wordId, answer }, timeoutMs: 10000 }),
 }
 
 export const auth = {

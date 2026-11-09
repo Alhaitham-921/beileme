@@ -43,12 +43,16 @@ const steps = [
     ],
   },
   {
-    key: 'selfLevel',
+    key: 'studyStartLevel',
     type: 'single',
-    title: '你的词汇量大概在？',
-    sub: '帮助我判断起步难度（可跳过）',
+    title: '想从哪里开始学？',
+    sub: '这是新词的安排偏好，试学后随时可以改。',
     optional: true,
-    options: ['不确定', '1000 以下', '1000-3000', '3000-6000', '6000 以上'],
+    options: [
+      { label: '从高频基础开始', value: 'foundation' },
+      { label: '按常规难度开始', value: 'standard' },
+      { label: '想试更有挑战的词', value: 'challenge' },
+    ],
   },
   {
     key: 'memoryPrefs',
@@ -67,7 +71,7 @@ const steps = [
 ]
 
 const step = ref(0)
-const answers = ref({ goal: null, examSpan: null, dailyTime: null, selfLevel: null, memoryPrefs: [] })
+const answers = ref({ goal: null, examSpan: null, dailyTime: null, studyStartLevel: null, memoryPrefs: [] })
 const submitting = ref(false)
 const submitError = ref('')
 /** 提交成功后展示的「准备就绪」结果 */
@@ -148,7 +152,7 @@ async function finish() {
       goal: answers.value.goal || '纯兴趣',
       examDate: resolveExamDate(answers.value.examSpan),
       dailyTime: answers.value.dailyTime || '15-20',
-      selfLevel: answers.value.selfLevel || '不确定',
+      studyStartLevel: answers.value.studyStartLevel || undefined,
       memoryPrefs: answers.value.memoryPrefs,
     })
     app.plan = result.plan
@@ -161,7 +165,7 @@ async function finish() {
 }
 
 function startLearning() {
-  router.replace('/assessment')
+  router.replace('/')
 }
 </script>
 
@@ -196,7 +200,8 @@ function startLearning() {
       <p class="pp-note">词书：{{ prepared.wordbook.name }}</p>
 
       <p class="pp-note">接下来用约 3–5 分钟的小测了解当前词书掌握情况，自评仅用于选择起始难度。</p>
-      <button class="btn btn-primary btn-lg btn-full" @click="startLearning">开始词汇测评</button>
+      <button class="btn btn-primary btn-lg btn-full" @click="startLearning">直接开始学习</button>
+      <router-link to="/assessment" class="btn btn-ghost btn-full">帮我选起点（可选短测）</router-link>
     </div>
 
     <template v-else>

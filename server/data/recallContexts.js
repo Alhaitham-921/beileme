@@ -1,0 +1,21 @@
+// Second contexts for selected common words. All sentences and translations are original.
+export const RECALL_CONTEXTS = {
+  reservation: ['Could you change my reservation to Friday?', '能把我的预订改到星期五吗？'],
+  affect: ['The weather may affect our travel plans.', '天气可能会影响我们的旅行计划。'],
+  effect: ['The medicine had an immediate effect.', '药物立刻起了作用。'],
+  adapt: ['Many animals can adapt to colder weather.', '许多动物能适应较冷的天气。'],
+  adopt: ['We decided to adopt a different method.', '我们决定采用另一种方法。'],
+  abandon: ['They had to abandon the search before dark.', '他们不得不在天黑前放弃搜寻。'],
+  ability: ['She has a remarkable ability to remember names.', '她记人名的能力很出色。'],
+  accept: ['Will you accept my apology?', '你愿意接受我的道歉吗？'],
+  except: ['The shop is open every day except Sunday.', '这家商店除星期日外每天营业。'],
+  advice: ['I followed her advice and took a break.', '我听从她的建议，休息了一下。'],
+  advise: ['Doctors often advise patients to rest.', '医生常建议病人休息。'],
+  benefit: ['Both teams can benefit from the agreement.', '双方团队都能从这项协议中受益。'],
+  confirm: ['Please confirm your email address.', '请确认你的电子邮箱地址。'],
+  cancel: ['We might cancel the picnic if it rains.', '如果下雨，我们可能会取消野餐。'],
+  efficient: ['The new system is more efficient.', '新系统效率更高。'],
+  effective: ['This simple method is very effective.', '这个简单的方法很有效。'],
+  available: ['A quiet room is available after lunch.', '午饭后有一间安静的房间可用。'],
+  require: ['These jobs require attention to detail.', '这些工作要求关注细节。'],
+}

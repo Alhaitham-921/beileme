@@ -11,6 +11,7 @@ import aiRoutes from './ai.js'
 import gameRoutes from './games.js'
 import healthRoutes from './health.js'
 import assessmentRoutes from './assessment.js'
+import recallRoutes from './recall.js'
 import practiceRoutes from './practice.js'
 import speechRoutes from './speech.js'
 import ttsRoutes from './tts.js'
@@ -23,6 +24,7 @@ const router = Router()
 
 router.use('/health', healthRoutes)
 router.use('/assessment', assessmentRoutes)
+router.use('/recall', recallRoutes)
 router.use('/practice', practiceRoutes)
 router.use('/speech', speechRoutes)
 router.use('/tts', ttsRoutes)

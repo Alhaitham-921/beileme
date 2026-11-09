@@ -98,6 +98,7 @@ function reload() {
       <section class="card todo" aria-labelledby="today-title">
         <div class="todo-content">
           <p class="eyebrow"><span class="status-dot"></span> 今日学习计划</p>
+          <router-link to="/assessment" class="text-button">调整学习起点</router-link>
           <h2 id="today-title">{{ app.allDoneToday ? '很棒，今天又向前一步。' : '从一个词，走向更大的世界。' }}</h2>
           <p class="section-sub">
             {{ auth.profile?.goal ? `学习目标 · ${auth.profile.goal}` : '让新知慢慢积累，让记忆更加牢固。' }}
