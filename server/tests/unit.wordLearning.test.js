@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createDictionaryLookup, normalizeDictionary, normalizeAiUsage } from '../src/services/wordLearningService.js'
+import { bilingualExamplesFor, createDictionaryLookup, normalizeDictionary, normalizeAiUsage } from '../src/services/wordLearningService.js'
 import { WORD_USAGE } from '../data/wordUsage.js'
 import { readAutoPronounce, wordAudioIdentity } from '../../src/utils/wordAudio.js'
 const entry = word => [{ word, license: { name:'CC BY-SA 3.0', url:'https://creativecommons.org/licenses/by-sa/3.0/' },
@@ -55,6 +55,15 @@ test('starter usage set supplies original bilingual examples and structured phra
     assert.ok(usage.examples[0].translation);assert.equal(usage.collocations.length,2)
     assert.ok(usage.collocations.every(item=>item.phrase&&item.translation))
   }
+})
+test('bilingual corpus attaches translations and attribution only to compatible senses', () => {
+  const rows = bilingualExamplesFor({ spelling: 'bank', definitions: ['银行'] })
+  assert.ok(rows.length)
+  assert.match(rows[0].translation, /银行/)
+  assert.match(rows[0].sourceUrl, /tatoeba\.org/)
+  assert.match(rows[0].translationUrl, /tatoeba\.org/)
+  assert.deepEqual(bilingualExamplesFor({ spelling: 'bank', definitions: ['河岸'] }), [])
+  assert.deepEqual(bilingualExamplesFor({ spelling: 'constructor', definitions: [] }), [])
 })
 test('auto pronunciation defaults on, respects persisted off, and distinguishes groups at index zero',()=>{
   assert.equal(readAutoPronounce({getItem:()=>null}),true)

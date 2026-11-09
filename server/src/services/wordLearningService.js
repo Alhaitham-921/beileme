@@ -1,8 +1,9 @@
 import { query, queryOne, execute } from '../db/pool.js'
 import { getWordById, getRelatedWords } from './wordService.js'
-import { diffSpelling } from './wordRelations.js'
+import { diffSpelling, formSimilarity, levenshtein } from './wordRelations.js'
 import { parseJson } from '../utils/json.js'
 import { WORD_USAGE } from '../../data/wordUsage.js'
+import corpus from '../../data/bilingualExamples.json' with { type: 'json' }
 
 const text = (value, max = 320) => typeof value === 'string' ? value.trim().slice(0, max) : ''
 const unique = (items, key, max) => [...new Map(items.filter(item => item[key]).map(item => [item[key].toLowerCase(), item])).values()].slice(0, max)
@@ -113,7 +114,7 @@ export async function savedAiUsage(userId, word) {
   // Account-scoped: never expose another user's generated materials.
   const rows = await query(`SELECT meta FROM generated_contents WHERE user_id=? AND type='error_card'
     AND JSON_CONTAINS(target_words, ?) ORDER BY id DESC LIMIT 8`, [userId, JSON.stringify(word.id)])
-  let usage
+  const examples = [], collocations = []
   const translations = new Map()
   for (const row of rows) {
     const meta = parseJson(row.meta, {})
@@ -121,33 +122,70 @@ export async function savedAiUsage(userId, word) {
     const entry = cards.find(card => String(card?.spelling || '').toLowerCase() === word.spelling.toLowerCase())
     if (!entry) continue
     const current = normalizeAiUsage(entry, word.spelling)
-    if (!usage && (current.examples.length || current.collocations.length)) usage = current
+    examples.push(...current.examples)
+    collocations.push(...current.collocations)
     for (const item of Array.isArray(entry.usageTranslations) ? entry.usageTranslations : []) {
       const original = text(item?.text)
       if (original && hasChinese(item?.translation) && !translations.has(original)) translations.set(original, text(item.translation))
     }
   }
-  return { ...(usage || { examples: [], collocations: [] }), translations }
+  return { examples, collocations, translations }
 }
 
-export async function getWordLearningCard(userId, wordId, { dictionaryLookup = lookupDictionary } = {}) {
+
+export function bilingualExamplesFor(word) {
+  const spelling = word.spelling.toLowerCase()
+  const entries = Object.hasOwn(corpus.words, spelling) ? corpus.words[spelling] : []
+  return entries.filter(([, , , , gloss]) => word.definitions.some(definition => definition.includes(gloss)))
+    .map(([text, translation, enId, zhId]) => ({
+      text, translation, source: 'tatoeba', sourceUrl: 'https://tatoeba.org/en/sentences/show/' + enId,
+      translationUrl: 'https://tatoeba.org/en/sentences/show/' + zhId,
+      license: { name: 'CC BY 2.0 FR', url: corpus.license },
+    }))
+}
+
+async function extraFormWords(word) {
+  const spelling = word.spelling.toLowerCase()
+  if (!/^[a-z]{4,32}$/.test(spelling)) return []
+  // The spelling index gives a small cross-book candidate set. Distance and a score
+  // floor prevent unrelated words or duplicate spellings from filling the card.
+  const rows = await query(`SELECT id, spelling, definitions
+    FROM words WHERE spelling_norm LIKE ? AND spelling_norm<>?
+      AND CHAR_LENGTH(spelling_norm) BETWEEN ? AND ?
+    ORDER BY spelling_norm LIMIT 400`, [spelling.slice(0, 2) + '%', spelling, spelling.length - 2, spelling.length + 2])
+  const candidates = new Map()
+  for (const row of rows) {
+    const other = row.spelling.toLowerCase()
+    if (candidates.has(other) || levenshtein(spelling, other) > 2) continue
+    const score = formSimilarity(spelling, other)
+    const definitions = parseJson(row.definitions, [])
+    if (score < 0.72 || !definitions.some(hasChinese)) continue
+    candidates.set(other, { wordId: Number(row.id), spelling: row.spelling, definitions, relationType: 'form', score })
+  }
+  return [...candidates.values()].sort((a, b) => b.score - a.score).slice(0, 2)
+}
+
+export async function getWordLearningCard(userId, wordId, { dictionaryLookup = lookupDictionary, localOnly = false } = {}) {
   const word = await getWordById(wordId)
-  const local = WORD_USAGE[word.spelling.toLowerCase()] || { examples: [], collocations: [] }
+  const spelling = word.spelling.toLowerCase()
+  const local = Object.hasOwn(WORD_USAGE, spelling) ? WORD_USAGE[spelling] : { examples: [], collocations: [] }
   const [related, saved] = await Promise.all([getRelatedWords(wordId, { limit: 16 }), savedAiUsage(userId, word)])
   const examples = [
     ...local.examples.map(item => ({ ...item, source: 'local' })),
+    ...bilingualExamplesFor(word),
     ...(word.examples || []).filter(item => typeof item === 'string').map(example => ({ text: example, translation: '', source: 'wordbook' })),
+    ...saved.examples,
   ]
-  const hasPhrases = local.collocations.length || saved.collocations.length
-  const remote = examples.length && hasPhrases && !saved.translations.size
-    ? { examples: [] }
-    : await dictionaryLookup(word.spelling)
-  const contrasts = ['form', 'meaning'].flatMap(type => related.filter(item => item.relationType === type).slice(0, 2))
+  const collocations = [...local.collocations.map(item => ({ ...item, source: 'local' })), ...saved.collocations]
+  const needsDictionary = !examples.length || !collocations.length
+  const remote = !localOnly && needsDictionary ? await dictionaryLookup(spelling) : { examples: [] }
+  const choices = related.some(item => item.relationType === 'form') ? related : [...related, ...await extraFormWords(word)]
+  const contrasts = ['form', 'meaning'].flatMap(type => choices.filter(item => item.relationType === type).slice(0, 2))
     .map(item => ({ ...item, diff: diffSpelling(word.spelling, item.spelling) }))
   return {
     wordId: word.id, spelling: word.spelling,
-    examples: pairedUsage([...examples, ...remote.examples, ...saved.examples], 'text', 3, saved.translations),
-    collocations: pairedUsage([...local.collocations.map(item => ({ ...item, source: 'local' })), ...(remote.collocations || []), ...saved.collocations], 'phrase', 4, saved.translations),
-    contrasts, dictionaryUnavailable: Boolean(remote.unavailable),
+    examples: pairedUsage([...examples, ...remote.examples], 'text', 3, saved.translations),
+    collocations: pairedUsage([...collocations, ...(remote.collocations || [])], 'phrase', 4, saved.translations),
+    contrasts, needsDictionary, dictionaryUnavailable: Boolean(remote.unavailable),
   }
 }

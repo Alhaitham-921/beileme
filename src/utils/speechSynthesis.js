@@ -8,6 +8,44 @@ let settle = null
 let requestController=null
 // Short word audio only: bounded, in-memory and scoped to API/login, never persistent recordings.
 const wordAudioCache = new Map()
+let preload = null
+
+const canCache = text => /^[a-z][a-z '-]{0,79}$/i.test(text)
+const audioKey = (text, rate) => JSON.stringify([BASE_URL, getAccessToken(), text, rate])
+const normalizeRate = rate => Math.max(0.5, Math.min(1.5, Number(rate) || 1))
+
+function cacheAudio(key, data) {
+  if (!data?.audioBase64 || data.audioBase64.length > 400000) return
+  wordAudioCache.delete(key)
+  wordAudioCache.set(key, data)
+  while (wordAudioCache.size > 24) wordAudioCache.delete(wordAudioCache.keys().next().value)
+}
+
+function requestAudio(text, rate, signal) {
+  return http.post('/tts/synthesize', { signal, timeoutMs: 95000, timeoutMessage: '朗读准备超时，请重试。',
+    body: { text, rate } })
+}
+
+function cancelPreload() {
+  preload?.controller.abort()
+  preload = null
+}
+
+function preloadWord(text, rate = 1) {
+  const content = String(text || '').trim()
+  if (!canCache(content) || !getAccessToken()) return
+  rate = normalizeRate(rate)
+  const key = audioKey(content, rate)
+  if (wordAudioCache.has(key) || preload) return
+  const controller = new AbortController()
+  const job = { key, controller, promise: null }
+  preload = job
+  job.promise = requestAudio(content, rate, controller.signal).then(data => {
+    if (!controller.signal.aborted && audioKey(content, rate) === key) cacheAudio(key, data)
+    return data
+  }).catch(() => null).finally(() => { if (preload === job) preload = null })
+}
+
 const delay = (ms, signal) => new Promise((resolve, reject) => {
   if (signal.aborted) return reject(new Error('Playback cancelled'))
   const abort = () => { clearTimeout(timer); reject(new Error('Playback cancelled')) }
@@ -31,7 +69,9 @@ function stop() {
 export const nativeSpeech = {
   isSupported: () => typeof Audio !== 'undefined',
   stop: async () => stop(),
-  clearCache: () => wordAudioCache.clear(),
+  preloadWord,
+  cancelPreload,
+  clearCache() { cancelPreload(); wordAudioCache.clear() },
   async speak(text, rate = 1, {onReady} = {}) {
     stop()
     const token = generation
@@ -39,16 +79,17 @@ export const nativeSpeech = {
     if (!content || content.length > 1500) throw new Error('请选择不超过 1500 个字符的英语句子朗读。')
     requestController=new AbortController()
     const signal = requestController.signal
-    const normalizedRate = Math.max(0.5, Math.min(1.5, Number(rate) || 1))
-    const cacheable = /^[a-z][a-z '-]{0,79}$/i.test(content)
-    const key = JSON.stringify([BASE_URL, getAccessToken(), content, normalizedRate])
+    const normalizedRate = normalizeRate(rate)
+    const cacheable = canCache(content)
+    const key = audioKey(content, normalizedRate)
     let data = cacheable ? wordAudioCache.get(key) : null
+    if (!data && preload?.key === key) data = await preload.promise
+    if (token !== generation) return
     if (!data) {
       // A cancelled word can leave Kokoro finishing its work. Briefly retry BUSY, never rate-limit errors.
       for (let attempt = 0; ; attempt++) {
         try {
-          data = await http.post('/tts/synthesize', { signal, timeoutMs:95000, timeoutMessage:'朗读准备超时，请重试。',
-            body: { text: content, rate: normalizedRate } })
+          data = await requestAudio(content, normalizedRate, signal)
           break
         } catch (error) {
           if (token !== generation || signal.aborted) return
@@ -57,13 +98,8 @@ export const nativeSpeech = {
         }
       }
       if (token !== generation) return
-      if (cacheable && data.audioBase64?.length <= 400000) {
-        wordAudioCache.set(key, data)
-        while (wordAudioCache.size > 24) wordAudioCache.delete(wordAudioCache.keys().next().value)
-      }
-    } else {
-      wordAudioCache.delete(key); wordAudioCache.set(key, data)
     }
+    if (cacheable && audioKey(content, normalizedRate) === key) cacheAudio(key, data)
     if (token !== generation) return
     onReady?.()
     const bytes = Uint8Array.from(atob(data.audioBase64), ch => ch.charCodeAt(0))

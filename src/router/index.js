@@ -18,6 +18,7 @@ const routes = [
   { path: '/review', name: 'review', component: () => import('../views/ReviewView.vue') },
   // AI 巩固内容：短文 + 阅读理解题（目标词通过 ?words=1,2,3 带入，或 ?id= 打开历史短文）
   { path: '/article', name: 'article', component: () => import('../views/ArticleView.vue') },
+  { path: '/more', name: 'more', component: () => import('../views/MoreView.vue') },
   { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue') },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ]

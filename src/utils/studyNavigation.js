@@ -4,6 +4,7 @@ export function studyAnswerForItem(item) {
   if (item.answerResult) return item.answerResult
   return {
     isCorrect: item.correct,
+    ...(item.unknown ? { unknown: true } : {}),
     correctOptionIndex: item.correctOptionIndex,
     correctText: Array.isArray(item.word?.definitions) ? item.word.definitions.join('；') : '',
     analysis: {},

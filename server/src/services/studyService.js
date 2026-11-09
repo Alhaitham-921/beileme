@@ -122,7 +122,7 @@ async function materializeItems(queueItems) {
       options: publicOptions(item.options),
       answered: Boolean(item.answered),
       correctOptionIndex: item.options.find(option => option.correct)?.index ?? null,
-      ...(item.answered ? { correct: Boolean(item.correct), selectedOptionIndex: item.selectedOptionIndex ?? null } : {}),
+      ...(item.answered ? { correct: Boolean(item.correct), ...(item.unknown ? { unknown: true } : {}), selectedOptionIndex: item.selectedOptionIndex ?? null } : {}),
     })
   }
   return items
@@ -303,7 +303,9 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
     let isCorrect
     let wrongOption = null
     let chosenOption = null
-    if (optionIndex != null) {
+    if (payload.unknown) {
+      isCorrect = false
+    } else if (optionIndex != null) {
       chosenOption = item.options.find((option) => Number(option.index) === Number(optionIndex))
       if (!chosenOption) throw badRequest('选项下标不合法')
       isCorrect = Boolean(chosenOption.correct)
@@ -368,6 +370,7 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
       hesitationMs: hesitation,
       recall,
       spellingMistake,
+      unknown: payload.unknown,
       confusion,
     })
 
@@ -442,7 +445,7 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
     }
 
     const correctOption = item.options.find(option => option.correct)
-    queue[itemIndex] = { ...item, answered: true, correct: isCorrect, selectedOptionIndex: chosenOption?.index ?? null }
+    queue[itemIndex] = { ...item, answered: true, correct: isCorrect, ...(payload.unknown ? { unknown: true } : {}), selectedOptionIndex: chosenOption?.index ?? null }
 
     // 注意：MySQL 的 SET 子句按书写顺序求值，后面的表达式会读到前面刚更新的值。
     // 因此移动平均必须写在 answered_count 自增之前，否则会被当成「已含本次」的计数。
@@ -469,6 +472,7 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
     return {
       isCorrect,
       isNewWord,
+      ...(payload.unknown ? { unknown: true } : {}),
       quality,
       hesitationMs: hesitation,
       word: {

@@ -9,6 +9,7 @@ import { studyKey } from '../utils/studyKeyboard'
 import { studySwipeDirection } from '../utils/studySwipe.js'
 import FavoriteWord from '../components/FavoriteWord.vue'
 import MorphologyCard from '../components/MorphologyCard.vue'
+import { Capacitor } from '@capacitor/core'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import { useAiStore } from '../stores/ai'
@@ -17,6 +18,7 @@ import { nativeSpeech } from '../utils/speechSynthesis.js'
 const app = useAppStore()
 const ai = useAiStore()
 const router = useRouter()
+const isAndroid = Capacitor.getPlatform() === 'android'
 
 const booting = ref(true)
 const choosingMode = ref(false)
@@ -32,13 +34,24 @@ const cardShownAt = ref(Date.now())
 const advancing = ref(false)
 const speechError = ref('')
 const autoPronounce = ref(readAutoPronounce())
+const AUTO_UNKNOWN_KEY = 'beileme:study-auto-unknown'
+const RECALL_TIME_MS = 30_000
+const autoUnknown = ref(false)
+try { autoUnknown.value = localStorage.getItem(AUTO_UNKNOWN_KEY) === 'on' } catch { /* Storage unavailable. */ }
+const recallReminder = ref(false)
+let recallTimeLeft = RECALL_TIME_MS
 const pageVisible = ref(document.visibilityState !== 'hidden')
-function onVisibilityChange() { pageVisible.value = document.visibilityState !== 'hidden' }
+let nativeActive = true
+function onVisibilityChange() { pageVisible.value = nativeActive && document.visibilityState !== 'hidden' }
+function onNativeActivity(event) {
+  nativeActive = event.detail
+  onVisibilityChange()
+}
 const navigationNotice = ref('')
 const wordCard = ref(null)
 let swipe = null
 let speechGeneration = 0
-let continueRequested = false
+const continueRequested = ref(false)
 
 const item = computed(() => app.currentItem)
 const word = computed(() => item.value?.word)
@@ -47,6 +60,9 @@ const selectedIndex = computed(() => pendingAnswer.value?.optionIndex ?? item.va
 const answer = computed(() => {
   if (app.lastAnswer) return app.lastAnswer
   const correctOption = options.value.find(option => option.index === item.value?.correctOptionIndex)
+  if (pendingAnswer.value?.unknown) {
+    return { isCorrect: false, unknown: true, correctOptionIndex: correctOption?.index, correctText: correctOption?.text }
+  }
   if (!pendingAnswer.value || !correctOption) return null
   return {
     isCorrect: selectedIndex.value === correctOption.index,
@@ -70,6 +86,15 @@ const status = computed(() => {
   if (answer.value) return 'answered'
   return 'question'
 })
+
+const showAnswerCard = computed(() => isAndroid && status.value === 'answered')
+const answerCard = ref(null)
+watch(showAnswerCard, visible => {
+  if (visible) {
+    window.scrollTo({ top: 0, behavior: 'instant' })
+    answerCard.value?.focus({ preventScroll: true })
+  }
+}, { flush: 'post' })
 
 const correctIndex = computed(() => answer.value?.correctOptionIndex ??
   options.value.find(option => option.text === answer.value?.correctText)?.index ?? -1)
@@ -111,14 +136,14 @@ function onKey(event) {
   if (key === null || advancing.value) return
   if (key === 'next' && (status.value === 'answered' || app.loading.answering)) {
     event.preventDefault()
-    if (app.loading.answering) continueRequested = true
+    if (app.loading.answering) continueRequested.value = true
     else advance()
   } else if (typeof key === 'number' && status.value === 'question' && !app.loading.answering && options.value[key]) {
     event.preventDefault(); choose(options.value[key].index)
   }
 }
-onMounted(() => { boot(); window.addEventListener('keydown', onKey); document.addEventListener('visibilitychange', onVisibilityChange) })
-onUnmounted(() => { mounted = false; window.removeEventListener('keydown', onKey); document.removeEventListener('visibilitychange', onVisibilityChange); if(generating.value)cancelCards(); stopSpeaking() })
+onMounted(() => { boot(); window.addEventListener('keydown', onKey); document.addEventListener('visibilitychange', onVisibilityChange); document.addEventListener('beileme:app-activity', onNativeActivity) })
+onUnmounted(() => { mounted = false; window.removeEventListener('keydown', onKey); document.removeEventListener('visibilitychange', onVisibilityChange); document.removeEventListener('beileme:app-activity', onNativeActivity); if(generating.value)cancelCards(); stopSpeaking(); if (isAndroid) nativeSpeech.cancelPreload() })
 
 // 每翻到新题都重置计时起点，犹豫时长才有意义
 watch(
@@ -133,14 +158,39 @@ watch(
   }
 )
 
+const questionKey = computed(() => wordAudioIdentity({
+  active: status.value === 'question',
+  sessionId: app.session?.id, index: app.currentIndex, wordId: word.value?.id,
+}))
+watch(autoUnknown, enabled => {
+  try { localStorage.setItem(AUTO_UNKNOWN_KEY, enabled ? 'on' : 'off') } catch { /* Storage unavailable. */ }
+})
+watch([questionKey, pageVisible, autoUnknown], ([key, visible, auto], [previousKey, , previousAuto], onCleanup) => {
+  if (key !== previousKey || auto !== previousAuto) {
+    recallTimeLeft = RECALL_TIME_MS
+    recallReminder.value = false
+  }
+  if (!key || !visible || recallReminder.value) return
+  const started = performance.now()
+  const timer = setTimeout(() => {
+    if (!pageVisible.value || document.hidden || questionKey.value !== key) return
+    if (auto) choose(null)
+    else recallReminder.value = true
+  }, recallTimeLeft)
+  onCleanup(() => {
+    clearTimeout(timer)
+    recallTimeLeft = Math.max(0, recallTimeLeft - (performance.now() - started))
+  })
+}, { flush: 'post' })
+
 function choose(index) {
   if (status.value !== 'question' || pendingAnswer.value || app.loading.answering || item.value?.answered) return
   navigationNotice.value = ''
   pendingAnswer.value = {
     sessionId: app.session.id,
     wordId: item.value.wordId,
-    optionIndex: index,
-    hesitationMs: Date.now() - cardShownAt.value,
+    ...(index === null ? { unknown: true } : { optionIndex: index }),
+    hesitationMs: Math.max(0, Math.min(600000, Date.now() - cardShownAt.value)),
     recall: uncertain.value ? 'hard' : 'normal',
   }
   void saveAnswer()
@@ -155,7 +205,7 @@ async function saveAnswer() {
     await app.submitAnswer(pending)
   } catch (error) {
     if (!mounted || pendingAnswer.value !== pending) return
-    continueRequested = false
+    continueRequested.value = false
     if (error.status === 409) {
       // A lost response or another tab can leave an answer already saved.
       // Read the committed result before allowing another submission.
@@ -184,15 +234,15 @@ async function saveAnswer() {
   }
   if (!mounted || pendingAnswer.value !== pending) return
   pendingAnswer.value = null
-  if (continueRequested) {
-    continueRequested = false
+  if (continueRequested.value) {
+    continueRequested.value = false
     await advance()
   }
 }
 
 function requestAdvance() {
   if (app.loading.answering) {
-    continueRequested = true
+    continueRequested.value = true
     navigationNotice.value = '已收到，答案保存后会继续。'
     return
   }
@@ -277,7 +327,7 @@ async function startExtra() {
   bootError.value = ''
   try {
     paused.value = null
-    continueRequested = false
+    continueRequested.value = false
     if (selectedReview.value) await app.continueCollectionReview()
     else {
       studyMode.value = reviewOnly.value ? 'review-only' : 'new-only'
@@ -303,7 +353,14 @@ function playWord() {
   if (nativeSpeech.isSupported()) {
     const token = speechGeneration
     preparingWordAudio.value=true
-    void nativeSpeech.speak(word.value.spelling, 0.9,{onReady:()=>{if(token===speechGeneration)preparingWordAudio.value=false}}).catch(error => {
+    void nativeSpeech.speak(word.value.spelling, 0.9, { onReady: () => {
+      if (token !== speechGeneration) return
+      preparingWordAudio.value = false
+      if (isAndroid && autoPronounce.value && pageVisible.value) {
+        const nextWord = app.items[app.currentIndex + 1]?.word?.spelling
+        nativeSpeech.preloadWord(nextWord, 0.9)
+      }
+    } }).catch(error => {
       if (token === speechGeneration) {preparingWordAudio.value=false;speechError.value = error.message || '朗读失败，请稍后重试。'}
     })
     return
@@ -334,6 +391,7 @@ const playbackKey = computed(() => wordAudioIdentity({
 watch([playbackKey, autoPronounce], ([key, enabled]) => {
   stopSpeaking()
   if (key && enabled) playWord()
+  else if (isAndroid) nativeSpeech.cancelPreload()
 }, { flush: 'post' })
 watch(autoPronounce, saveAutoPronounce)
 
@@ -373,7 +431,7 @@ async function beginMode(mode, budgetMinutes = null) {
   choosingMode.value = false
   booting.value = true
   bootError.value = ''
-  try { paused.value=null; continueRequested=false; await app.startSession('daily', mode, budgetMinutes); cardShownAt.value = Date.now(); uncertain.value = false }
+  try { paused.value=null; continueRequested.value=false; await app.startSession('daily', mode, budgetMinutes); cardShownAt.value = Date.now(); uncertain.value = false }
   catch (error) { bootError.value = error.message }
   finally { booting.value = false }
 }
@@ -390,8 +448,8 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
 </script>
 
 <template>
-  <div class="study" @touchstart.passive="startSwipe" @touchmove.passive="moveSwipe" @touchend="endSwipe" @touchcancel="swipe = null">
-    <header class="focus-header">
+  <div class="study" :class="{ 'android-study': isAndroid, 'study-answer': showAnswerCard }" @touchstart.passive="startSwipe" @touchmove.passive="moveSwipe" @touchend="endSwipe" @touchcancel="swipe = null">
+    <header v-if="!isAndroid" class="focus-header">
       <router-link to="/" class="back-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m14 6-6 6 6 6" /></svg> 返回首页</router-link>
       <span class="focus-label"><span></span> 专注学习</span>
     </header>
@@ -419,8 +477,10 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
 
     <!-- 答题中 / 已作答 -->
     <template v-else-if="status === 'question' || status === 'answered'">
-      <button class="text-button" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="changeMode">选择学习内容</button><button class="text-button" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="pauseLearning">先学到这里，保存进度</button>
-      <p v-if="selectedReview" class="muted">所选词复习：共 {{app.reviewBatch.totalCount}} 词，剩余分组会保留，可随时暂停。</p>
+      <div v-if="!showAnswerCard">
+        <button class="text-button" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="changeMode">选择学习内容</button><button class="text-button" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="pauseLearning">先学到这里，保存进度</button>
+      </div>
+      <p v-if="selectedReview && !showAnswerCard" class="muted">所选词复习：共 {{app.reviewBatch.totalCount}} 词，剩余分组会保留，可随时暂停。</p>
       <div class="study-head">
         <div class="study-head-left"><span class="badge" :class="item.kind">{{ item.kind === 'new' ? '新词学习' : '复习巩固' }}</span><span class="session-label">今日学习</span></div>
         <span class="progress-text mono-num">
@@ -432,13 +492,13 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
         <span :style="{ width: (app.answeredCount / app.totalItems) * 100 + '%' }"></span>
       </div>
 
-      <p class="muted">{{item.reviewReason}}<span v-if="item.nextReviewAt"> · 本次到期：{{new Date(item.nextReviewAt).toLocaleDateString()}}</span></p>
-      <div ref="wordCard" class="card word-card">
+      <p v-if="!showAnswerCard" class="muted">{{item.reviewReason}}<span v-if="item.nextReviewAt"> · 本次到期：{{new Date(item.nextReviewAt).toLocaleDateString()}}</span></p>
+      <div ref="wordCard" class="card word-card" :class="{ 'word-card-answer': showAnswerCard }">
         <div class="word-row">
           <h1 class="word-spell">{{ word.spelling }}</h1><FavoriteWord :key="word.id" :word-id="word.id" compact-on-mobile />
           <button class="speak-btn" title="朗读单词" aria-label="朗读单词" @click="speak()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m11 4-6 5H2v6h3l6 5V4Z" /><path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" /></svg></button>
         </div>
-        <label class="auto-pronounce"><input type="checkbox" v-model="autoPronounce" /> 单词自动发音</label>
+        <label v-if="!showAnswerCard" class="auto-pronounce"><input type="checkbox" v-model="autoPronounce" /> 单词自动发音</label>
         <p v-if="preparingWordAudio" role="status">正在准备朗读音频…</p>
         <p v-if="speechError" class="error-text" role="status">{{ speechError }}</p>
         <p class="word-meta">
@@ -452,6 +512,18 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
           </span>
         </p>
 
+        <section v-if="showAnswerCard" ref="answerCard" class="android-answer-card" aria-label="本题用法卡片" tabindex="-1">
+          <p class="fb-line" :class="answer.isCorrect ? 'ok' : 'bad'">
+            {{ answer.unknown ? '已标记为不认识' : answer.isCorrect ? '✓ 回答正确' : '✗ 再记一下这个' }}
+            <small v-if="app.loading.answering" role="status"> · 保存中</small>
+          </p>
+          <p class="android-definition">{{ answer.correctText || word.definitions.join('；') }}</p>
+          <p v-if="saveError && pendingAnswer" class="navigation-notice" role="status">
+            答案尚未保存。{{ saveError }} <button type="button" class="text-button" @click="saveAnswer">重试保存</button>
+          </p>
+          <WordLearningCard :key="`${app.session?.id}:${word.id}`" :word="word" :initial-contrast="answer.confusableCard" compact />
+        </section>
+        <template v-else>
         <div class="question-heading"><p class="q-prompt">选择正确的中文释义</p><span class="question-hint">相信你的第一反应</span></div>
 
         <div class="option-grid">
@@ -478,6 +550,11 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
           </button>
         </div>
 
+        <div v-if="status === 'question'" class="unknown-actions">
+          <button class="btn btn-secondary" type="button" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="choose(null)">不认识</button>
+          <label class="muted"><input type="checkbox" v-model="autoUnknown" /> 30 秒未作答时自动标记</label>
+          <p v-if="recallReminder" role="status" class="muted">可以继续想，也可以点「不认识」查看用法。</p>
+        </div>
         <label v-if="status === 'question'" class="muted"><input type="checkbox" v-model="uncertain" :disabled="Boolean(pendingAnswer) || app.loading.answering" /> 这题不确定／靠猜测（可选，答对后会较早复习）</label>
         <div v-if="status === 'answered' || (app.loading.answering && selectedIndex !== null)" class="mobile-study-actions">
           <button class="btn btn-primary next-btn" :disabled="advancing || continueRequested || (pendingAnswer && !app.loading.answering)" @click="requestAdvance">
@@ -494,7 +571,7 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
         <transition name="fade">
           <div v-if="status === 'answered'" class="feedback" aria-live="polite">
             <p class="fb-line" :class="answer.isCorrect ? 'ok' : 'bad'">
-              {{ answer.isCorrect ? '✓ 回答正确' : '✗ 再记一下这个' }}
+              {{ answer.unknown ? '已标记为不认识' : answer.isCorrect ? '✓ 回答正确' : '✗ 再记一下这个' }}
             </p>
 
             <!-- 错因分析结果（PRD 4.2.3） -->
@@ -519,9 +596,16 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
             </p>
           </div>
         </transition>
+        </template>
       </div>
 
-      <div class="study-foot">
+      <div v-if="showAnswerCard" class="android-answer-actions">
+        <button class="btn btn-primary next-btn" :disabled="advancing || continueRequested || (pendingAnswer && !app.loading.answering)" @click="requestAdvance">
+          {{ continueRequested ? '保存后继续…' : nextLabel }}
+        </button>
+        <button class="text-button" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="pauseLearning">暂停</button>
+      </div>
+      <div v-else class="study-foot">
         <p class="keyboard-hints"><span><kbd>1</kbd> – <kbd>4</kbd> 选择释义</span><span><kbd>Space</kbd> 作答后继续</span></p>
         <button
           v-if="status === 'answered' || (app.loading.answering && selectedIndex !== null)"
@@ -645,6 +729,20 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
 .study { max-width: 800px; margin: 0 auto; }
 .mode-card { padding: 32px 24px; text-align: center; }
 .resume-button { margin-top: 20px; }
+.android-study.study-answer .head-progress { margin-bottom:12px; }
+.android-study .word-card-answer { padding:14px; }
+.word-card-answer .word-row { margin-top:0; }
+.word-card-answer .word-meta { margin:4px 0 10px; }
+.android-answer-card:focus { outline:none; }
+.android-answer-card .fb-line { margin:0; font-size:13px; }
+.android-definition { margin:4px 0 0; line-height:1.5; overflow-wrap:anywhere; }
+.android-answer-actions { position:sticky; bottom:calc(var(--android-nav-height) + env(safe-area-inset-bottom, 0px)); z-index:3; display:flex; align-items:center; gap:12px; padding:8px 0; background:var(--bg); }
+.android-answer-actions .next-btn { flex:1; min-width:0; min-height:44px; justify-content:center; }
+.android-answer-actions .text-button { flex:none; min-height:44px; }
+.unknown-actions { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; margin:14px 0 10px; }
+.unknown-actions .btn { min-height:44px; }
+.unknown-actions p { width:100%; margin:0; }
+.unknown-actions label { display:flex; gap:5px; align-items:center; }
 .choice, .next-btn { touch-action: manipulation; }
 .mobile-study-actions { display: none; }
 .navigation-notice { margin: 12px 0 0; color: var(--ink-soft); font-size: 12px; }

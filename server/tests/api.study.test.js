@@ -231,6 +231,26 @@ describe('提交作答：正确路径', () => {
     assert.equal(restored.data.session.answeredCount, 1)
   })
 
+  test('不认识作为本题一次作答保存，并保留正确释义和复习进度', async () => {
+    const user = await createOnboardedUser(client)
+    const { sessionId, wordId } = await craftSession(user.userId, 'adapt', 'adopt')
+    const url = `/api/v1/study/sessions/${sessionId}`
+    const request = { token: user.token, body: { wordId, unknown: true, hesitationMs: 100, deferExtras: true } }
+    assert.equal((await client.post(url + '/answers', { ...request, body: { ...request.body, optionIndex: 0 } })).status, 400)
+    const saved = await client.post(url + '/answers', request)
+    assert.equal(saved.status, 201)
+    assert.equal(saved.data.isCorrect, false)
+    assert.equal(saved.data.unknown, true)
+    assert.notEqual(saved.data.analysis.type, 'guess')
+    assert.equal(saved.data.correctOptionIndex, 0)
+    assert.equal(saved.data.progress.timesWrong, 1)
+    assert.equal((await client.post(url + '/answers', request)).status, 409)
+    const restored = await client.get(url, { token: user.token })
+    assert.equal(restored.data.items[0].unknown, true)
+    assert.equal(restored.data.items[0].selectedOptionIndex, null)
+    assert.equal(restored.data.session.answeredCount, 1)
+  })
+
   test('正常回忆不因用时降级，主动不确定才记低置信度', async () => {
     const fastUser = await createOnboardedUser(client)
     const slowUser = await createOnboardedUser(client)

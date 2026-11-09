@@ -271,7 +271,7 @@ export const useAppStore = defineStore('app', {
      * 提交作答。对错由服务端判定，这里只上报选项下标与犹豫时长。
      * @returns {Promise<object>} 后端确认的对错、错因及复习进度
      */
-    async submitAnswer({ wordId, optionIndex, hesitationMs, source = 'study', spellingMistake = false, recall = 'normal' }) {
+    async submitAnswer({ wordId, optionIndex, unknown, hesitationMs, source = 'study', spellingMistake = false, recall = 'normal' }) {
       if (!this.session) throw new Error('当前没有进行中的学习会话')
       if (this.loading.answering) throw new Error('正在保存答案，请稍候。')
       if (this.sessionSummary || this.session.status === 'finished') throw new Error('该学习会话已结束。')
@@ -285,7 +285,7 @@ export const useAppStore = defineStore('app', {
       try {
         const data = await api.study.answer(sessionId, {
           wordId,
-          optionIndex,
+          ...(unknown ? { unknown: true } : { optionIndex }),
           hesitationMs,
           recall,
           source,
@@ -301,6 +301,7 @@ export const useAppStore = defineStore('app', {
         // 同步本地题目状态，让进度与结果统计立刻反映出来
         targetItem.answered = true
         targetItem.correct = data.isCorrect
+        if (data.unknown) targetItem.unknown = true
         targetItem.answerResult = data
         targetItem.selectedOptionIndex = Number.isInteger(optionIndex) ? optionIndex : null
         if (this.currentItem === targetItem) this.lastAnswer = data

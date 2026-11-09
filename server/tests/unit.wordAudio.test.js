@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {nativeSpeech} from '../../src/utils/speechSynthesis.js'
-import {http} from '../../src/api/client.js'
+import {getAccessToken,http,setTokens} from '../../src/api/client.js'
 
 function fixture(t,{blocked=false}={}){
   const originalPost=http.post,originalAudio=globalThis.Audio
@@ -33,6 +33,24 @@ test('switching words before synthesis finishes cancels late playback',async t=>
   requests[1].resolve({audioBase64:'UklGRg==',mimeType:'audio/wav'});await second
   requests[0].resolve({audioBase64:'UklGRg==',mimeType:'audio/wav'});await first
   assert.equal(state.plays,1)
+})
+test('playing a preloaded word reuses the in-flight request and starts audio only on demand', async t => {
+  const state = fixture(t)
+  const token = getAccessToken()
+  setTokens({ accessToken: 'word-preload-test' })
+  t.after(() => setTokens(token ? { accessToken: token } : null))
+  let calls = 0, resolve
+  http.post = () => { calls++; return new Promise(done => { resolve = done }) }
+  nativeSpeech.preloadWord('adapt', 0.9)
+  assert.equal(state.plays, 0)
+  const speaking = nativeSpeech.speak('adapt', 0.9)
+  assert.equal(calls, 1)
+  resolve({ audioBase64: 'UklGRg==', mimeType: 'audio/wav' })
+  await speaking
+  assert.equal(state.plays, 1)
+  await nativeSpeech.speak('adapt', 0.9)
+  assert.equal(calls, 1)
+  assert.equal(state.plays, 2)
 })
 test('rate limit is surfaced without automatic repeated requests',async t=>{
   fixture(t);let calls=0

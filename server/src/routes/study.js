@@ -57,6 +57,7 @@ const answerSchema = z
   .object({
     wordId: z.coerce.number().int().positive(),
     optionIndex: z.coerce.number().int().min(0).max(9).optional(),
+    unknown: z.literal(true).optional(),
     // 无固定选项的场景（拼写 / 阅读题）可直接上报结果
     isCorrect: z.boolean().optional(),
     wrongOption: z.string().max(255).optional(),
@@ -66,8 +67,12 @@ const answerSchema = z
     spellingMistake: z.boolean().optional(),
     deferExtras: z.boolean().optional(),
   })
-  .refine((data) => data.optionIndex != null || typeof data.isCorrect === 'boolean', {
-    message: '必须提供 optionIndex 或 isCorrect',
+  .refine(data => !data.unknown || (data.optionIndex == null && data.isCorrect == null && data.wrongOption == null), {
+    message: '标记为不认识时无需提供选项或对错',
+    path: ['unknown'],
+  })
+  .refine((data) => data.unknown || data.optionIndex != null || typeof data.isCorrect === 'boolean', {
+    message: '必须提供 optionIndex、unknown 或 isCorrect',
     path: ['optionIndex'],
   })
 

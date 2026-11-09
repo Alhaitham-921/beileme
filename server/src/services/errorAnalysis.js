@@ -128,6 +128,8 @@ export function classifyError(input = {}, options = {}) {
     confidence: 'low',
   })
 
+  if (input.unknown) return build(ERROR_TYPES.VAGUE)
+
   // 1) 拼写模式字母顺序错误 → 拼写薄弱（游戏/拼写模式专有信号）
   if (spellingMistake) {
     return build(ERROR_TYPES.SPELLING_WEAK)

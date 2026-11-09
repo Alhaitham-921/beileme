@@ -13,6 +13,7 @@ import brandMark from './assets/brand-mark.svg'
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
+const isAndroid = Capacitor.getPlatform() === 'android'
 const showChrome = computed(() => auth.isLoggedIn && !['login', 'onboarding'].includes(route.name))
 const menuOpen = ref(false)
 const menuButton = ref(null)
@@ -26,6 +27,16 @@ const links = [
   { to: '/roots', icon: 'layers', label: '词根词缀' },
   { to: '/dashboard', icon: 'chart', label: '学习足迹' },
 ]
+const androidTabs = [
+  { to: '/', icon: 'home', label: '今日' },
+  { to: '/study', icon: 'book', label: '背单词', pages: ['/study', '/assessment'] },
+  { to: '/notebooks', icon: 'layers', label: '单词本', pages: ['/notebooks', '/recall'] },
+  { to: '/practice', icon: 'chat', label: '情境', pages: ['/practice', '/practice/demo', '/speech'] },
+  { to: '/more', icon: 'menu', label: '更多', pages: ['/more', '/settings', '/review', '/roots', '/dashboard', '/article'] },
+]
+watch(() => route.path, () => {
+  if (isAndroid) window.scrollTo({ top: 0, behavior: 'instant' })
+}, { flush: 'post' })
 const pageLabel = computed(() => [...links, { to: '/settings', label: '偏好设置' }, { to: '/article', label: '阅读巩固' }, { to: '/assessment', label: '学习起点' }, { to: '/recall', label: '错词专项' }].find(item => item.to === route.path)?.label || '学习空间')
 
 async function closeMenu(restoreFocus = true) {
@@ -62,6 +73,7 @@ onMounted(async () => {
     else NativeApp.minimizeApp()
   }))
   nativeListeners.push(await NativeApp.addListener('appStateChange', ({ isActive }) => {
+    document.dispatchEvent(new CustomEvent('beileme:app-activity', { detail: isActive }))
     if (!isActive) window.dispatchEvent(new Event('pagehide'))
   }))
 })
@@ -77,9 +89,12 @@ function focusMain() { document.getElementById('main-content')?.focus() }
 
 <template>
   <EnvironmentBackground />
-  <div class="app" :class="{ 'with-navigation': showChrome }">
+  <div class="app" :class="{ 'with-navigation': showChrome && !isAndroid, 'android-shell': showChrome && isAndroid }">
     <a class="accessibility-skip" href="#main-content" @click.prevent="focusMain">跳到主要内容</a>
-    <template v-if="showChrome">
+    <header v-if="showChrome && isAndroid" class="android-header">
+      <router-link to="/" class="brand"><span class="brand-symbol"><img :src="brandMark" alt="" /></span><span>背了么<span class="brand-dot">.</span></span></router-link>
+    </header>
+    <template v-if="showChrome && !isAndroid">
       <header class="mobile-header">
         <router-link to="/" class="brand"><span class="brand-symbol"><img :src="brandMark" alt="" /></span><span>背了么<span class="brand-dot">.</span></span></router-link>
         <button ref="menuButton" class="icon-button" aria-label="打开导航" :aria-expanded="menuOpen" aria-controls="app-navigation" @click="openMenu"><AppIcon name="menu" /></button>
@@ -103,6 +118,12 @@ function focusMain() { document.getElementById('main-content')?.focus() }
       <header class="workspace-header"><span>学习空间 <span class="breadcrumb-separator">/</span> <strong>{{ pageLabel }}</strong></span><span class="workspace-motto"><span></span> 留一点时间，给自己</span></header>
     </template>
     <main id="main-content" class="main" :class="{ 'public-main': !showChrome }" :inert="menuOpen || undefined" tabindex="-1"><router-view /><AiUsage v-if="showChrome" :usage="latestAiUsage" :label="`${latestAiUsage?.label || 'AI'}最近一次消耗${latestAiUsage?.failed ? '（生成失败）' : ''}`" /></main>
-    <footer v-if="showChrome" class="workspace-footer"><span>背了么 · 用单词，而不是背单词</span><span>MAKE ROOM FOR GROWTH.</span></footer>
+    <nav v-if="showChrome && isAndroid" class="android-tabs" aria-label="App 底部导航">
+      <router-link v-for="tab in androidTabs" :key="tab.to" :to="tab.to"
+        :class="{ 'android-tab-active': tab.pages ? tab.pages.includes(route.path) : route.path === tab.to }">
+        <AppIcon :name="tab.icon" /><span>{{ tab.label }}</span>
+      </router-link>
+    </nav>
+    <footer v-if="showChrome && !isAndroid" class="workspace-footer"><span>背了么 · 用单词，而不是背单词</span><span>MAKE ROOM FOR GROWTH.</span></footer>
   </div>
 </template>

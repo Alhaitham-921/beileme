@@ -155,7 +155,7 @@ router.get(
 )
 
 // Free dictionary reads never call AI; generation requires the separate explicit content action.
-router.get('/:id/learning-card', requireAuth, validate({ params: wordIdParam }), asyncHandler(async (req,res) =>
-  ok(res, { card: await getWordLearningCard(req.user.id, req.valid.params.id) })))
+router.get('/:id/learning-card', requireAuth, validate({ params: wordIdParam, query: z.object({ local: z.literal('1').optional() }) }),
+  asyncHandler(async (req,res) => ok(res, { card: await getWordLearningCard(req.user.id, req.valid.params.id, { localOnly: req.valid.query.local === '1' }) })))
 
 export default router
