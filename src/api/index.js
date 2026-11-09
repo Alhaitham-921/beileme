@@ -72,7 +72,7 @@ export const study = {
    * 提交作答。只上报所选选项下标，由服务端判定对错，
    * 因此不要试图在前端推算答案。
    */
-  answer: (sessionId, body) => http.post(`/study/sessions/${sessionId}/answers`, { body }),
+  answer: (sessionId, body) => http.post(`/study/sessions/${sessionId}/answers`, { body, timeoutMs: 12000 }),
   finish: (sessionId) => http.post(`/study/sessions/${sessionId}/finish`),
   errorDigest: (query) => http.get('/study/errors/digest', { query }),
 }

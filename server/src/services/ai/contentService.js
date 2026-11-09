@@ -956,7 +956,7 @@ async function quizFallbackSuggestions(words) {
  */
 const cardRequests=new Map()
 export async function generateErrorCards(userId, options={}) {
- const key=JSON.stringify([userId,[...new Set(options.wordIds||[])].sort((a,b)=>a-b),options.limit||6,Boolean(options.forceNew),options.boost||1])
+ const key=JSON.stringify([userId,[...new Set(options.wordIds||[])].sort((a,b)=>a-b),options.limit||6,Boolean(options.forceNew),options.boost||1,options.usageTexts||[]])
  if(cardRequests.has(key))return cardRequests.get(key)
  const pending=generateErrorCardsInner(userId,options)
  cardRequests.set(key,pending)
@@ -964,7 +964,7 @@ export async function generateErrorCards(userId, options={}) {
 }
 async function generateErrorCardsInner(
   userId,
-  { wordIds, limit = MAX_CARDS_PER_REQUEST, forceNew = false, boost = 1 } = {}
+  { wordIds, limit = MAX_CARDS_PER_REQUEST, forceNew = false, boost = 1, usageTexts = [] } = {}
 ) {
   const profile = await getProfile(userId)
   const provider = await resolveProvider(userId)
@@ -981,7 +981,7 @@ async function generateErrorCardsInner(
     wordIds: words.map((word) => word.id),
     difficulty: 3,
     goal: profile.goal,
-    topic: 'usage-v2',
+    topic: usageTexts.length ? `usage-translation-v1:${hashContent(JSON.stringify(usageTexts))}` : 'usage-v2',
   })
 
   if (!forceNew) {
@@ -1032,7 +1032,7 @@ async function generateErrorCardsInner(
   const batches = []
   for (let i = 0; i < promptInput.length; i += MAX_CARDS_PER_REQUEST) {
     const chunk = promptInput.slice(i, i + MAX_CARDS_PER_REQUEST)
-    batches.push(buildErrorCardBatchPrompt({ words: chunk, profile: profileForPrompt(profile) }))
+    batches.push(buildErrorCardBatchPrompt({ words: chunk, profile: profileForPrompt(profile), usageTexts }))
   }
 
   const preflight = estimateCall({
@@ -1070,7 +1070,16 @@ async function generateErrorCardsInner(
       )
       for (const card of parsed.cards || []) {
         const wordId = bySpelling.get(String(card.spelling || '').toLowerCase())
-        cards.push({ ...card, wordId: wordId ?? null })
+        const translations = new Map()
+        const entries = Array.isArray(card.usageTranslations) ? card.usageTranslations : []
+        for (const entry of entries) {
+          const original = Number.isInteger(entry?.index) ? usageTexts[entry.index] : null
+          const translation = typeof entry?.translation === 'string' ? entry.translation.trim().slice(0, 320) : ''
+          if (original && /\p{Script=Han}/u.test(translation) && !translations.has(original)) translations.set(original, translation)
+        }
+        cards.push({ ...card, wordId: wordId ?? null,
+          ...(usageTexts.length ? { usageTranslations: [...translations].map(([text, translation]) => ({ text, translation })) } : {}),
+        })
       }
     } catch (error) {
       if (!isAiFailure(error)) throw error

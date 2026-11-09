@@ -6,6 +6,23 @@ import { WORD_USAGE } from '../../data/wordUsage.js'
 
 const text = (value, max = 320) => typeof value === 'string' ? value.trim().slice(0, max) : ''
 const unique = (items, key, max) => [...new Map(items.filter(item => item[key]).map(item => [item[key].toLowerCase(), item])).values()].slice(0, max)
+const hasChinese = value => typeof value === 'string' && /\p{Script=Han}/u.test(value)
+
+function pairedUsage(items, key, limit, translations) {
+  const byText = new Map()
+  for (const item of items) {
+    if (!item[key]) continue
+    const original = item[key].trim()
+    const translation = translations.get(original)
+    const entry = hasChinese(item.translation) ? item : translation
+      ? { ...item, translation, translationSource: 'ai' }
+      : { ...item, translation: '' }
+    const normalized = original.toLowerCase()
+    if (!byText.has(normalized) || (!byText.get(normalized).translation && entry.translation)) byText.set(normalized, entry)
+  }
+  return [...byText.values()].sort((a, b) => Number(Boolean(b.translation)) - Number(Boolean(a.translation))).slice(0, limit)
+}
+
 const safeLink = value => { try { const url = new URL(value); return url.protocol === 'https:' ? url.href : '' } catch { return '' } }
 
 /** Keep only small, attributed examples. External dictionary content is never treated as AI output. */
@@ -96,33 +113,41 @@ export async function savedAiUsage(userId, word) {
   // Account-scoped: never expose another user's generated materials.
   const rows = await query(`SELECT meta FROM generated_contents WHERE user_id=? AND type='error_card'
     AND JSON_CONTAINS(target_words, ?) ORDER BY id DESC LIMIT 8`, [userId, JSON.stringify(word.id)])
+  let usage
+  const translations = new Map()
   for (const row of rows) {
     const meta = parseJson(row.meta, {})
     const cards = Array.isArray(meta?.cards) ? meta.cards : []
     const entry = cards.find(card => String(card?.spelling || '').toLowerCase() === word.spelling.toLowerCase())
-    const usage = normalizeAiUsage(entry, word.spelling)
-    if (usage.examples.length || usage.collocations.length) return usage
+    if (!entry) continue
+    const current = normalizeAiUsage(entry, word.spelling)
+    if (!usage && (current.examples.length || current.collocations.length)) usage = current
+    for (const item of Array.isArray(entry.usageTranslations) ? entry.usageTranslations : []) {
+      const original = text(item?.text)
+      if (original && hasChinese(item?.translation) && !translations.has(original)) translations.set(original, text(item.translation))
+    }
   }
-  return { examples: [], collocations: [] }
+  return { ...(usage || { examples: [], collocations: [] }), translations }
 }
 
 export async function getWordLearningCard(userId, wordId, { dictionaryLookup = lookupDictionary } = {}) {
   const word = await getWordById(wordId)
   const local = WORD_USAGE[word.spelling.toLowerCase()] || { examples: [], collocations: [] }
   const [related, saved] = await Promise.all([getRelatedWords(wordId, { limit: 16 }), savedAiUsage(userId, word)])
-  const examples = unique([
+  const examples = [
     ...local.examples.map(item => ({ ...item, source: 'local' })),
-    ...saved.examples,
     ...(word.examples || []).filter(item => typeof item === 'string').map(example => ({ text: example, translation: '', source: 'wordbook' })),
-  ], 'text', 3)
+  ]
   const hasPhrases = local.collocations.length || saved.collocations.length
-  const remote = examples.length && hasPhrases ? { examples: [] } : await dictionaryLookup(word.spelling)
+  const remote = examples.length && hasPhrases && !saved.translations.size
+    ? { examples: [] }
+    : await dictionaryLookup(word.spelling)
   const contrasts = ['form', 'meaning'].flatMap(type => related.filter(item => item.relationType === type).slice(0, 2))
     .map(item => ({ ...item, diff: diffSpelling(word.spelling, item.spelling) }))
   return {
     wordId: word.id, spelling: word.spelling,
-    examples: unique([...examples, ...remote.examples], 'text', 3),
-    collocations: unique([...local.collocations.map(item => ({ ...item, source: 'local' })), ...saved.collocations, ...(remote.collocations || [])], 'phrase', 4),
+    examples: pairedUsage([...examples, ...remote.examples, ...saved.examples], 'text', 3, saved.translations),
+    collocations: pairedUsage([...local.collocations.map(item => ({ ...item, source: 'local' })), ...(remote.collocations || []), ...saved.collocations], 'phrase', 4, saved.translations),
     contrasts, dictionaryUnavailable: Boolean(remote.unavailable),
   }
 }

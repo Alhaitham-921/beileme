@@ -25,7 +25,9 @@ const uncertain = ref(false)
 const paused=ref(null),preparingWordAudio=ref(false)
 let cardRun=0
 const bootError = ref('')
-const selectedIndex = ref(null)
+const pendingAnswer = ref(null)
+const saveError = ref('')
+let mounted = true
 const cardShownAt = ref(Date.now())
 const advancing = ref(false)
 const speechError = ref('')
@@ -41,7 +43,17 @@ let continueRequested = false
 const item = computed(() => app.currentItem)
 const word = computed(() => item.value?.word)
 const options = computed(() => item.value?.options || [])
-const answer = computed(() => app.lastAnswer)
+const selectedIndex = computed(() => pendingAnswer.value?.optionIndex ?? item.value?.selectedOptionIndex ?? null)
+const answer = computed(() => {
+  if (app.lastAnswer) return app.lastAnswer
+  const correctOption = options.value.find(option => option.index === item.value?.correctOptionIndex)
+  if (!pendingAnswer.value || !correctOption) return null
+  return {
+    isCorrect: selectedIndex.value === correctOption.index,
+    correctOptionIndex: correctOption.index,
+    correctText: correctOption.text,
+  }
+})
 const selectedReview = computed(() => Boolean(app.reviewBatch?.id))
 const reviewOnly = computed(() => studyMode.value !== 'new-only')
 const remainingDueCount = computed(() => app.sessionSummary?.remainingDueCount ?? null)
@@ -59,14 +71,8 @@ const status = computed(() => {
   return 'question'
 })
 
-/**
- * 服务端不把正确答案下发给客户端，只在作答后回传 correctText。
- * 因此这里靠文本反查正确选项的下标，用于渲染对错样式。
- */
-const correctIndex = computed(() => {
-  if (!answer.value) return -1
-  return options.value.findIndex((option) => option.text === answer.value.correctText)
-})
+const correctIndex = computed(() => answer.value?.correctOptionIndex ??
+  options.value.find(option => option.text === answer.value?.correctText)?.index ?? -1)
 
 function optionClass(index) {
   if (status.value !== 'answered') return ''
@@ -92,7 +98,6 @@ async function boot() {
     }
     studyMode.value=app.session?.studyOptions?.studyMode || studyMode.value
     cardShownAt.value = Date.now()
-    selectedIndex.value = app.currentItem?.selectedOptionIndex ?? null
   } catch (error) {
     bootError.value = error.message
   } finally {
@@ -113,13 +118,14 @@ function onKey(event) {
   }
 }
 onMounted(() => { boot(); window.addEventListener('keydown', onKey); document.addEventListener('visibilitychange', onVisibilityChange) })
-onUnmounted(() => { window.removeEventListener('keydown', onKey); document.removeEventListener('visibilitychange', onVisibilityChange); if(generating.value)cancelCards(); stopSpeaking() })
+onUnmounted(() => { mounted = false; window.removeEventListener('keydown', onKey); document.removeEventListener('visibilitychange', onVisibilityChange); if(generating.value)cancelCards(); stopSpeaking() })
 
 // 每翻到新题都重置计时起点，犹豫时长才有意义
 watch(
   () => `${app.session?.id}:${app.currentIndex}:${word.value?.id}`,
   () => {
-    selectedIndex.value = app.currentItem?.selectedOptionIndex ?? null
+    pendingAnswer.value = null
+    saveError.value = ''
     cardShownAt.value = Date.now()
     uncertain.value = false
     speechError.value = ''
@@ -127,27 +133,60 @@ watch(
   }
 )
 
-async function choose(index) {
-  if (status.value !== 'question' || app.loading.answering || item.value?.answered) return
+function choose(index) {
+  if (status.value !== 'question' || pendingAnswer.value || app.loading.answering || item.value?.answered) return
   navigationNotice.value = ''
+  pendingAnswer.value = {
+    sessionId: app.session.id,
+    wordId: item.value.wordId,
+    optionIndex: index,
+    hesitationMs: Date.now() - cardShownAt.value,
+    recall: uncertain.value ? 'hard' : 'normal',
+  }
+  void saveAnswer()
+}
 
-  // 先记录「展示到首次交互」的间隔，再发请求，避免把网络耗时算进犹豫时长
-  const hesitationMs = Date.now() - cardShownAt.value
-  selectedIndex.value = index
-
+async function saveAnswer() {
+  const pending = pendingAnswer.value
+  if (!pending || app.loading.answering) return
+  saveError.value = ''
+  navigationNotice.value = ''
   try {
-    await app.submitAnswer({ wordId: item.value.wordId, optionIndex: index, hesitationMs, recall: uncertain.value ? 'hard' : 'normal' })
-    if (continueRequested) { continueRequested = false; await advance() }
+    await app.submitAnswer(pending)
   } catch (error) {
+    if (!mounted || pendingAnswer.value !== pending) return
     continueRequested = false
     if (error.status === 409) {
-      // Another tab may have answered this word. Restore rather than resubmitting.
-      const restored = await app.restoreSession(true)
-      if (!restored) { bootError.value = '无法恢复最新答题状态，请重新进入单词学习。'; return }
-      selectedIndex.value = app.currentItem?.selectedOptionIndex ?? null
-      return
+      // A lost response or another tab can leave an answer already saved.
+      // Read the committed result before allowing another submission.
+      try {
+        const restored = await app.restoreSession(true)
+        const answeredIndex = restored?.session?.id === pending.sessionId
+          ? restored.items.findIndex(entry => entry.wordId === pending.wordId && entry.answered)
+          : -1
+        if (answeredIndex >= 0) {
+          app.goToQuestion(answeredIndex)
+          pendingAnswer.value = null
+          navigationNotice.value = '已同步保存的答案。'
+          return
+        }
+        if (!restored) {
+          bootError.value = '无法恢复最新答题状态，请重新进入单词学习。'
+          return
+        }
+      } catch (restoreError) {
+        saveError.value = restoreError.message
+        return
+      }
     }
-    bootError.value = error.message
+    saveError.value = error.message || '暂时无法保存，可重试。'
+    return
+  }
+  if (!mounted || pendingAnswer.value !== pending) return
+  pendingAnswer.value = null
+  if (continueRequested) {
+    continueRequested = false
+    await advance()
   }
 }
 
@@ -157,11 +196,12 @@ function requestAdvance() {
     navigationNotice.value = '已收到，答案保存后会继续。'
     return
   }
+  if (pendingAnswer.value) return
   void advance()
 }
 
 async function advance() {
-  if (advancing.value || app.loading.answering) return
+  if (advancing.value || pendingAnswer.value || app.loading.answering) return
   advancing.value = true
   navigationNotice.value = ''
   try {
@@ -191,7 +231,7 @@ async function revealWord() {
 }
 
 async function previous() {
-  if (advancing.value || app.loading.answering) return
+  if (advancing.value || pendingAnswer.value || app.loading.answering) return
   navigationNotice.value = ''
   if (!app.previousQuestion()) {
     navigationNotice.value = '已经是本组第一个单词。'
@@ -202,7 +242,7 @@ async function previous() {
 
 function startSwipe(event) {
   swipe = null
-  if (!['question', 'answered'].includes(status.value) || advancing.value || app.loading.answering || event.touches.length !== 1) return
+  if (!['question', 'answered'].includes(status.value) || advancing.value || pendingAnswer.value || app.loading.answering || event.touches.length !== 1) return
   if (event.target?.closest?.('input, textarea, select, a, .favorite-word, .speak-btn, .next-btn')) return
   if (window.getSelection()?.isCollapsed === false) return
   const touch = event.touches[0]
@@ -222,7 +262,7 @@ function moveSwipe(event) {
 function endSwipe(event) {
   const start = swipe
   swipe = null
-  if (!start || advancing.value || app.loading.answering) return
+  if (!start || advancing.value || pendingAnswer.value || app.loading.answering) return
   const touch = [...event.changedTouches].find(touch => touch.identifier === start.id)
   if (!touch) return
   const direction = studySwipeDirection({ ...start, endX: touch.clientX, endY: touch.clientY, elapsedMs: Date.now() - start.startedAt })
@@ -338,8 +378,13 @@ async function beginMode(mode, budgetMinutes = null) {
   finally { booting.value = false }
 }
 async function pauseLearning(){
- if(app.loading.answering||!app.session)return
- try{paused.value=await http.post('/study/sessions/'+app.session.id+'/pause');stopSpeaking()}catch(e){navigationNotice.value=e.message}
+  if (pendingAnswer.value || app.loading.answering || !app.session) return
+  try {
+    const data = await http.post('/study/sessions/' + app.session.id + '/pause')
+    paused.value = data
+    if (data.unlockedBadges?.length) app.newBadges = data.unlockedBadges
+    stopSpeaking()
+  } catch (error) { navigationNotice.value = error.message }
 }
 function changeMode() { stopSpeaking(); choosingMode.value = true }
 </script>
@@ -374,7 +419,7 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
 
     <!-- 答题中 / 已作答 -->
     <template v-else-if="status === 'question' || status === 'answered'">
-      <button class="text-button" :disabled="app.loading.answering" @click="changeMode">选择学习内容</button><button class="text-button" :disabled="app.loading.answering" @click="pauseLearning">先学到这里，保存进度</button>
+      <button class="text-button" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="changeMode">选择学习内容</button><button class="text-button" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="pauseLearning">先学到这里，保存进度</button>
       <p v-if="selectedReview" class="muted">所选词复习：共 {{app.reviewBatch.totalCount}} 词，剩余分组会保留，可随时暂停。</p>
       <div class="study-head">
         <div class="study-head-left"><span class="badge" :class="item.kind">{{ item.kind === 'new' ? '新词学习' : '复习巩固' }}</span><span class="session-label">今日学习</span></div>
@@ -415,7 +460,7 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
             :key="option.index"
             class="option choice"
             :class="[optionClass(option.index), { selected: app.loading.answering && selectedIndex === option.index }]"
-            :disabled="status === 'answered' || app.loading.answering"
+            :disabled="status === 'answered' || Boolean(pendingAnswer) || app.loading.answering"
             :aria-label="`${option.index + 1}. ${option.text}${status === 'answered' && option.index === correctIndex ? '，正确答案' : status === 'answered' && option.index === selectedIndex ? '，你的选择，回答错误' : ''}`"
             @click="choose(option.index)"
           >
@@ -433,13 +478,18 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
           </button>
         </div>
 
-        <label v-if="status === 'question'" class="muted"><input type="checkbox" v-model="uncertain" :disabled="app.loading.answering" /> 这题不确定／靠猜测（可选，答对后会较早复习）</label>
+        <label v-if="status === 'question'" class="muted"><input type="checkbox" v-model="uncertain" :disabled="Boolean(pendingAnswer) || app.loading.answering" /> 这题不确定／靠猜测（可选，答对后会较早复习）</label>
         <div v-if="status === 'answered' || (app.loading.answering && selectedIndex !== null)" class="mobile-study-actions">
-          <button class="btn btn-primary next-btn" :disabled="advancing || continueRequested" @click="requestAdvance">
+          <button class="btn btn-primary next-btn" :disabled="advancing || continueRequested || (pendingAnswer && !app.loading.answering)" @click="requestAdvance">
             {{ continueRequested ? '保存后继续…' : nextLabel }} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
           </button>
         </div>
         <p v-if="navigationNotice" class="navigation-notice" role="status">{{ navigationNotice }}</p>
+        <p v-if="app.loading.answering" class="muted" role="status">正在保存进度…</p>
+        <div v-if="saveError && pendingAnswer" class="navigation-notice" role="status">
+          <p>本题尚未确认保存。{{ saveError }}</p>
+          <button class="btn btn-ghost" type="button" @click="saveAnswer">重试保存</button>
+        </div>
 
         <transition name="fade">
           <div v-if="status === 'answered'" class="feedback" aria-live="polite">
@@ -456,7 +506,7 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
               你主动标记了不确定，本次记为需要巩固；答对仍算正确，安排较早复习。
             </p>
 
-            <p v-if="answer.isCorrect && answer.analysis?.confidence !== 'low'" class="analysis-note">本次回忆正确，按正常间隔复习。长期掌握依据多轮复习表现，不要求秒答。</p>
+            <p v-if="app.lastAnswer && answer.isCorrect && answer.analysis?.confidence !== 'low'" class="analysis-note">本次回忆正确，按正常间隔复习。长期掌握依据多轮复习表现，不要求秒答。</p>
 <p v-if="answer.progress?.nextReviewAt" class="muted">下次复习：{{new Date(answer.progress.nextReviewAt).toLocaleString()}}</p>
             <p class="def-line">释义：{{ word.definitions.join('；') }}</p>
             <WordLearningCard :key="`${app.session?.id}:${word.id}`" :word="word" :initial-contrast="answer.confusableCard" />
@@ -476,7 +526,7 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
         <button
           v-if="status === 'answered' || (app.loading.answering && selectedIndex !== null)"
           class="btn btn-primary btn-lg next-btn"
-          :disabled="advancing || continueRequested"
+          :disabled="advancing || continueRequested || (pendingAnswer && !app.loading.answering)"
           @click="requestAdvance"
         >
           {{ continueRequested ? '保存后继续…' : nextLabel }} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>

@@ -58,6 +58,9 @@ const errorCardSchema = z.object({
   forceNew: z.boolean().optional(),
   /** 与短文一致：「重新生成并用更大额度」 */
   boost: z.coerce.number().min(1).max(4).optional(),
+  usageTexts: z.array(z.string().trim().min(1).max(320)).max(7).optional(),
+}).refine(body => !body.usageTexts?.length || (body.wordIds?.length ?? (body.wordId ? 1 : 0)) === 1, {
+  path: ['usageTexts'], message: '补充译文时请选择一个单词',
 })
 
 const idParam = z.object({ id: z.coerce.number().int().positive() })
@@ -134,6 +137,7 @@ router.post(
       wordIds,
       limit: body.limit,
       forceNew: body.forceNew,
+      usageTexts: body.usageTexts,
     })
     return created(res, result)
   })

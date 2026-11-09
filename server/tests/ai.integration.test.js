@@ -68,6 +68,11 @@ function respondFor(body) {
           distinctions: [{ spelling: spellings[i] || `word${i}`, coreMeaning: '测试', usage: '', example: '', translation: '' }],
           mnemonic: '测试用记忆口诀',
           formTip: '测试用词形提示',
+          ...(user.includes('usageTranslations') ? { usageTranslations: [
+            { index: 0, translation: '他适应了新的环境。' },
+            { index: 1, translation: 'English only' },
+            { index: 99, translation: '不存在的条目' },
+          ] } : {}),
         })),
       }),
     }
@@ -608,6 +613,21 @@ describe('合并请求：多个错词只调一次（成本控制的关键）', (
     // 注意只统计 user 消息：System Prompt 自身有 6 条编号约定，一起统计会多算。
     const userMessage = generationCalls[0].body.messages.find((m) => m.role === 'user').content
     assert.equal((userMessage.match(/^\d+\. /gm) || []).length, 5)
+  })
+
+  test('用法译文匹配原文，重复请求复用当前账号的缓存', async () => {
+    const { user } = await userWithMockProvider()
+    const [word] = await query("SELECT id FROM words WHERE spelling = 'adapt' LIMIT 1")
+    const sentence = 'He adapted to his new environment.'
+    const body = { wordId: Number(word.id), usageTexts: [sentence, 'adapt to changes'] }
+    resetReceived()
+    const first = await client.post('/api/v1/content/error-cards', { token: user.token, body })
+    assert.equal(first.status, 201)
+    assert.deepEqual(first.data.cards[0].usageTranslations, [{ text: sentence, translation: '他适应了新的环境。' }])
+    const again = await client.post('/api/v1/content/error-cards', { token: user.token, body })
+    assert.equal(again.data.cached, true)
+    assert.deepEqual(again.data.cards[0].usageTranslations, first.data.cards[0].usageTranslations)
+    assert.equal(received.filter(call => call.body.messages?.some(message => message.content?.includes('usageTranslations'))).length, 1)
   })
 
   test('每个词都拿到对应自己的卡片（按拼写回填 wordId）', async () => {

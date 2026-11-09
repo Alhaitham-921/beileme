@@ -81,7 +81,7 @@ describe('创建学习会话', () => {
     }
   })
 
-  test('接口不下发正确答案，防止客户端伪造对错', async () => {
+  test('普通练习下发正确选项下标，并保留原有选项结构', async () => {
     const user = await createOnboardedUser(client)
     const response = await client.post('/api/v1/study/sessions', {
       token: user.token,
@@ -92,8 +92,8 @@ describe('创建学习会话', () => {
     assert.equal(serialized.includes('"correct"'), false, '响应体不应出现 correct 字段')
 
     for (const item of response.data.items) {
+      assert.equal(item.correctOptionIndex, await correctOptionIndex(response.data.session.id, item.wordId))
       for (const option of item.options) {
-        // 只有 index / text / primary，绝不含 correct —— 答案留在服务端
         assert.deepEqual(Object.keys(option).sort(), ['index', 'primary', 'text'])
       }
     }
@@ -210,6 +210,25 @@ describe('提交作答：正确路径', () => {
     // 计划计数（新词）应 +1
     assert.equal(data.plan.newDone, 1)
     assert.equal(data.plan.status === 'done' || data.plan.status === 'partial', true)
+  })
+
+  test('精简答题保存错误选项，重试可恢复而不会重复计分', async () => {
+    const user = await createOnboardedUser(client)
+    const { sessionId, wordId } = await craftSession(user.userId, 'adapt', 'adopt')
+    const url = `/api/v1/study/sessions/${sessionId}`
+    const request = { token: user.token, body: { wordId, optionIndex: 1, hesitationMs: 800, deferExtras: true } }
+    const saved = await client.post(`${url}/answers`, request)
+    assert.equal(saved.status, 201)
+    assert.equal(saved.data.isCorrect, false)
+    assert.equal(saved.data.correctOptionIndex, 0)
+    assert.ok(saved.data.progress)
+    assert.equal(saved.data.confusableCard, undefined)
+    assert.equal(saved.data.unlockedBadges, undefined)
+    assert.equal((await client.post(`${url}/answers`, request)).status, 409)
+    const restored = await client.get(url, { token: user.token })
+    assert.equal(restored.data.items[0].selectedOptionIndex, 1)
+    assert.equal(restored.data.items[0].correct, false)
+    assert.equal(restored.data.session.answeredCount, 1)
   })
 
   test('正常回忆不因用时降级，主动不确定才记低置信度', async () => {

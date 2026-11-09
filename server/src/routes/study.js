@@ -12,6 +12,7 @@ import {
   getSession,
   submitAnswer,
   finishSession,
+  studyBadges,
   getErrorDigest,
 } from '../services/studyService.js'
 import { createCollectionReview, continueCollectionReview, activeCollectionReview } from '../services/reviewBatchService.js'
@@ -32,8 +33,10 @@ router.get('/paused-session', asyncHandler(async (req, res) => {
 router.post('/sessions/:id/pause', validate({ params: z.object({ id: z.coerce.number().int().positive() }) }), asyncHandler(async (req, res) => {
   await getSession(req.user.id, req.valid.params.id)
   await execute("UPDATE study_sessions SET paused_at=UTC_TIMESTAMP() WHERE id=? AND user_id=? AND status='active'", [req.valid.params.id, req.user.id])
-  const data = await getSession(req.user.id, req.valid.params.id)
-  return ok(res, { ...data, savedCount: data.session.answeredCount, remaining: data.items.filter(i => !i.answered).length })
+  const [data, unlockedBadges] = await Promise.all([
+    getSession(req.user.id, req.valid.params.id), studyBadges(req.user.id),
+  ])
+  return ok(res, { ...data, unlockedBadges, savedCount: data.session.answeredCount, remaining: data.items.filter(i => !i.answered).length })
 }))
 
 router.get('/review-batches/active', asyncHandler(async(req,res) => ok(res, {batch:await activeCollectionReview(req.user.id)})))
@@ -61,6 +64,7 @@ const answerSchema = z
     hesitationMs: z.coerce.number().int().min(0).max(600000).optional(),
     source: z.enum(['study', 'review', 'game', 'reading']).optional(),
     spellingMistake: z.boolean().optional(),
+    deferExtras: z.boolean().optional(),
   })
   .refine((data) => data.optionIndex != null || typeof data.isCorrect === 'boolean', {
     message: '必须提供 optionIndex 或 isCorrect',

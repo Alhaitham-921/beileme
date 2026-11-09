@@ -33,8 +33,7 @@ export const MAX_SESSION_SIZE = 60
 
 /**
  * 会话行 → 对外结构。
- * 刻意不返回 queue：队列表里带着每个选项的 correct 标记，
- * 一旦下发就等于把答案给了客户端，提交时服务端判定对错也就失去意义。
+ * 会话只返回概要，普通练习的题目通过 materializeItems 单独返回。
  */
 export function mapSessionRow(row) {
   if (!row) return null
@@ -92,7 +91,7 @@ function publicWord(row) {
   }
 }
 
-/** 去掉 correct 标记，答案只留在服务端 */
+/** 普通练习单独给出正确选项下标，保留现有选项结构。 */
 function publicOptions(options) {
   return options.map((option) => ({
     index: option.index,
@@ -122,9 +121,8 @@ async function materializeItems(queueItems) {
       word: publicWord(row),
       options: publicOptions(item.options),
       answered: Boolean(item.answered),
-      // 只有作答过的题才带上结果，未作答时不发这个字段：
-      // 避免与「选项是否正确」混淆，也让响应在未作答时完全不含答案信息
-      ...(item.answered ? { correct: Boolean(item.correct) } : {}),
+      correctOptionIndex: item.options.find(option => option.correct)?.index ?? null,
+      ...(item.answered ? { correct: Boolean(item.correct), selectedOptionIndex: item.selectedOptionIndex ?? null } : {}),
     })
   }
   return items
@@ -280,6 +278,7 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
     source = 'study',
     spellingMistake = false,
     recall = 'normal',
+    deferExtras = false,
   } = payload
 
   const outcome = await withTransaction(async (conn) => {
@@ -331,6 +330,7 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
 
     // ── 错因归因上下文：看选错的释义是否属于该词的形近/近义词 ──
     let confusion = null
+    let priorConfusionHits
     if (!isCorrect) {
       // 优先用选项里记录的来源词 id：多个词可能共享同一中文释义
       // （例如 accomplish 与 achieve 都含「实现」），按释义文本反查会归错词。
@@ -350,11 +350,12 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
           [wordId, wrongWord.id]
         )
         if (relationRows.length) {
+          priorConfusionHits = await confusionHistoryWithConn(conn, userId, wordId)
           confusion = {
             relationType: relationRows[0].relation_type,
             relatedWordId: Number(wrongWord.id),
             relatedSpelling: wrongWord.spelling,
-            priorCount: await confusionHistoryWithConn(conn, userId, wordId),
+            priorCount: priorConfusionHits,
           }
         }
       }
@@ -370,7 +371,7 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
 
     // ── SRS 更新：易混词组间隔更短 ──
     const quality = grade(hesitation, isCorrect, recall)
-    const priorConfusionHits = await confusionHistoryWithConn(conn, userId, wordId)
+    priorConfusionHits ??= await confusionHistoryWithConn(conn, userId, wordId)
     const srs = reviewItem(existing || {}, quality, now.getTime(), {
       confusionFactor: priorConfusionHits > 0 ? CONFUSION_INTERVAL_FACTOR : 1,
       relearnDays: analysis.relearnDays,
@@ -438,7 +439,8 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
       )
     }
 
-    queue[itemIndex] = { ...item, answered: true, correct: isCorrect }
+    const correctOption = item.options.find(option => option.correct)
+    queue[itemIndex] = { ...item, answered: true, correct: isCorrect, selectedOptionIndex: chosenOption?.index ?? null }
 
     // 注意：MySQL 的 SET 子句按书写顺序求值，后面的表达式会读到前面刚更新的值。
     // 因此移动平均必须写在 answered_count 自增之前，否则会被当成「已含本次」的计数。
@@ -473,8 +475,8 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
         definitions: word.definitions,
         example: word.example,
       },
-      // 与选项文本保持一致，前端才能靠它反查哪个选项是正确项
-      correctText: word.definitions.join('；'),
+      correctOptionIndex: correctOption?.index ?? null,
+      correctText: correctOption?.text ?? word.definitions.join('；'),
       wrongOption,
       analysis,
       confusion,
@@ -500,22 +502,22 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
     }
   })
 
-  // 事务提交后再评估徽章：徽章逻辑出错不应回滚学习记录
-  let unlockedBadges = []
+  // 新版页面独立加载用法卡片，在组末或暂停时领取徽章。
+  if (deferExtras) return outcome
+
+  const unlockedBadges = await studyBadges(userId)
+  const confusableCard = outcome.analysis.needConfusableCard ? await buildConfusableCard(wordId) : null
+  const plan = await getOrCreateDailyPlan(userId, todayKey())
+  return { ...outcome, unlockedBadges, confusableCard, plan }
+}
+
+export async function studyBadges(userId) {
   try {
-    unlockedBadges = await evaluateBadges(userId)
+    return await evaluateBadges(userId)
   } catch (error) {
     console.error('[badge] 评估失败：', error.message)
+    return []
   }
-
-  // 命中混淆类错因时附带对比记忆卡片
-  const confusableCard = outcome.analysis.needConfusableCard
-    ? await buildConfusableCard(wordId)
-    : null
-
-  const plan = await getOrCreateDailyPlan(userId, todayKey())
-
-  return { ...outcome, unlockedBadges, confusableCard, plan }
 }
 
 /** 结束会话，返回本轮统计 */
@@ -545,13 +547,15 @@ export async function finishSession(userId, sessionId) {
     return mapped
   })
 
-  const remainingDueCount = await countDueWords(userId)
-  const plan = await getOrCreateDailyPlan(userId, todayKey())
+  const [remainingDueCount, plan, unlockedBadges] = await Promise.all([
+    countDueWords(userId), getOrCreateDailyPlan(userId, todayKey()), studyBadges(userId),
+  ])
   const total = mapped.correctCount + mapped.wrongCount
   return {
     ...(mapped.studyOptions.reviewBatchId ? {reviewBatch:await reviewBatchState(userId, mapped.studyOptions.reviewBatchId)} : {}),
     session: mapped,
     plan,
+    unlockedBadges,
     summary: {
       remainingDueCount,
       plannedCount: mapped.plannedCount,

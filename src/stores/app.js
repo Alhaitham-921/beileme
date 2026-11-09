@@ -269,7 +269,7 @@ export const useAppStore = defineStore('app', {
 
     /**
      * 提交作答。对错由服务端判定，这里只上报选项下标与犹豫时长。
-     * @returns {Promise<object>} 含 isCorrect / analysis / confusableCard / progress
+     * @returns {Promise<object>} 后端确认的对错、错因及复习进度
      */
     async submitAnswer({ wordId, optionIndex, hesitationMs, source = 'study', spellingMistake = false, recall = 'normal' }) {
       if (!this.session) throw new Error('当前没有进行中的学习会话')
@@ -290,6 +290,7 @@ export const useAppStore = defineStore('app', {
           recall,
           source,
           spellingMistake,
+          deferExtras: true,
         })
 
         // A route/session switch must not apply an old response to the new queue.
@@ -336,6 +337,7 @@ export const useAppStore = defineStore('app', {
       this.sessionSummary = data.summary
       this.reviewBatch = data.reviewBatch || null
       if (data.plan) this.plan = data.plan
+      if (data.unlockedBadges?.length) this.newBadges = data.unlockedBadges
       writeActiveSessionId(null)
       return data
     },

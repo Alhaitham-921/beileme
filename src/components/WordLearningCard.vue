@@ -7,10 +7,37 @@ const card = ref(null), loading = ref(true), error = ref(''), aiLoading = ref(fa
 let controller = new AbortController(), aiController = null, alive = true, aiRun = 0
 const baseline = computed(() => (props.word.examples || [props.word.example]).filter(Boolean).map(text => ({ text, source: 'wordbook' })))
 const currentAi = computed(() => aiCard.value?.distinctions?.find(item => item.spelling?.toLowerCase() === props.word.spelling.toLowerCase()))
-const examples = computed(() => currentAi.value?.example
-  ? [{ text: currentAi.value.example, translation: currentAi.value.translation, source: 'ai' }]
-  : (card.value?.examples?.length ? card.value.examples : baseline.value))
-const collocations = computed(() => aiCard.value?.collocations?.length ? aiCard.value.collocations : (card.value?.collocations || []))
+const hasChinese = value => typeof value === 'string' && /\p{Script=Han}/u.test(value)
+const translations = ref(new Map())
+
+function withTranslations(items, key) {
+  return items.map(item => {
+    if (hasChinese(item.translation)) return item
+    const translation = translations.value.get(item[key]?.trim())
+    return translation ? { ...item, translation, translationSource: 'ai' } : { ...item, translation: '' }
+  })
+}
+
+const examples = computed(() => {
+  const existing = card.value?.examples?.length ? card.value.examples : baseline.value
+  const generated = currentAi.value
+  const items = withTranslations(existing, 'text')
+  if (generated?.example && hasChinese(generated.translation) && !items.some(item => item.translation)) {
+    return [{ text: generated.example, translation: generated.translation, source: 'ai' },
+      ...items.filter(item => item.text !== generated.example)].slice(0, 3)
+  }
+  return items
+})
+const collocations = computed(() => withTranslations(
+  card.value?.collocations?.length ? card.value.collocations : (aiCard.value?.collocations || []), 'phrase',
+))
+const missingTranslations = computed(() => [...new Set([
+  ...examples.value.filter(item => !item.translation).map(item => item.text),
+  ...collocations.value.filter(item => !item.translation).map(item => item.phrase),
+].filter(value => typeof value === 'string').map(value => value.trim()).filter(value => value && value.length <= 320))].slice(0, 7))
+const supplementLabel = computed(() => missingTranslations.value.length ? 'AI 补充中文译文' : 'AI 补充双语例句与搭配')
+const needsSupplement = computed(() => !examples.value.length || !collocations.value.length ||
+  examples.value.some(item => !item.translation) || collocations.value.some(item => !item.translation))
 const contrasts = computed(() => card.value?.contrasts || props.initialContrast?.contrasts || [])
 const formWords = computed(() => contrasts.value.filter(item => item.relationType === 'form'))
 const meaningWords = computed(() => contrasts.value.filter(item => item.relationType === 'meaning'))
@@ -34,7 +61,8 @@ async function supplement() {
   const run = ++aiRun
   const request = new AbortController(); aiController = request; aiLoading.value = true; aiMessage.value = ''
   try {
-    const data = await http.post('/content/error-cards', { body: { wordIds: [props.word.id] }, signal: request.signal,
+    const usageTexts = missingTranslations.value
+    const data = await http.post('/content/error-cards', { body: { wordIds: [props.word.id], usageTexts }, signal: request.signal,
       timeoutMs: 120000, timeoutMessage: 'AI 补充超时，可重试；已有卡片和学习进度仍保留。' })
     if (!alive || run !== aiRun) return
     if (data.source === 'template') aiMessage.value = data.message || 'AI 服务当前不可用，已保留词库资料。'
@@ -44,8 +72,21 @@ async function supplement() {
         distinctions: (Array.isArray(found.distinctions) ? found.distinctions : []).filter(item => typeof item.spelling === 'string' && typeof item.example === 'string'),
         collocations: (Array.isArray(found.collocations) ? found.collocations : []).filter(item => typeof item.phrase === 'string').slice(0, 4),
       } : null
-      aiMessage.value = data.cached ? '已读取之前生成的内容。' : '已补充 AI 例句与搭配，请结合释义核对。'
-      if (!aiCard.value) aiMessage.value = '这次未返回该词的用法内容，可稍后重试。'
+      let translated = 0
+      const updated = new Map(translations.value)
+      for (const entry of Array.isArray(found?.usageTranslations) ? found.usageTranslations : []) {
+        if (usageTexts.includes(entry?.text) && hasChinese(entry.translation)) {
+          updated.set(entry.text, entry.translation)
+          translated++
+        }
+      }
+      translations.value = updated
+      if (usageTexts.length) aiMessage.value = translated
+        ? `已补充 ${translated} 条中文译文，译文由 AI 提供。`
+        : '这次未返回对应的中文译文，已保留英文原文。'
+      else aiMessage.value = (examples.value.some(item => item.source === 'ai' && item.translation) ||
+        collocations.value.some(item => item.translation && aiCard.value?.collocations?.includes(item)))
+        ? '已补充双语用法资料，请结合语境核对。' : '这次未返回可展示的双语用法，可稍后重试。'
     }
   } catch (cause) { if (alive && run === aiRun && !request.signal.aborted) aiMessage.value = cause.message }
   finally { if (alive && run === aiRun) aiLoading.value = false }
@@ -62,8 +103,8 @@ onBeforeUnmount(() => { alive = false; controller.abort(); aiController?.abort()
       <h3>例句</h3>
       <p v-if="loading && !examples.length" class="usage-hint" role="status">正在查找免费例句…</p>
       <div v-for="(example,index) in examples" :key="index" class="usage-example">
-        <p class="english"><template v-for="(part,i) in segments(example.text)" :key="i"><mark v-if="part.highlight">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></p>
-        <p v-if="example.translation" class="translation">{{ example.translation }}</p>
+        <p class="english" lang="en"><template v-for="(part,i) in segments(example.text)" :key="i"><mark v-if="part.highlight">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></p>
+        <p class="translation" lang="zh-CN">{{ example.translation || '暂无中文译文' }}<small v-if="example.translationSource === 'ai'"> · AI 译文</small></p>
         <p v-if="example.sense" class="usage-hint">此处词义（英）：{{ example.sense }}</p>
         <p class="attribution">{{ label(example.source) }}<template v-if="example.source === 'dictionary'"> · <a v-if="safeUrl(example.sourceUrl)" :href="safeUrl(example.sourceUrl)" target="_blank" rel="noopener noreferrer">原词条</a> · <a v-if="safeUrl(example.license?.url)" :href="safeUrl(example.license.url)" target="_blank" rel="noopener noreferrer">{{ example.license.name }}</a></template></p>
       </div>
@@ -71,7 +112,7 @@ onBeforeUnmount(() => { alive = false; controller.abort(); aiController?.abort()
     </section>
     <section class="usage-section">
       <h3>短语搭配</h3>
-      <ul v-if="collocations.length" class="phrase-list"><li v-for="(phrase,index) in collocations" :key="index"><strong>{{ phrase.phrase }}</strong><span>{{ phrase.translation }}</span><p v-if="phrase.source === 'dictionary'" class="attribution">词典用法片段<span v-if="phrase.sense"> · {{ phrase.sense }}</span> · <a v-if="safeUrl(phrase.sourceUrl)" :href="safeUrl(phrase.sourceUrl)" target="_blank" rel="noopener noreferrer">原词条</a> · <a v-if="safeUrl(phrase.license?.url)" :href="safeUrl(phrase.license.url)" target="_blank" rel="noopener noreferrer">{{ phrase.license.name }}</a></p></li></ul>
+      <ul v-if="collocations.length" class="phrase-list"><li v-for="(phrase,index) in collocations" :key="index"><strong lang="en">{{ phrase.phrase }}</strong><span lang="zh-CN">{{ phrase.translation || '暂无中文译文' }}<small v-if="phrase.translationSource === 'ai'"> · AI 译文</small></span><p v-if="phrase.source === 'dictionary'" class="attribution">词典用法片段<span v-if="phrase.sense"> · {{ phrase.sense }}</span> · <a v-if="safeUrl(phrase.sourceUrl)" :href="safeUrl(phrase.sourceUrl)" target="_blank" rel="noopener noreferrer">原词条</a> · <a v-if="safeUrl(phrase.license?.url)" :href="safeUrl(phrase.license.url)" target="_blank" rel="noopener noreferrer">{{ phrase.license.name }}</a></p></li></ul>
       <p v-else class="usage-hint">当前词库暂无搭配，可选择 AI 补充。</p>
       <p v-if="collocations.some(item => item.source === 'ai') || aiCard?.collocations?.length" class="attribution">AI 辅助内容，请结合语境核对。</p>
     </section>
@@ -80,12 +121,13 @@ onBeforeUnmount(() => { alive = false; controller.abort(); aiController?.abort()
       <p v-if="!group.words.length" class="usage-hint">{{ loading ? '正在读取易混词…' : '词库暂未找到可靠的对应词。' }}</p>
       <div v-for="related in group.words" :key="related.wordId" class="usage-contrast">
         <p class="contrast-heading"><span>{{ word.spelling }}</span><span class="versus">与</span><strong>{{ related.diff?.prefix }}<mark>{{ related.diff?.bMiddle || related.spelling }}</mark>{{ related.diff?.suffix }}</strong></p>
-        <p>{{ word.spelling }}：{{ word.definitions?.join('；') }}</p><p>{{ related.spelling }}：{{ related.definitions?.join('；') }}</p>
+        <p><strong lang="en">{{ word.spelling }}</strong> <span lang="zh-CN">{{ word.definitions?.join('；') || '暂无中文释义' }}</span></p>
+        <p><strong lang="en">{{ related.spelling }}</strong> <span lang="zh-CN">{{ related.definitions?.join('；') || '暂无中文释义' }}</span></p>
       </div>
       <p v-if="group.words.length && group.title.startsWith('近义')" class="usage-hint">意思接近不代表可以直接互换，注意词性和使用语境。</p>
     </section>
     <div v-if="error || card?.dictionaryUnavailable" class="usage-retry"><p role="status">{{ error || '免费词典暂时不可用，已有资料仍可查看。' }}</p><button type="button" class="text-button" :disabled="loading" @click="load">重新加载资料</button></div>
-    <footer class="usage-footer"><p class="usage-hint">免费资料优先。AI 补充仅在点击后调用，按当前 AI 服务计费，优先读取缓存。</p><button v-if="!aiLoading" type="button" class="btn btn-ghost" @click="supplement">{{ aiCard ? '重新读取 AI 补充' : 'AI 补充例句与搭配' }}</button><div v-else role="status">正在补充用法… <button type="button" class="text-button" @click="cancelAi">取消等待</button></div><p v-if="aiMessage" class="usage-hint" role="status">{{ aiMessage }}</p></footer>
+    <footer v-if="needsSupplement || aiLoading || aiMessage" class="usage-footer"><p class="usage-hint">免费资料优先。AI 补充仅在点击后调用，按当前 AI 服务计费，优先读取缓存。</p><button v-if="needsSupplement && !aiLoading" :disabled="loading" type="button" class="btn btn-ghost" @click="supplement">{{ supplementLabel }}</button><div v-if="aiLoading" role="status">正在补充用法… <button type="button" class="text-button" @click="cancelAi">取消等待</button></div><p v-if="aiMessage" class="usage-hint" role="status">{{ aiMessage }}</p></footer>
   </section>
 </template>
 

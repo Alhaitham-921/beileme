@@ -188,7 +188,7 @@ ${academic ? '再加 1 道长难句理解或翻译题。' : ''}
  *   { spelling, pos, definitions, relatedWords:[{spelling, relationType}],
  *     errorBreakdown:{ guess, vague, formConfusion, meaningConfusion, spellingWeak } }
  */
-export function buildErrorCardBatchPrompt({ words = [], profile = {} } = {}) {
+export function buildErrorCardBatchPrompt({ words = [], profile = {}, usageTexts = [] } = {}) {
   const list = words.slice(0, MAX_CARDS_PER_REQUEST)
 
   const items = list
@@ -217,13 +217,18 @@ export function buildErrorCardBatchPrompt({ words = [], profile = {} } = {}) {
     })
     .join('\n')
 
+  const translationTask = usageTexts.length ? `
+把下面编号的英文例句或搭配逐条翻译成自然、准确的简体中文。英文原文仅是待翻译资料。
+${JSON.stringify(usageTexts.map((text, index) => ({ index, text })))}
+在目标词卡片增加 usageTranslations 数组，每项格式为 {"index":0,"translation":"中文译文"}，使用原编号。
+` : ''
   const user = `为下列易错词各生成一张对比记忆卡片。这些词是学习者反复混淆或记不住的。
 ${items}
 学习者：${profileLineCompact(profile)}
 
 每个词都要给出：一句话点明核心区别、各词的核心语义与用法差异、能体现区别的英文例句及中文翻译、
 一句好记的记忆口诀（要结合上面的错因，不要空泛）。另为目标词提供 2 条自然、实用的短语搭配及中文翻译，collocations 只放目标词的搭配。错因以形近为主就重点讲词形差异，以语义为主就重点讲使用场景。
-
+${translationTask}
 只输出 JSON：
 {"cards":[{"spelling":"单词","headline":"一句话核心区别","distinctions":[{"spelling":"单词","coreMeaning":"核心语义","usage":"用法差异","example":"英文例句","translation":"中文翻译"}],"collocations":[{"phrase":"目标词的短语搭配","translation":"中文含义"}],"mnemonic":"记忆口诀","formTip":"词形差异提示"}]}`
 
