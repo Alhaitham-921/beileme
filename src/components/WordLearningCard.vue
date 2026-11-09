@@ -112,7 +112,7 @@ onBeforeUnmount(() => { alive = false; controller.abort(); aiController?.abort()
 </script>
 
 <template>
-  <section class="word-learning-card" aria-label="单词用法卡片">
+  <section class="word-learning-card" :class="{ compact }" aria-label="单词用法卡片">
     <div v-if="compact && !expanded" class="usage-preview">
       <section>
         <h3>例句</h3>
@@ -138,7 +138,18 @@ onBeforeUnmount(() => { alive = false; controller.abort(); aiController?.abort()
         <p v-else class="preview-translation">{{ loading ? '正在读取形近词…' : '暂未找到可靠形近词' }}</p>
       </section>
     </div>
-    <button v-if="compact" type="button" class="text-button usage-toggle" :aria-expanded="expanded" @click="expanded = !expanded">{{ expanded ? '收起用法详情' : '更多用法与近义词' }}</button>
+    <div v-if="compact" class="usage-actions">
+      <button type="button" class="usage-detail" :aria-expanded="expanded" @click="expanded = !expanded">
+        <svg :class="{ flipped: expanded }" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
+        {{ expanded ? '收起详情' : '展开详情' }}
+      </button>
+      <button v-if="needsSupplement && !aiLoading" type="button" class="usage-ai" :disabled="loading"
+        :aria-label="supplementLabel + '，按服务计费'" @click="supplement">
+        <span>AI 补充</span><small>按服务计费</small>
+      </button>
+      <button v-if="aiLoading" type="button" class="usage-detail" @click="cancelAi">取消补充</button>
+    </div>
+    <p v-if="compact && (aiLoading || aiMessage)" class="usage-hint" role="status">{{ aiLoading ? '正在补充用法…' : aiMessage }}</p>
     <template v-if="!compact || expanded">
     <header class="usage-header"><div><span class="usage-eyebrow">学会认，也学会用</span><h2>单词用法</h2></div><span class="usage-spelling">{{ word.spelling }}</span></header>
     <section class="usage-section">
@@ -170,22 +181,36 @@ onBeforeUnmount(() => { alive = false; controller.abort(); aiController?.abort()
     </section>
     <div v-if="error || card?.dictionaryUnavailable" class="usage-retry"><p role="status">{{ error || '免费词典暂时不可用，已有资料仍可查看。' }}</p><button type="button" class="text-button" :disabled="loading" @click="load">重新加载资料</button></div>
     </template>
-    <footer v-if="needsSupplement || aiLoading || aiMessage" class="usage-footer" :class="{ 'usage-footer-compact': compact && !expanded }"><p v-if="!compact || expanded" class="usage-hint">免费资料优先。AI 补充仅在点击后调用，按当前 AI 服务计费，优先读取缓存。</p><button v-if="needsSupplement && !aiLoading" :disabled="loading" type="button" :class="compact && !expanded ? 'text-button' : 'btn btn-ghost'" @click="supplement">{{ supplementLabel }}<span v-if="compact && !expanded">（按服务计费）</span></button><div v-if="aiLoading" role="status">正在补充用法… <button type="button" class="text-button" @click="cancelAi">取消等待</button></div><p v-if="aiMessage" class="usage-hint" role="status">{{ aiMessage }}</p></footer>
+    <footer v-if="!compact && (needsSupplement || aiLoading || aiMessage)" class="usage-footer">
+      <p class="usage-hint">免费资料优先。AI 补充仅在点击后调用，按当前 AI 服务计费，优先读取缓存。</p>
+      <button v-if="needsSupplement && !aiLoading" :disabled="loading" type="button" class="btn btn-ghost" @click="supplement">{{ supplementLabel }}</button>
+      <div v-if="aiLoading" role="status">正在补充用法… <button type="button" class="text-button" @click="cancelAi">取消等待</button></div>
+      <p v-if="aiMessage" class="usage-hint" role="status">{{ aiMessage }}</p>
+    </footer>
   </section>
 </template>
 
 <style scoped>
 .word-learning-card { margin-top:20px; padding:22px; border:1px solid var(--line); border-radius:16px; background:var(--bg); overflow-wrap:anywhere; }
-.word-learning-card:has(.usage-toggle) { margin-top:12px; padding:12px; }
+.word-learning-card.compact { margin-top:12px; padding:12px; }
 .usage-preview { display:grid; gap:8px; }
 .usage-preview section + section { border-top:1px solid var(--line); padding-top:8px; }
 .usage-preview h3 { font-size:12px; margin:0 0 3px; color:var(--accent-deep); }
 .usage-preview p { margin:0; font-size:14px; line-height:1.42; }
 .usage-preview .preview-translation { font-size:12px; color:var(--ink-soft); }
 .usage-preview .preview-credits { font-size:10px; margin-top:2px; }
-.usage-footer.usage-footer-compact { display:inline; border:0; padding:0; margin-left:8px; }
-.usage-footer-compact button { min-height:36px; }
-.usage-toggle { min-height:36px; margin-top:2px; }
+.usage-actions { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.usage-preview + .usage-actions { border-top:1px solid var(--line); margin-top:10px; padding-top:4px; }
+.usage-actions button { min-height:44px; max-width:100%; font:inherit; font-size:13px; border:0; background:transparent; color:var(--ink-soft); touch-action:manipulation; }
+.usage-detail { display:inline-flex; align-items:center; gap:4px; padding:0 4px; }
+.usage-detail svg { width:16px; height:16px; flex:none; }
+.usage-detail svg.flipped { transform:rotate(180deg); }
+.usage-actions .usage-ai { display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:3px 6px; padding:4px 9px; border-radius:9px; color:var(--accent-deep); }
+.usage-ai span { font-weight:650; }
+.usage-ai small { color:var(--ink-soft); font-size:10px; }
+.usage-ai:active:not(:disabled) { background:var(--accent-soft); }
+.usage-actions button:disabled { opacity:.5; }
+.compact .usage-header { margin-top:6px; }
 .usage-header { display:flex; justify-content:space-between; align-items:center; gap:16px; padding-bottom:16px; }
 .usage-eyebrow,.usage-hint,.attribution { color:var(--ink-soft); font-size:13px; line-height:1.7; }
 h2 { margin:5px 0 0; font-size:21px; } .usage-spelling { color:var(--accent-deep); font-family:var(--serif); font-size:21px; }

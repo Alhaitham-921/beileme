@@ -34,8 +34,9 @@ const cardShownAt = ref(Date.now())
 const advancing = ref(false)
 const speechError = ref('')
 const autoPronounce = ref(readAutoPronounce())
-const AUTO_UNKNOWN_KEY = 'beileme:study-auto-unknown'
-const RECALL_TIME_MS = 30_000
+const RECALL_TIME_SECONDS = 20
+const RECALL_TIME_MS = RECALL_TIME_SECONDS * 1000
+const AUTO_UNKNOWN_KEY = 'beileme:study-auto-unknown-' + RECALL_TIME_SECONDS + 's'
 const autoUnknown = ref(false)
 try { autoUnknown.value = localStorage.getItem(AUTO_UNKNOWN_KEY) === 'on' } catch { /* Storage unavailable. */ }
 const recallReminder = ref(false)
@@ -552,8 +553,8 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
 
         <div v-if="status === 'question'" class="unknown-actions">
           <button class="btn btn-secondary" type="button" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="choose(null)">不认识</button>
-          <label class="muted"><input type="checkbox" v-model="autoUnknown" /> 30 秒未作答时自动标记</label>
-          <p v-if="recallReminder" role="status" class="muted">可以继续想，也可以点「不认识」查看用法。</p>
+          <label class="muted"><input type="checkbox" v-model="autoUnknown" /> {{ RECALL_TIME_SECONDS }} 秒后自动标记为不认识</label>
+          <p v-if="recallReminder" role="status" class="muted">还没想起来？可以继续想，或点「不认识」看用法。</p>
         </div>
         <label v-if="status === 'question'" class="muted"><input type="checkbox" v-model="uncertain" :disabled="Boolean(pendingAnswer) || app.loading.answering" /> 这题不确定／靠猜测（可选，答对后会较早复习）</label>
         <div v-if="status === 'answered' || (app.loading.answering && selectedIndex !== null)" class="mobile-study-actions">
@@ -603,7 +604,7 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
         <button class="btn btn-primary next-btn" :disabled="advancing || continueRequested || (pendingAnswer && !app.loading.answering)" @click="requestAdvance">
           {{ continueRequested ? '保存后继续…' : nextLabel }}
         </button>
-        <button class="text-button" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="pauseLearning">暂停</button>
+        <button class="answer-pause" type="button" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="pauseLearning">暂停</button>
       </div>
       <div v-else class="study-foot">
         <p class="keyboard-hints"><span><kbd>1</kbd> – <kbd>4</kbd> 选择释义</span><span><kbd>Space</kbd> 作答后继续</span></p>
@@ -738,7 +739,8 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
 .android-definition { margin:4px 0 0; line-height:1.5; overflow-wrap:anywhere; }
 .android-answer-actions { position:sticky; bottom:calc(var(--android-nav-height) + env(safe-area-inset-bottom, 0px)); z-index:3; display:flex; align-items:center; gap:12px; padding:8px 0; background:var(--bg); }
 .android-answer-actions .next-btn { flex:1; min-width:0; min-height:44px; justify-content:center; }
-.android-answer-actions .text-button { flex:none; min-height:44px; }
+.answer-pause { flex:none; min-height:44px; padding:0 10px; background:transparent; border:0; color:var(--ink-soft); font:inherit; font-size:13px; }
+.answer-pause:disabled { opacity:.5; }
 .unknown-actions { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; margin:14px 0 10px; }
 .unknown-actions .btn { min-height:44px; }
 .unknown-actions p { width:100%; margin:0; }
