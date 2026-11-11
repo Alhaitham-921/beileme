@@ -6,6 +6,7 @@ import { useAuthStore } from './stores/auth'
 import { onAuthExpired } from './api/client.js'
 import logoUrl from './assets/logo.png'
 import './styles/main.css'
+import './styles/ielts.css'
 import { initializeTheme } from './stores/theme'
 initializeTheme()
 

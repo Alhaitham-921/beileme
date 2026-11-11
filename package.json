@@ -3,6 +3,7 @@
   "version": "0.2.12",
   "private": true,
   "type": "module",
+  "engines": { "node": ">=24" },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -13,6 +14,9 @@
     "db:seed": "node server/src/db/seed.js",
     "db:import": "node server/src/db/importWordlists.js",
     "db:setup": "node server/src/db/migrate.js && node server/src/db/importWordlists.js",
+    "db:ielts": "node scripts/seed-ielts.mjs",
+    "db:backup": "node scripts/backup-db.mjs",
+    "test:ielts:unit": "node --test server/tests/unit.ieltsEngine.test.js",
     "test:server": "node --test --test-isolation=none --test-force-exit \"server/tests/*.test.js\"",
     "start:all": "concurrently \"npm run dev\" \"npm run server:dev\"",
     "ai:calibrate": "node server/src/db/calibrateAi.js",
@@ -37,6 +41,8 @@
     "nodemailer": "^10.3.1",
     "pinia": "^2.3.0",
     "sharp": "^0.35.5",
+    "ts-fsrs": "^6.0.0",
+    "undici": "^8.12.4",
     "vue": "^3.5.13",
     "vue-router": "^4.5.0",
     "zod": "^4.6.5"

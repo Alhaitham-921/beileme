@@ -26,6 +26,7 @@ const links = [
   { to: '/practice', icon: 'chat', label: '情境练习' },
   { to: '/roots', icon: 'layers', label: '词根词缀' },
   { to: '/dashboard', icon: 'chart', label: '学习足迹' },
+  { to: '/ielts', icon: 'layers', label: '雅思专项' },
 ]
 const androidTabs = [
   { to: '/', icon: 'home', label: '今日' },
@@ -37,7 +38,7 @@ const androidTabs = [
 watch(() => route.path, () => {
   if (isAndroid) window.scrollTo({ top: 0, behavior: 'instant' })
 }, { flush: 'post' })
-const pageLabel = computed(() => [...links, { to: '/settings', label: '偏好设置' }, { to: '/article', label: '阅读巩固' }, { to: '/assessment', label: '学习起点' }, { to: '/recall', label: '错词专项' }].find(item => item.to === route.path)?.label || '学习空间')
+const pageLabel = computed(() => [...links, { to: '/settings', label: '偏好设置' }, { to: '/article', label: '阅读巩固' }, { to: '/assessment', label: '学习起点' }, { to: '/recall', label: '错词专项' }].find(item => item.to === route.path)?.label || (route.path.startsWith('/ielts') ? '雅思专项' : '学习空间'))
 
 async function closeMenu(restoreFocus = true) {
   menuOpen.value = false
@@ -120,7 +121,7 @@ function focusMain() { document.getElementById('main-content')?.focus() }
     <main id="main-content" class="main" :class="{ 'public-main': !showChrome }" :inert="menuOpen || undefined" tabindex="-1"><router-view /><AiUsage v-if="showChrome" :usage="latestAiUsage" :label="`${latestAiUsage?.label || 'AI'}最近一次消耗${latestAiUsage?.failed ? '（生成失败）' : ''}`" /></main>
     <nav v-if="showChrome && isAndroid" class="android-tabs" aria-label="App 底部导航">
       <router-link v-for="tab in androidTabs" :key="tab.to" :to="tab.to"
-        :class="{ 'android-tab-active': tab.pages ? tab.pages.includes(route.path) : route.path === tab.to }">
+        :class="{ 'android-tab-active': tab.pages ? tab.pages.includes(route.path) || (tab.to === '/more' && route.path.startsWith('/ielts')) : route.path === tab.to }">
         <AppIcon :name="tab.icon" /><span>{{ tab.label }}</span>
       </router-link>
     </nav>

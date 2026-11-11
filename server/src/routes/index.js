@@ -15,12 +15,14 @@ import recallRoutes from './recall.js'
 import practiceRoutes from './practice.js'
 import speechRoutes from './speech.js'
 import ttsRoutes from './tts.js'
+import ieltsRoutes from './ielts.js'
 
 /**
  * API 版本前缀统一为 /api/v1。
  * 各子路由内部只关心自己的相对路径，便于整体升级到 v2。
  */
 const router = Router()
+router.use('/ielts', ieltsRoutes)
 
 router.use('/health', healthRoutes)
 router.use('/assessment', assessmentRoutes)

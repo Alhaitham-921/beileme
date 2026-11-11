@@ -1,0 +1,9 @@
+<script setup>
+import { computed } from 'vue'
+const props=defineProps({chart:{type:Object,required:true}})
+const maximum=computed(()=>Math.max(1,...props.chart.series.flatMap(s=>s.values)))
+const x=(i,j)=>60+i*(500/props.chart.labels.length)+j*(40/props.chart.series.length)
+const y=value=>240-value/maximum.value*180
+const colours=['var(--accent)','var(--ok)','var(--warn-ink)']
+</script>
+<template><figure><figcaption>{{chart.title}}</figcaption><svg v-if="chart.kind!=='table'" class="ielts-chart" viewBox="0 0 640 300" role="img" :aria-label="chart.title"><path d="M50 40V240H610" fill="none" stroke="var(--ink-muted)"/><g v-for="step in [0,1,2,3,4]" :key="step"><text x="5" :y="245-step*45" fill="var(--ink-soft)" font-size="12">{{Math.round(maximum*step/4)}}</text><path :d="`M50 ${240-step*45}H610`" stroke="var(--line)"/></g><g v-for="(series,j) in chart.series" :key="series.name"><polyline v-if="chart.kind==='line'" :points="series.values.map((v,i)=>`${x(i,j)+20},${y(v)}`).join(' ')" fill="none" :stroke="colours[j%3]" stroke-width="3"/><template v-for="(value,i) in series.values" :key="i"><rect v-if="chart.kind!=='line'" :x="x(i,j)" :y="y(value)" :width="36/chart.series.length" :height="240-y(value)" :fill="colours[j%3]"/><circle v-else :cx="x(i,j)+20" :cy="y(value)" r="4" :fill="colours[j%3]"/></template><text :x="60+j*180" y="290" :fill="colours[j%3]" font-size="13">{{series.name}}</text></g><text v-for="(label,i) in chart.labels" :key="label" :x="x(i,0)" y="265" fill="var(--ink-soft)" font-size="12">{{label}}</text></svg><details :open="chart.kind==='table'"><summary>查看图表数据</summary><table><thead><tr><th>项目</th><th v-for="s in chart.series" :key="s.name">{{s.name}}</th></tr></thead><tbody><tr v-for="(label,i) in chart.labels" :key="label"><td>{{label}}</td><td v-for="s in chart.series" :key="s.name">{{s.values[i]}}</td></tr></tbody></table></details></figure></template>

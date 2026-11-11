@@ -2,6 +2,14 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
 const routes = [
+  { path: '/ielts', name: 'ielts-home', component: () => import('../views/IeltsHomeView.vue') },
+  { path: '/ielts/specialties', name: 'ielts-specialties', component: () => import('../views/IeltsCatalogView.vue') },
+  { path: '/ielts/mock', name: 'ielts-mock', component: () => import('../views/IeltsCatalogView.vue') },
+  { path: '/ielts/records', name: 'ielts-record', component: () => import('../views/IeltsArchiveView.vue') },
+  { path: '/ielts/settings', name: 'ielts-account', component: () => import('../views/IeltsAccountView.vue') },
+  { path: '/ielts/attempt/:id', name: 'ielts-attempt', component: () => import('../views/IeltsAttemptView.vue') },
+  { path: '/ielts/vocabulary', name: 'ielts-vocabulary', component: () => import('../views/IeltsVocabularyView.vue') },
+  { path: '/ielts/admin', name: 'ielts-admin', component: () => import('../views/IeltsAdminView.vue') },
   { path: '/notebooks', name: 'notebooks', component: () => import('../views/NotebooksView.vue') },
   { path: '/speech', name: 'speech', component: () => import('../views/SpeechView.vue') },
   { path: '/roots', name: 'roots', component: () => import('../views/RootsView.vue') },

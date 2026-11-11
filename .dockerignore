@@ -25,3 +25,5 @@ deploy/*.local.*
 deploy/backups/
 deploy/api.env
 deploy/.api.env.*
+server/backups/
+server/media/

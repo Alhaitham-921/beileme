@@ -70,3 +70,8 @@ __pycache__/
 deploy/api.env
 deploy/.api.env.*
 deploy/backups/
+# Local database backups and private recordings must never enter Git.
+/server/backups/
+/server/media/
+/deploy/backups/
+/output/validation-*/

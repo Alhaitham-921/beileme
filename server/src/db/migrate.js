@@ -96,12 +96,17 @@ export async function runMigrations({ database = config.db.database, logger = co
     const recorded = new Map(records.map((row) => [row.name, row.checksum]))
 
     for (const name of await listMigrationFiles()) {
-      const sql = await fs.readFile(path.join(MIGRATIONS_DIR, name), 'utf8')
+      const rawSql = await fs.readFile(path.join(MIGRATIONS_DIR, name), 'utf8')
+      // Git may check out SQL files with LF or CRLF depending on the host. Keep
+      // newly recorded checksums stable, while accepting either form for
+      // migrations recorded by older versions of the runner.
+      const sql = rawSql.replace(/\r\n?/g, '\n')
       const checksum = checksumOf(sql)
+      const windowsChecksum = checksumOf(sql.replace(/\n/g, '\r\n'))
       const previous = recorded.get(name)
 
       if (previous) {
-        if (previous !== checksum) {
+        if (previous !== checksum && previous !== windowsChecksum) {
           throw new Error(
             `迁移 ${name} 已执行过但内容被修改。已应用的迁移不可变，请新增一个迁移文件来变更表结构。`
           )
@@ -133,7 +138,10 @@ if (isDirectRun) {
       console.log(`[migrate] 完成，本次应用 ${applied.length} 个迁移`)
     })
     .catch((error) => {
-      console.error('[migrate] 失败：', error.message)
+      const details = error?.errors?.length
+        ? error.errors.map((item) => `${item.code ?? 'ERR'} ${item.message}`).join(' | ')
+        : error?.message || String(error)
+      console.error('[migrate] 失败：', details)
       process.exitCode = 1
     })
 }

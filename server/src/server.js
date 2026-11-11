@@ -1,6 +1,7 @@
 import { createApp } from './app.js'
 import { config, assertRuntimeSafety } from './config.js'
 import { queryOne, closePool } from './db/pool.js'
+import { startJobWorker } from './services/ielts/jobs.js'
 
 /**
  * 服务入口：启动前先验证配置与数据库连通性，把问题暴露在启动阶段而不是首个请求。
@@ -19,6 +20,7 @@ async function main() {
   }
 
   const app = createApp()
+  const stopJobs = process.env.IELTS_ENABLED === 'false' ? () => {} : await startJobWorker().catch(() => { console.warn('[ielts] 专项任务尚未初始化，原有功能继续运行'); return () => {} })
   const server = app.listen(config.port, () => {
     console.log(`[server] 背了么 API 已启动：http://127.0.0.1:${config.port}/api/v1`)
     if (config.ai.apiKey) {
@@ -36,6 +38,7 @@ async function main() {
 
   /** 优雅退出：停止接收新请求，等连接释放后关闭连接池 */
   const shutdown = async (signal) => {
+    stopJobs()
     console.log(`\n[server] 收到 ${signal}，正在关闭…`)
     server.close(async () => {
       await closePool().catch(() => {})

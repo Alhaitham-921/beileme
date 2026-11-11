@@ -9,6 +9,7 @@ const links = [
   { to: '/review', icon: 'repeat', label: '温故知新' },
   { to: '/roots', icon: 'layers', label: '词根词缀' },
   { to: '/dashboard', icon: 'chart', label: '学习足迹' },
+  { to: '/ielts', icon: 'layers', label: '雅思专项' },
   { to: '/settings', icon: 'settings', label: '偏好设置' },
 ]
 

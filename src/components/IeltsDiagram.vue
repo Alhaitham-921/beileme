@@ -1,0 +1,5 @@
+<script setup>
+const props=defineProps({diagram:{type:Object,required:true}})
+const node=id=>props.diagram.nodes.find(n=>n.id===id)
+</script>
+<template><figure><figcaption>{{diagram.title}}</figcaption><svg viewBox="0 0 640 580" class="ielts-chart" role="img" :aria-label="diagram.title||'题目图示'"><defs><marker id="diagram-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs><rect v-if="diagram.kind==='map'" x="10" y="10" width="620" height="550" rx="8" fill="var(--accent-soft)" stroke="var(--line)"/><path v-for="(e,i) in diagram.edges||[]" :key="i" :d="`M${node(e.from).x+60} ${node(e.from).y+35} L${node(e.to).x+60} ${node(e.to).y+35}`" stroke="var(--ink-soft)" stroke-width="2" fill="none" marker-end="url(#diagram-arrow)"/><g v-for="n in diagram.nodes" :key="n.id"><rect :x="n.x" :y="n.y" width="120" height="58" rx="6" fill="var(--bg-card)" stroke="var(--accent)"/><text :x="n.x+60" :y="n.y+34" text-anchor="middle" fill="var(--ink)" font-size="13">{{n.label}}</text></g></svg></figure></template>
