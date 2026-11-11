@@ -63,9 +63,12 @@ services:
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM_NAME: ${SMTP_FROM_NAME:-背了么}
       KOKORO_URL: http://kokoro:3003/synthesize
+      IELTS_MEDIA_DIR: /app/server/media
+      FFPROBE_PATH: /usr/bin/ffprobe
       APP_TIMEZONE_OFFSET_MINUTES: "480"
     volumes:
       - wordlist_cache:/app/server/data/wordlists
+      - ielts_media:/app/server/media
     read_only: true
     tmpfs:
       - /tmp
@@ -117,3 +120,4 @@ services:
 volumes:
   mysql_data:
   wordlist_cache:
+  ielts_media:

@@ -9,6 +9,8 @@
 !public/**
 !server/
 !server/**
+!scripts/
+!scripts/seed-ielts.mjs
 !third_party/
 !third_party/**
 !deploy/
