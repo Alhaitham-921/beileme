@@ -36,6 +36,11 @@ function readList(name, fallback) {
 
 const env = readString('NODE_ENV', 'development')
 const isTest = env === 'test'
+const wordImageModel = readString('WORD_IMAGE_MODEL', '').trim()
+const wordImageBaseUrl = readString('WORD_IMAGE_BASE_URL', wordImageModel.startsWith('gpt-image-')
+  ? 'https://api.openai.com/v1'
+  : 'https://api.siliconflow.cn/v1').trim()
+const siliconFlowWordImages = URL.parse(wordImageBaseUrl)?.hostname === 'api.siliconflow.cn'
 
 export const config = {
   env,
@@ -132,6 +137,14 @@ export const config = {
      * 但仍然保留一个宽松上限，避免脚本化的异常调用把服务当成免费代理。
      */
     userKeyQuotaMultiplier: readInt('AI_USER_KEY_QUOTA_MULTIPLIER', 20),
+  },
+
+  wordImages: {
+    apiKey: readString('WORD_IMAGE_API_KEY', '').trim(),
+    baseUrl: wordImageBaseUrl,
+    model: wordImageModel || (siliconFlowWordImages ? 'Kwai-Kolors/Kolors' : 'gpt-image-2.6-flare'),
+    siliconFlow: siliconFlowWordImages,
+    dailyQuota: Math.max(0, readInt('WORD_IMAGE_DAILY_QUOTA', 5)),
   },
 
   // 语音与文字模型独立配置；聊天供应商不一定支持音频接口。

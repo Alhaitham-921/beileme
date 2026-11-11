@@ -1,6 +1,6 @@
 <script setup>
 import WordLearningCard from '../components/WordLearningCard.vue'
-import { readAutoPronounce, saveAutoPronounce, wordAudioIdentity } from '../utils/wordAudio.js'
+import { readAutoPronounce, wordAudioIdentity } from '../utils/wordAudio.js'
 import StudyTaskChooser from '../components/StudyTaskChooser.vue'
 import PracticeFollowups from '../components/PracticeFollowups.vue'
 import { http } from '../api/client.js'
@@ -33,7 +33,6 @@ let mounted = true
 const cardShownAt = ref(Date.now())
 const advancing = ref(false)
 const speechError = ref('')
-const autoPronounce = ref(readAutoPronounce())
 const RECALL_TIME_SECONDS = 20
 const RECALL_TIME_MS = RECALL_TIME_SECONDS * 1000
 const AUTO_UNKNOWN_KEY = 'beileme:study-auto-unknown-' + RECALL_TIME_SECONDS + 's'
@@ -357,7 +356,7 @@ function playWord() {
     void nativeSpeech.speak(word.value.spelling, 0.9, { onReady: () => {
       if (token !== speechGeneration) return
       preparingWordAudio.value = false
-      if (isAndroid && autoPronounce.value && pageVisible.value) {
+      if (isAndroid && readAutoPronounce() && pageVisible.value) {
         const nextWord = app.items[app.currentIndex + 1]?.word?.spelling
         nativeSpeech.preloadWord(nextWord, 0.9)
       }
@@ -389,12 +388,11 @@ const playbackKey = computed(() => wordAudioIdentity({
   active: ['question', 'answered'].includes(status.value) && pageVisible.value,
   sessionId: app.session?.id, index: app.currentIndex, wordId: word.value?.id,
 }))
-watch([playbackKey, autoPronounce], ([key, enabled]) => {
+watch(playbackKey, (key) => {
   stopSpeaking()
-  if (key && enabled) playWord()
+  if (key && readAutoPronounce()) playWord()
   else if (isAndroid) nativeSpeech.cancelPreload()
 }, { flush: 'post' })
-watch(autoPronounce, saveAutoPronounce)
 
 /** 本组答错的词，用于生成错词卡片 */
 const wrongWordIds = computed(() =>
@@ -462,7 +460,7 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
 
     <section v-else-if="status === 'setup'" class="card mode-card">
       <StudyTaskChooser :disabled="booting" @start="beginMode" />
-      <button v-if="app.session && app.items.length && !app.sessionSummary" class="text-button resume-button" @click="choosingMode = false">继续本组</button>
+      <button v-if="app.session && app.items.length && !app.sessionSummary" type="button" class="btn btn-quiet resume-button" @click="choosingMode = false">继续本组</button>
     </section>
     <section v-else-if="status === 'paused'" class="card result-card"><h1>先学到这里，也有收获</h1><p>已保存 {{paused.savedCount}} / {{paused.session.plannedCount}} 个词，剩余 {{paused.remaining}} 个词仍保留。</p><div class="result-actions"><button class="btn btn-primary" @click="paused=null">继续本组</button><button class="btn btn-ghost" @click="router.push('/')">返回首页</button></div></section>
     <!-- 出错 -->
@@ -478,8 +476,9 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
 
     <!-- 答题中 / 已作答 -->
     <template v-else-if="status === 'question' || status === 'answered'">
-      <div v-if="!showAnswerCard">
-        <button class="text-button" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="changeMode">选择学习内容</button><button class="text-button" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="pauseLearning">先学到这里，保存进度</button>
+      <div v-if="!showAnswerCard" class="session-actions">
+        <button type="button" class="btn btn-quiet" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="changeMode">选择学习内容</button>
+        <button type="button" class="btn btn-quiet" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="pauseLearning">先学到这里，保存进度</button>
       </div>
       <p v-if="selectedReview && !showAnswerCard" class="muted">所选词复习：共 {{app.reviewBatch.totalCount}} 词，剩余分组会保留，可随时暂停。</p>
       <div class="study-head">
@@ -499,7 +498,6 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
           <h1 class="word-spell">{{ word.spelling }}</h1><FavoriteWord :key="word.id" :word-id="word.id" compact-on-mobile />
           <button class="speak-btn" title="朗读单词" aria-label="朗读单词" @click="speak()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m11 4-6 5H2v6h3l6 5V4Z" /><path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" /></svg></button>
         </div>
-        <label v-if="!showAnswerCard" class="auto-pronounce"><input type="checkbox" v-model="autoPronounce" /> 单词自动发音</label>
         <p v-if="preparingWordAudio" role="status">正在准备朗读音频…</p>
         <p v-if="speechError" class="error-text" role="status">{{ speechError }}</p>
         <p class="word-meta">
@@ -519,10 +517,17 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
             <small v-if="app.loading.answering" role="status"> · 保存中</small>
           </p>
           <p class="android-definition">{{ answer.correctText || word.definitions.join('；') }}</p>
+          <div class="android-answer-actions">
+            <button type="button" class="btn btn-primary next-btn" :disabled="advancing || continueRequested || (pendingAnswer && !app.loading.answering)" @click="requestAdvance">
+              {{ continueRequested ? '保存后继续…' : nextLabel }}
+            </button>
+            <button class="answer-pause" type="button" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="pauseLearning">暂停</button>
+          </div>
           <p v-if="saveError && pendingAnswer" class="navigation-notice" role="status">
             答案尚未保存。{{ saveError }} <button type="button" class="text-button" @click="saveAnswer">重试保存</button>
           </p>
-          <WordLearningCard :key="`${app.session?.id}:${word.id}`" :word="word" :initial-contrast="answer.confusableCard" compact />
+          <WordLearningCard :key="`${app.session?.id}:${word.id}`" :word="word" :initial-contrast="answer.confusableCard"
+            :answered="Boolean(app.lastAnswer)" :wrong="!answer.isCorrect" :session-id="app.session?.id" compact />
         </section>
         <template v-else>
         <div class="question-heading"><p class="q-prompt">选择正确的中文释义</p><span class="question-hint">相信你的第一反应</span></div>
@@ -534,15 +539,15 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
             class="option choice"
             :class="[optionClass(option.index), { selected: app.loading.answering && selectedIndex === option.index }]"
             :disabled="status === 'answered' || Boolean(pendingAnswer) || app.loading.answering"
-            :aria-label="`${option.index + 1}. ${option.text}${status === 'answered' && option.index === correctIndex ? '，正确答案' : status === 'answered' && option.index === selectedIndex ? '，你的选择，回答错误' : ''}`"
+            :aria-label="`${option.index + 1}. ${option.pos ? option.pos + ' ' : ''}${option.text}${status === 'answered' && option.index === correctIndex ? '，正确答案' : status === 'answered' && option.index === selectedIndex ? '，你的选择，回答错误' : ''}`"
             @click="choose(option.index)"
           >
             <span class="opt-key">{{ option.index + 1 }}</span>
             <span class="opt-text">
               <!-- 完整释义，第一条（词表里的主释义）加粗 -->
-              <b v-if="option.primary">{{ option.primary }}</b>
+              <span v-if="option.pos" class="option-pos">{{ option.pos }} </span>
               <template v-if="option.primary && option.text.startsWith(option.primary)">
-                {{ option.text.slice(option.primary.length) }}
+                <strong>{{ option.primary }}</strong>{{ option.text.slice(option.primary.length) }}
               </template>
               <template v-else>{{ option.text }}</template>
             </span>
@@ -557,8 +562,8 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
           <p v-if="recallReminder" role="status" class="muted">还没想起来？可以继续想，或点「不认识」看用法。</p>
         </div>
         <label v-if="status === 'question'" class="muted"><input type="checkbox" v-model="uncertain" :disabled="Boolean(pendingAnswer) || app.loading.answering" /> 这题不确定／靠猜测（可选，答对后会较早复习）</label>
-        <div v-if="status === 'answered' || (app.loading.answering && selectedIndex !== null)" class="mobile-study-actions">
-          <button class="btn btn-primary next-btn" :disabled="advancing || continueRequested || (pendingAnswer && !app.loading.answering)" @click="requestAdvance">
+        <div v-if="status === 'answered' || (app.loading.answering && selectedIndex !== null)" class="study-next-actions">
+          <button type="button" class="btn btn-primary next-btn" :disabled="advancing || continueRequested || (pendingAnswer && !app.loading.answering)" @click="requestAdvance">
             {{ continueRequested ? '保存后继续…' : nextLabel }} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
           </button>
         </div>
@@ -587,7 +592,8 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
             <p v-if="app.lastAnswer && answer.isCorrect && answer.analysis?.confidence !== 'low'" class="analysis-note">本次回忆正确，按正常间隔复习。长期掌握依据多轮复习表现，不要求秒答。</p>
 <p v-if="answer.progress?.nextReviewAt" class="muted">下次复习：{{new Date(answer.progress.nextReviewAt).toLocaleString()}}</p>
             <p class="def-line">释义：{{ word.definitions.join('；') }}</p>
-            <WordLearningCard :key="`${app.session?.id}:${word.id}`" :word="word" :initial-contrast="answer.confusableCard" />
+            <WordLearningCard :key="`${app.session?.id}:${word.id}`" :word="word" :initial-contrast="answer.confusableCard"
+              :answered="Boolean(app.lastAnswer)" :wrong="!answer.isCorrect" :session-id="app.session?.id" />
             <MorphologyCard :key="word.spelling" :word="word.spelling" />
 
             <!-- 记忆进度反馈 -->
@@ -600,27 +606,14 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
         </template>
       </div>
 
-      <div v-if="showAnswerCard" class="android-answer-actions">
-        <button class="btn btn-primary next-btn" :disabled="advancing || continueRequested || (pendingAnswer && !app.loading.answering)" @click="requestAdvance">
-          {{ continueRequested ? '保存后继续…' : nextLabel }}
-        </button>
-        <button class="answer-pause" type="button" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="pauseLearning">暂停</button>
-      </div>
-      <div v-else class="study-foot">
+      <div v-if="!showAnswerCard" class="study-foot">
         <p class="keyboard-hints"><span><kbd>1</kbd> – <kbd>4</kbd> 选择释义</span><span><kbd>Space</kbd> 作答后继续</span></p>
-        <button
-          v-if="status === 'answered' || (app.loading.answering && selectedIndex !== null)"
-          class="btn btn-primary btn-lg next-btn"
-          :disabled="advancing || continueRequested || (pendingAnswer && !app.loading.answering)"
-          @click="requestAdvance"
-        >
-          {{ continueRequested ? '保存后继续…' : nextLabel }} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
-        </button>
       </div>
     </template>
 
     <!-- 本轮完成 -->
-    <div v-else-if="status === 'finished'" class="card result-card"><PracticeFollowups compact />
+    <div v-else-if="status === 'finished'" class="card result-card">
+      <PracticeFollowups compact @scheduled="app.sessionSummary.remainingDueCount = $event" />
       <span class="state-icon completed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="m8 12 3 3 5-6" /></svg></span>
       <p class="result-eyebrow">每一次专注，都在积累</p>
       <h1 class="result-title">这一组，完成了。</h1>
@@ -670,7 +663,7 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
         <p class="ai-hint">
           生成前会先显示预估用量；错词卡片支持一次生成多个，比分次调用省得多。
         </p>
-        <p v-if="generating" role="status">正在检查历史缓存或生成错词卡片，请稍候… <button class="text-button" @click="cancelCards">取消等待</button></p>
+        <p v-if="generating" role="status">正在检查历史缓存或生成错词卡片，请稍候… <button type="button" class="btn btn-quiet" @click="cancelCards">取消等待</button></p>
         <p v-if="ai.cardsSource === 'cache'" role="status">已复用这组词的历史卡片，无需重新生成。</p>
         <p v-if="generateError" class="ai-error">{{ generateError }}</p>
 
@@ -704,7 +697,7 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
       </div>
 
       <p v-if="selectedReview" class="result-sub" role="status">所选 {{app.reviewBatch.totalCount}} 词，已完成 {{app.reviewBatch.completedCount}} 词，剩余 {{app.reviewBatch.remainingCount}} 词。</p>
-      <p v-else-if="reviewOnly && remainingDueCount !== null" class="result-sub" role="status">{{ remainingDueCount > 0 ? '还有 ' + remainingDueCount + ' 个到期旧词，可以继续下一组。' : '当前到期旧词已复习完成。' }}</p>
+      <p v-else-if="reviewOnly && remainingDueCount !== null" class="result-sub" role="status">{{ remainingDueCount > 0 ? '还有 ' + remainingDueCount + ' 个待复习词，可以继续下一组。' : '当前待复习词已学完。' }}</p>
       <div class="result-actions">
         <button class="btn btn-primary" :disabled="selectedReview ? !app.reviewBatch.hasMore : reviewOnly && remainingDueCount === 0" @click="startExtra">{{ selectedReview ? '继续复习所选词' : reviewOnly ? '继续复习下一组' : '再学一组新词' }}</button>
         <button class="btn btn-ghost" @click="changeMode">选择学习内容</button>
@@ -737,7 +730,7 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
 .android-answer-card:focus { outline:none; }
 .android-answer-card .fb-line { margin:0; font-size:13px; }
 .android-definition { margin:4px 0 0; line-height:1.5; overflow-wrap:anywhere; }
-.android-answer-actions { position:sticky; bottom:calc(var(--android-nav-height) + env(safe-area-inset-bottom, 0px)); z-index:3; display:flex; align-items:center; gap:12px; padding:8px 0; background:var(--bg); }
+.android-answer-actions { display:flex; align-items:center; gap:12px; margin:12px 0; }
 .android-answer-actions .next-btn { flex:1; min-width:0; min-height:44px; justify-content:center; }
 .answer-pause { flex:none; min-height:44px; padding:0 10px; background:transparent; border:0; color:var(--ink-soft); font:inherit; font-size:13px; }
 .answer-pause:disabled { opacity:.5; }
@@ -745,8 +738,9 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
 .unknown-actions .btn { min-height:44px; }
 .unknown-actions p { width:100%; margin:0; }
 .unknown-actions label { display:flex; gap:5px; align-items:center; }
+.session-actions { display: flex; flex-wrap: wrap; gap: 8px 10px; margin-bottom: 18px; }
 .choice, .next-btn { touch-action: manipulation; }
-.mobile-study-actions { display: none; }
+.study-next-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
 .navigation-notice { margin: 12px 0 0; color: var(--ink-soft); font-size: 12px; }
 .word-card { scroll-margin-top: 12px; touch-action: pan-y pinch-zoom; }
 .focus-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 32px; }
@@ -816,8 +810,7 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
   overflow-wrap: anywhere;
 }
 
-.auto-pronounce { display:flex; align-items:center; gap:6px; margin:12px 0; color:var(--ink-soft); font-size:13px; width:fit-content; cursor:pointer; }
-.auto-pronounce input { accent-color:var(--accent-deep); width:16px; height:16px; }
+.option-pos { color: var(--ink-soft); font-size: 0.875em; margin-right: 4px; }
 .speak-btn {
   background: var(--accent-soft);
   color: var(--accent-deep);
@@ -935,13 +928,13 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
   overflow-wrap: anywhere;
 }
 
-.opt-text b {
+.opt-text strong {
   color: var(--ink);
   font-weight: 500;
 }
 
-.choice.correct .opt-text b,
-.choice.wrong .opt-text b {
+.choice.correct .opt-text strong,
+.choice.wrong .opt-text strong {
   color: inherit;
 }
 
@@ -1090,14 +1083,7 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
   color: var(--ink-soft);
 }
 
-.study-foot {
-  margin-top: 18px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 20px;
-  min-height: 48px;
-}
+.study-foot { margin-top: 18px; }
 
 .keyboard-hints { display: flex; align-items: center; flex-wrap: wrap; gap: 18px; margin: 0; font-size: 10px; color: var(--ink-soft); }
 .keyboard-hints > span { display: inline-flex; align-items: center; gap: 5px; }
@@ -1324,8 +1310,6 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
   .question-hint { display: none; }
   .choice { padding: 13px 14px; min-height: 62px; font-size: 13px; gap: 12px; }
   .choice .opt-key { width: 23px; height: 23px; }
-  .study-foot { flex-direction: column-reverse; gap: 17px; }
-  .next-btn { width: 100%; justify-content: space-between; }
   .result-card { padding: 34px 22px; }
   .result-title { font-size: 23px; }
   .result-sub { line-height: 1.9; }
@@ -1337,11 +1321,9 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
 }
 @media (max-width: 820px), (hover: none) and (pointer: coarse) {
   .study-foot { display: none; }
-  .mobile-study-actions { display: block; margin-top: 14px; }
-  .mobile-study-actions .next-btn { width: 100%; justify-content: space-between; }
+  .study-next-actions .next-btn { width: 100%; justify-content: space-between; }
   .word-row { position: relative; gap: 8px; }
   .word-spell { min-width: 0; }
-  .study-foot:has(> .keyboard-hints:only-child) { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .speak-btn, .fade-enter-active, .fade-leave-active { transition: none; }.speak-btn:active { transform: none; } }
 </style>

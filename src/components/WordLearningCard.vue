@@ -1,8 +1,9 @@
 <script setup>
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { http } from '../api/client.js'
+import WordMemoryImage from './WordMemoryImage.vue'
 
-const props = defineProps({ word: { type: Object, required: true }, initialContrast: Object, compact: Boolean })
+const props = defineProps({ word: { type: Object, required: true }, initialContrast: Object, compact: Boolean, answered: Boolean, wrong: Boolean, sessionId: Number })
 const expanded = ref(false)
 const card = ref(null), loading = ref(true), error = ref(''), aiLoading = ref(false), aiMessage = ref(''), aiCard = ref(null)
 let controller = new AbortController(), aiController = null, alive = true, aiRun = 0
@@ -113,6 +114,7 @@ onBeforeUnmount(() => { alive = false; controller.abort(); aiController?.abort()
 
 <template>
   <section class="word-learning-card" :class="{ compact }" aria-label="单词用法卡片">
+    <WordMemoryImage v-if="answered" :word="word" :can-generate="wrong" :session-id="sessionId" />
     <div v-if="compact && !expanded" class="usage-preview">
       <section>
         <h3>例句</h3>

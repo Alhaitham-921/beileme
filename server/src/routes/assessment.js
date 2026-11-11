@@ -13,12 +13,20 @@ import { PLACEMENT_VERSION, START_LEVELS, advancePlacement, newPlacement, placem
 
 const router = Router()
 router.use(requireAuth)
+function publicQuestion(q) {
+  return q ? { wordId: q.wordId, spelling: q.spelling, options: q.options, context: q.context || '', optionDetails: q.optionDetails } : null
+}
 function present(row, state) {
-  const q = state.current
+  const upcoming = state.methodVersion === PLACEMENT_VERSION
+    ? state.queue?.[state.answers.length + 1]
+    : state.upcoming
   return { id: Number(row.id), answered: state.answers.length, total: state.total,
     form: state.form || null,
-    question: q ? { wordId: q.wordId, spelling: q.spelling, options: q.options, context: q.context || '' } : null,
+    question: publicQuestion(state.current), upcoming: publicQuestion(upcoming),
     result: state.result || null }
+}
+function optionData(row) {
+  return { pos: row.pos || '', definitions: parseJson(row.definitions, []) }
 }
 router.get('/', asyncHandler(async (req, res) => {
   const rows = await query("SELECT * FROM assessment_sessions WHERE user_id = ? AND JSON_EXTRACT(state,'$.methodVersion') IS NULL ORDER BY id DESC LIMIT 10", [req.user.id])
@@ -28,20 +36,24 @@ router.post('/', asyncHandler(async (req, res) => {
   const active = await query("SELECT * FROM assessment_sessions WHERE user_id = ? AND completed_at IS NULL AND JSON_EXTRACT(state,'$.methodVersion') IS NULL ORDER BY id DESC LIMIT 1", [req.user.id])
   if (active.length) return ok(res, present(active[0], parseJson(active[0].state, {})))
   const book = await resolveWordbookForUser(req.user.id)
-  const profile = await getProfile(req.user.id)
-  const rows = await query('SELECT id, spelling, difficulty, definitions FROM words WHERE wordbook_id = ?', [book.id])
+  const [profile, rows] = await Promise.all([
+    getProfile(req.user.id),
+    query('SELECT id, spelling, difficulty, pos, definitions FROM words WHERE wordbook_id = ?', [book.id]),
+  ])
   const seen = new Set()
   const pool = shuffled(rows).flatMap(w => {
-    const definition = parseJson(w.definitions, [])[0]
+    const option = optionData(w)
+    const definition = option.definitions[0]
     if (!definition || seen.has(w.spelling)) return []
     seen.add(w.spelling)
-    return [{ id: Number(w.id), spelling: w.spelling, band: Number(w.difficulty), definition }]
+    return [{ id: Number(w.id), spelling: w.spelling, band: Number(w.difficulty), definition, ...option }]
   }).filter(w => w.band >= 1 && w.band <= 5)
   if (pool.length < 30 || new Set(pool.map(w => w.definition)).size < 4) throw badRequest('当前词书题量不足，请先导入至少 30 个带释义的单词')
   const state = { pool, bookName: book.name, populations: {}, answers: [], total: Math.min(35, pool.length), band: ({ '1000 以下': 1, '1000-3000': 2, '3000-6000': 3, '6000 以上': 5 })[profile.selfLevel] || 2 }
   for (const w of pool) state.populations[w.band] = (state.populations[w.band] || 0) + 1
   compactPool(state)
   state.current = nextQuestion(state)
+  state.upcoming = nextQuestion(state, state.current)
   const saved = await execute('INSERT INTO assessment_sessions (user_id, state) VALUES (?, ?)', [req.user.id, JSON.stringify(state)])
   return ok(res, present({ id: saved.insertId }, state))
 }))
@@ -101,14 +113,30 @@ router.post('/:id/answers', validate({ body: z.object({ wordId: z.number().int()
       if (previous && previous.selectedIndex === answer.selectedIndex) return present(row, state)
       throw conflict('题目已更新，请恢复测评')
     }
+    if (answer.selectedIndex >= state.current.options.length) throw badRequest('请选择有效选项')
     const correct = answer.selectedIndex === state.current.correctIndex
     state.answers.push({ ...answer, band: state.current.band, correct })
-    if (state.methodVersion === PLACEMENT_VERSION) advancePlacement(state)
-    else {
+    if (state.methodVersion === PLACEMENT_VERSION) {
+      advancePlacement(state)
+    } else {
       state.band = Math.min(5, Math.max(1, state.current.band + (correct ? 1 : -1)))
-      compactPool(state)
-      state.current = nextQuestion(state)
-      if (!state.current) state.result = summarize(state)
+      if (state.upcoming === undefined) {
+        // 旧会话先保留已下发的选项，再为后续题补齐释义。
+        compactPool(state)
+        const ids = state.pool.map(word => word.id)
+        const [words] = ids.length ? await conn.query('SELECT id, pos, definitions FROM words WHERE id IN (?)', [ids]) : [[]]
+        const details = new Map(words.map(word => [Number(word.id), optionData(word)]))
+        for (const word of state.pool) {
+          const option = details.get(word.id)
+          if (option?.definitions.length) Object.assign(word, option, { definition: option.definitions[0] })
+        }
+      }
+      state.current = state.upcoming ?? nextQuestion(state)
+      state.upcoming = state.current ? nextQuestion(state, state.current) : null
+      if (!state.current) {
+        state.result = summarize(state)
+        delete state.pool
+      }
     }
     await conn.execute('UPDATE assessment_sessions SET state = ?, completed_at = IF(?, NOW(), NULL) WHERE id = ?', [JSON.stringify(state), Boolean(state.result), row.id])
     return present(row, state)

@@ -1,13 +1,17 @@
 <script setup>
 import { reactive, ref, toRefs, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { assessment } from '../api'
 import { studyKey } from '../utils/studyKeyboard'
 import { createAssessmentNavigation } from '../utils/assessmentNavigation'
 const labels = { foundation: '高频基础', standard: '常规难度', challenge: '更有挑战' }
 const samples = { foundation: 'arrive、borrow', standard: 'confirm、require', challenge: 'retain、interpret' }
 const settings = ref(null), preferenceBusy = ref(false), preferenceMessage = ref('')
-const state = reactive({ session: null, history: [], busy: false, error: '', selected: null, pending: null, continueRequested: false })
-const { session, history, busy, error, selected, continueRequested } = toRefs(state)
+const route = useRoute()
+const router = useRouter()
+const exiting = ref(false)
+const state = reactive({ session: null, history: [], busy: false, saving: false, error: '', selected: null, needsReload: false })
+const { session, history, busy, saving, error, selected, needsReload } = toRefs(state)
 const navigation = createAssessmentNavigation({
   state,
   submit: assessment.answer,
@@ -15,10 +19,10 @@ const navigation = createAssessmentNavigation({
     if (next.result) history.value = [next, ...history.value.filter(s => s.id !== next.id)]
   },
 })
-const { answer, advance, retry } = navigation
+const { answer, retry } = navigation
 let operation = 0
-async function load() {
-  if (busy.value || selected.value !== null) return
+async function load({ autoStart = false } = {}) {
+  if (busy.value || saving.value) return
   const currentOperation = ++operation
   busy.value = true
   error.value = ''
@@ -31,18 +35,22 @@ async function load() {
     navigation.reset(items.find(s => !s.result) || items[0] || null)
   } catch (e) { if (currentOperation === operation) error.value = e.message }
   finally { if (currentOperation === operation) busy.value = false }
+  if (autoStart && currentOperation === operation && settings.value?.eligible && !session.value?.question) await start()
 }
 function onKey(event) {
   const key = studyKey(event)
-  if (key === null || !session.value?.question || error.value) return
-  if (key === 'next') {
-    if (selected.value === null) return
-    event.preventDefault(); advance()
-  } else if (!busy.value && selected.value === null) {
-    event.preventDefault(); answer(key)
-  }
+  if (event.defaultPrevented || key === null || !session.value?.question || busy.value || exiting.value || error.value) return
+  const focusedControl = event.target?.closest?.('a, button')
+  if (focusedControl && !focusedControl.closest('.choices')) return
+  event.preventDefault()
+  answer(key === 'next' ? -1 : key)
 }
-onMounted(() => { load(); window.addEventListener('keydown', onKey) })
+onMounted(() => {
+  const autoStart = route.query.start === '1'
+  if (autoStart) router.replace({ name: 'assessment' })
+  load({ autoStart })
+  window.addEventListener('keydown', onKey)
+})
 onUnmounted(() => { operation++; navigation.dispose(); window.removeEventListener('keydown', onKey) })
 async function start() {
   if (busy.value) return
@@ -64,6 +72,20 @@ async function applyLevel(level) {
     preferenceMessage.value = `已选择「${labels[preference]}」，从下一组新词开始生效。`
   } catch (cause) { preferenceMessage.value = cause.message }
   finally { preferenceBusy.value = false }
+}
+async function exit() {
+  if (exiting.value) return
+  exiting.value = true
+  const currentOperation = operation
+  if (saving.value) {
+    await navigation.whenSaved()
+    if (error.value) {
+      exiting.value = false
+      return
+    }
+  }
+  if (currentOperation === operation) await router.replace({ name: 'home' })
+  exiting.value = false
 }
 </script>
 <template>
@@ -88,27 +110,33 @@ async function applyLevel(level) {
     </section>
     <p v-if="error" role="alert" class="error">
       {{ error }}
-      <template v-if="selected !== null">已保留本题选择，请重试保存。 <button class="btn" :disabled="busy" @click="retry">重试保存</button></template>
-      <button v-else class="btn" :disabled="busy" @click="load">恢复测评</button>
+      <button v-if="session?.question && !needsReload" class="btn" :disabled="busy || saving || exiting" @click="retry">重试保存</button>
+      <button v-else class="btn" :disabled="busy || saving" @click="load">恢复测评</button>
     </p>
     <section v-if="session?.question" class="card">
-      <p>起点短测 {{ session.form }} · 已完成 {{ session.answered }} / {{ session.total }}</p>
+      <div class="assessment-progress">
+        <p>起点短测 {{ session.form }} · 已作答 {{ session.answered + Number(selected !== null) }} / {{ session.total }}</p>
+        <button class="btn btn-ghost" :disabled="exiting" @click="exit">{{ exiting ? '正在保存进度…' : '暂停并退出' }}</button>
+      </div>
+      <progress :value="session.answered + Number(selected !== null)" :max="session.total" aria-label="测评进度"></progress>
       <p v-if="session.total > 24" class="muted">正在补测相邻档位，帮你选择合适的起点。</p>
-      <router-link to="/" class="text-button">先学习，稍后继续短测</router-link>
-      <progress :value="session.answered" :max="session.total" aria-label="测评进度"></progress>
-      <p>请选择这个词的含义。不确定时选“不认识”，无需猜测或查词。</p>
-      <h2 class="word">{{ session.question.spelling }}</h2>
+      <p>请选择这个词的含义。不确定时可选“不认识”。退出后可从已保存的进度继续。</p>
+      <h2 class="word" aria-live="polite">{{ session.question.spelling }}</h2>
       <p v-if="session.question.context" lang="en" class="sense-context">{{ session.question.context }}</p>
       <div class="choices">
-        <button v-for="(option, i) in session.question.options" :key="session.question.wordId + ':' + i" class="btn btn-secondary" :class="{ selected: selected === i }" :aria-pressed="selected === i" :disabled="busy || selected !== null" @click="answer(i)"><kbd class="desktop-shortcut">{{ i + 1 }}</kbd> {{ option }}</button>
-        <button class="btn" :class="{ selected: selected === -1 }" :aria-pressed="selected === -1" :disabled="busy || selected !== null" @click="answer(-1)">不认识 / 不确定</button>
+        <button v-for="(option, i) in session.question.options" :key="session.question.wordId + ':' + i" class="btn btn-secondary" :class="{ selected: selected === i }" :aria-pressed="selected === i" :disabled="busy || exiting || !!error || selected !== null" @click="answer(i)">
+          <kbd class="desktop-shortcut">{{ i + 1 }}</kbd>
+          <span v-if="session.question.optionDetails?.[i]" class="option-text">
+            <span v-if="session.question.optionDetails[i].pos" class="option-pos">{{ session.question.optionDetails[i].pos }} </span>
+            <strong>{{ session.question.optionDetails[i].definitions[0] }}</strong><template v-for="(definition, index) in session.question.optionDetails[i].definitions.slice(1)" :key="index">；{{ definition }}</template>
+          </span>
+          <span v-else>{{ option }}</span>
+        </button>
+        <button :key="session.question.wordId" class="btn" :class="{ selected: selected === -1 }" :aria-pressed="selected === -1" :disabled="busy || exiting || !!error || selected !== null" aria-keyshortcuts="Space" @click="answer(-1)">不认识 / 不确定 <kbd class="desktop-shortcut">空格</kbd></button>
       </div>
-      <p class="muted desktop-shortcut">数字键 1–4 选择 · 空格进入下一题</p>
-      <button v-if="selected !== null && !error" class="btn btn-primary next-button" :disabled="continueRequested" @click="advance">
-        {{ continueRequested ? '已请求，保存后继续' : session.answered + 1 === session.total ? '查看结果' : '下一题' }}<span v-if="!continueRequested" class="desktop-shortcut"> · 空格</span>
-      </button>
-      <p v-if="selected !== null && !error" role="status" aria-live="polite" class="muted">
-        {{ busy ? continueRequested ? '正在保存选择，完成后将继续，请稍候…' : '正在保存选择，可点击按钮等待继续…' : '选择已保存，请继续。' }}
+      <p class="muted desktop-shortcut">数字键 1–4 选择 · 空格选择“不认识”</p>
+      <p v-if="selected !== null && saving && !error" role="status" class="muted">
+        {{ session.answered + 1 === session.total ? '正在保存并计算结果…' : '正在保存，即将继续…' }}
       </p>
     </section>
     <section v-else-if="session?.result" class="card">
@@ -151,7 +179,9 @@ async function applyLevel(level) {
 .choices button { white-space: normal; text-align: left; min-height: 48px; }
 .choices .selected { outline: 2px solid var(--accent); opacity: 1; background: var(--accent-soft); }
 .assessment button { touch-action: manipulation; }
-.next-button { display: flex; width: 100%; margin-top: 12px; }
+.assessment-progress { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.option-text { min-width: 0; overflow-wrap: anywhere; font-weight: 400; }
+.option-pos { color: var(--ink-soft); font-size: 0.875em; margin-right: 4px; }
 kbd { border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font: inherit; }
 progress { width: 100%; accent-color: var(--accent); }
 .band { display: grid; grid-template-columns: 150px 1fr 50px; align-items: center; gap: 10px; margin: 18px 0; }

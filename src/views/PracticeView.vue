@@ -39,7 +39,7 @@ const speech = usePracticeSpeech()
 const { available: voiceAvailable, supported: voiceSupported, statusLoading: voiceLoading, statusReason: voiceReason,
   isRecording, isTranscribing, isStarting, error: voiceError, transcript, elapsedSeconds, maxSeconds, isSpeaking,
   waveform, microphoneName, recordingUrl, inputStatus,
-  microphones, selectedMicrophone, rawAudio, deviceError } = speech
+  microphones, selectedMicrophone, rawAudio, deviceError, isRefreshingMicrophones } = speech
 let pollTimer, idleTimer, disposed = false, pollFailures = 0
 const scene = computed(() => [...savedScenes.value, ...scenes.value].find(item => item.id === sceneId.value))
 const selectionKey = computed(() => [...practiceWords.value].sort((a, b) => a - b).join(','))
@@ -403,7 +403,7 @@ onUnmounted(() => { disposed = true; sceneRun++; sceneController?.abort(); clear
           <select id="practice-microphone" v-model="selectedMicrophone" :disabled="isRecording || isStarting || isTranscribing">
             <option value="">浏览器默认麦克风</option><option v-for="device in microphones" :key="device.id" :value="device.id">{{ device.label }}</option>
           </select>
-          <button type="button" class="text-button" :disabled="isRecording || isStarting" @click="speech.refreshMicrophones()">刷新设备</button>
+          <button type="button" class="text-button" :disabled="isRecording || isStarting || isRefreshingMicrophones" @click="speech.refreshMicrophones({ requestPermission: true })">{{ isRefreshingMicrophones ? '正在获取设备…' : '授权并刷新设备' }}</button>
           <label><input v-model="rawAudio" type="checkbox" :disabled="isRecording || isStarting || isTranscribing"> 原始收音（关闭降噪）</label>
         </div>
         <p v-if="deviceError" class="note error">{{ deviceError }}</p>

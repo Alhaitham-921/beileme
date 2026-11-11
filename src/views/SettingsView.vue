@@ -1,12 +1,15 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useAiStore } from '../stores/ai'
 import EmailRecoveryPanel from '../components/EmailRecoveryPanel.vue'
 import ThemePicker from '../components/ThemePicker.vue'
 import SpeechSettingsPanel from '../components/SpeechSettingsPanel.vue'
+import { readAutoPronounce, saveAutoPronounce } from '../utils/wordAudio.js'
 
 const ai = useAiStore()
 const settingsSection = ref('appearance')
+const autoPronounce = ref(readAutoPronounce())
+watch(autoPronounce, saveAutoPronounce)
 
 const form = ref({ provider: 'deepseek', apiKey: '', model: '', baseUrl: '', label: '' })
 const formError = ref('')
@@ -285,6 +288,10 @@ const typeLabels = { dialogue: '情境对话（含复盘与重试）',
     <EmailRecoveryPanel v-if="settingsSection === 'account'" />
     <button class="btn btn-ghost" @click="settingsSection = 'account'">账号安全 · 邮箱验证</button>
     <ThemePicker v-show="settingsSection === 'appearance'" />
+    <section v-if="settingsSection === 'appearance'" class="card word-audio-settings" aria-label="背词设置">
+      <label><input v-model="autoPronounce" type="checkbox" /> 单词自动发音</label>
+      <p class="muted">背单词时自动播放新出现的单词。此设置保存在当前设备。</p>
+    </section>
     <SpeechSettingsPanel v-if="settingsSection === 'speech'" />
     <section v-show="settingsSection === 'ai'" aria-label="AI 服务设置">
     <p class="section-sub">不配置也能用：错因分析与易混词对比完全免费</p>
@@ -621,6 +628,10 @@ const typeLabels = { dialogue: '情境对话（含复盘与重试）',
 </template>
 
 <style scoped>
+.word-audio-settings { margin-top: 16px; }
+.word-audio-settings label { display: flex; align-items: center; gap: 8px; cursor: pointer; width: fit-content; }
+.word-audio-settings input { accent-color: var(--accent-deep); width: 16px; height: 16px; }
+.word-audio-settings p { margin-bottom: 0; }
 .settings-sections { display: flex; gap: 10px; padding-bottom: 24px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
 .settings-sections button { background: transparent; color: var(--ink-soft); border: 1px solid transparent; border-radius: 11px; text-align: left; padding: 11px 18px; font-size: 14px; min-height: 44px; }
 .settings-sections button.active { color: var(--accent-deep); background: var(--accent-soft); border-color: var(--line); }

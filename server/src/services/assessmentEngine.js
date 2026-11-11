@@ -12,6 +12,13 @@ export function shuffled(items) {
 // 保留已答和当前题，仅保存每层最多 40 个候选，避免每题重写整本词书。
 export function compactPool(state) {
   const keep = new Set([...state.answers.map(a => a.wordId), state.current?.wordId])
+  const definitions = new Set()
+  for (const word of state.pool) {
+    if (definitions.has(word.definition)) continue
+    definitions.add(word.definition)
+    keep.add(word.id)
+    if (definitions.size === 4) break
+  }
   state.pool = [1, 2, 3, 4, 5].flatMap(band => {
     const words = state.pool.filter(w => w.band === band)
     const retained = words.filter(w => keep.has(w.id))
@@ -19,20 +26,38 @@ export function compactPool(state) {
   })
 }
 
-export function nextQuestion(state) {
-  if (state.answers.length >= state.total) return null
-  const counts = [1, 2, 3, 4, 5].map(b => state.answers.filter(a => a.band === b).length)
+export function nextQuestion(state, reserved = null) {
+  const sampled = reserved ? [...state.answers, reserved] : state.answers
+  if (sampled.length >= state.total) return null
+  const counts = [1, 2, 3, 4, 5].map(b => sampled.filter(a => a.band === b).length)
   // 每层至少四题，剩余题目优先落在最近作答所指示的难度。
-  const available = state.pool.filter(w => !state.answers.some(a => a.wordId === w.id))
+  const used = new Set(sampled.map(a => a.wordId))
+  const available = state.pool.filter(w => !used.has(w.id))
   const bands = [...new Set(available.map(w => w.band))]
   const underSampled = bands.filter(b => counts[b - 1] < Math.min(4, state.pool.filter(w => w.band === b).length))
   const candidates = underSampled.length ? underSampled : bands
   const band = candidates.sort((a, b) => Math.abs(a - state.band) - Math.abs(b - state.band))[0]
   const word = shuffled(available.filter(w => w.band === band))[0]
   if (!word) return null
-  const distractors = shuffled([...new Set(state.pool.filter(w => w.id !== word.id && w.definition !== word.definition).map(w => w.definition))]).slice(0, 3)
-  const options = shuffled([word.definition, ...distractors])
-  return { wordId: word.id, band, spelling: word.spelling, options, correctIndex: options.indexOf(word.definition) }
+  const choices = [word]
+  const seen = new Set([word.definition])
+  const texts = new Set([(word.definitions || [word.definition]).join('；')])
+  for (const candidate of shuffled(state.pool)) {
+    const text = (candidate.definitions || [candidate.definition]).join('；')
+    if (seen.has(candidate.definition) || texts.has(text)) continue
+    choices.push(candidate)
+    seen.add(candidate.definition)
+    texts.add(text)
+    if (choices.length === 4) break
+  }
+  const ordered = shuffled(choices)
+  const optionDetails = ordered.map(choice => ({ pos: choice.pos || '', definitions: choice.definitions || [choice.definition] }))
+  return {
+    wordId: word.id, band, spelling: word.spelling,
+    options: optionDetails.map(option => option.definitions.join('；')),
+    optionDetails,
+    correctIndex: ordered.indexOf(word),
+  }
 }
 
 export function summarize(state) {

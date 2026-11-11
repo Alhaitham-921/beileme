@@ -1,5 +1,5 @@
 import { scheduleDialogueRecall } from '../services/wordRecallService.js'
-import { listFollowups, getFollowup, saveShortPractice } from '../services/practiceFollowups.js'
+import { listFollowups, getFollowup, saveShortPractice, scheduleFollowup } from '../services/practiceFollowups.js'
 import { Router } from 'express'
 import { z } from 'zod'
 import { requireAuth } from '../middleware/auth.js'
@@ -17,20 +17,27 @@ import { todayKey } from '../utils/time.js'
 import { parseJsonResponse } from '../services/ai/promptTemplates.js'
 import { resolveWordbookForUser } from '../services/wordService.js'
 import { listDialogues, startDialogue, getDialogue, addDialogueTurn, requestDialogueHelp, finishDialogue,
-  generateScenario, saveScenario, repeatDialogue } from '../services/dialogueService.js'
+  generateScenario, saveScenario, repeatDialogue, gradeShortPractice } from '../services/dialogueService.js'
 
 const router = Router()
 router.use(requireAuth)
-router.post('/followups/:id/recall', validate({ params: z.object({ id: z.coerce.number().int().positive() }) }),
+const sessionId = z.object({ id: z.coerce.number().int().positive() })
+const shortAnswer = z.object({ answer: z.string().trim().min(1).max(1000) })
+router.get('/followups/:id',validate({params:sessionId}),asyncHandler(async(req,res)=>ok(res,await getFollowup(req.user.id,req.valid.params.id))))
+router.post('/followups/:id/recall', validate({ params: sessionId }),
   asyncHandler(async (req, res) => ok(res, await scheduleDialogueRecall(req.user.id, req.valid.params.id))))
-router.get('/followups/:id',validate({params:z.object({id:z.coerce.number().int().positive()})}),asyncHandler(async(req,res)=>ok(res,await getFollowup(req.user.id,req.valid.params.id))))
 router.get('/followups',validate({query:z.object({sourceId:z.coerce.number().int().positive().optional()})}),asyncHandler(async(req,res)=>ok(res,{tasks:await listFollowups(req.user.id,req.valid.query)})))
-router.post('/followups/:id/short',validate({params:z.object({id:z.coerce.number().int().positive()}),body:z.object({answer:z.string().trim().min(1).max(1000)})}),asyncHandler(async(req,res)=>ok(res,await saveShortPractice(req.user.id,req.valid.params.id,req.valid.body.answer))))
+router.post('/followups/:id/short',validate({params:sessionId,body:shortAnswer}),asyncHandler(async(req,res)=>ok(res,await saveShortPractice(req.user.id,req.valid.params.id,req.valid.body.answer))))
+router.post('/followups/:id/grade', validate({ params: sessionId, body: shortAnswer }),
+  asyncHandler(async (req, res) => ok(res, await gradeShortPractice(req.user.id, req.valid.params.id, req.valid.body.answer))))
+router.post('/followups/:id/schedule', validate({ params: sessionId, body: z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('next') }),
+  z.object({ mode: z.literal('time'), scheduledAt: z.iso.datetime() }),
+]) }), asyncHandler(async (req, res) => ok(res, await scheduleFollowup(req.user.id, req.valid.params.id, req.valid.body))))
 router.get('/', asyncHandler(async (req, res) => {
   const rows = await query('SELECT id, scene, answer, feedback, created_at FROM context_attempts WHERE user_id = ? ORDER BY id DESC LIMIT 20', [req.user.id])
   return ok(res, { ...await listDialogues(req.user.id), legacyScenes: SCENES, history: rows.map(r => ({ ...r, feedback: parseJson(r.feedback, {}) })) })
 }))
-const sessionId = z.object({ id: z.coerce.number().int().positive() })
 const sceneId = z.string().max(32).regex(/^(?:[a-z]+|custom-[1-9]\d{0,19})$/)
 const difficulty = z.enum(['beginner', 'intermediate', 'advanced'])
 const strictness = z.enum(['lenient', 'standard', 'strict'])

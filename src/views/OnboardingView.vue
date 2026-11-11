@@ -199,9 +199,9 @@ function startLearning() {
 
       <p class="pp-note">词书：{{ prepared.wordbook.name }}</p>
 
-      <p class="pp-note">接下来用约 3–5 分钟的小测了解当前词书掌握情况，自评仅用于选择起始难度。</p>
+      <p class="pp-note">可以直接学习，也可以用约 3–5 分钟的短测选择学习起点。</p>
       <button class="btn btn-primary btn-lg btn-full" @click="startLearning">直接开始学习</button>
-      <router-link to="/assessment" class="btn btn-ghost btn-full">帮我选起点（可选短测）</router-link>
+      <router-link :to="{ name: 'assessment', query: { start: '1' } }" replace class="btn btn-ghost btn-full skip-assessment">帮我选起点（可选短测）</router-link>
     </div>
 
     <template v-else>
@@ -402,4 +402,5 @@ function startLearning() {
   color: var(--ink-soft);
   margin: 0 0 26px;
 }
+.skip-assessment { margin-top: 12px; }
 </style>

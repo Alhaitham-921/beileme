@@ -12,6 +12,7 @@ import {
   recentLearnedWords,
 } from '../services/wordService.js'
 import { getWordLearningCard } from '../services/wordLearningService.js'
+import { getWordMemoryImage, startWordMemoryImage } from '../services/wordMemoryImageService.js'
 import { buildConfusableCard } from '../services/studyService.js'
 
 import { listCollectionWords, collectionWordIds } from '../services/collectionService.js'
@@ -157,5 +158,18 @@ router.get(
 // Free dictionary reads never call AI; generation requires the separate explicit content action.
 router.get('/:id/learning-card', requireAuth, validate({ params: wordIdParam, query: z.object({ local: z.literal('1').optional() }) }),
   asyncHandler(async (req,res) => ok(res, { card: await getWordLearningCard(req.user.id, req.valid.params.id, { localOnly: req.valid.query.local === '1' }) })))
+
+const memorySense = z.string().min(1).max(1000)
+router.get('/:id/memory-image', requireAuth, validate({ params: wordIdParam, query: z.object({ sense: memorySense.optional() }) }),
+  asyncHandler(async (req, res) => {
+    res.set('Cache-Control', 'no-store')
+    return ok(res, await getWordMemoryImage(req.user.id, req.valid.params.id, req.valid.query.sense))
+  }))
+router.post('/:id/memory-image', requireAuth, validate({ params: wordIdParam, body: z.object({
+  sense: memorySense, sessionId: z.number().int().positive().optional(), regenerate: z.boolean().optional(),
+}) }), asyncHandler(async (req, res) => {
+  const { sense, sessionId, regenerate } = req.valid.body
+  return ok(res, await startWordMemoryImage(req.user.id, req.valid.params.id, sense, { sessionId, regenerate }))
+}))
 
 export default router

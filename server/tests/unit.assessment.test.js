@@ -25,6 +25,21 @@ test('unknown answers give zero estimate and chance correction is bounded', () =
   assert.equal(summarize(s).estimatedKnown, 0)
   assert.ok(summarize(s).bands.every(b => b.mastery === 0))
 })
+
+test('a reserved question is not repeated and options preserve all definitions and parts of speech', () => {
+  const s = fixture()
+  for (const word of s.pool) {
+    word.pos = 'n./v.'
+    word.definitions = [word.definition, `补充释义${word.id}`]
+  }
+  const current = nextQuestion(s)
+  const upcoming = nextQuestion(s, current)
+  assert.notEqual(upcoming.wordId, current.wordId)
+  const word = s.pool.find(w => w.id === upcoming.wordId)
+  assert.deepEqual(upcoming.optionDetails[upcoming.correctIndex], { pos: word.pos, definitions: word.definitions })
+  s.total = 1
+  assert.equal(nextQuestion(s, current), null)
+})
 test('large pools shrink while preserving population, answers and current question', () => {
   const s = fixture()
   s.pool = Array.from({ length: 10000 }, (_, i) => ({ id: i + 1, band: i % 5 + 1, spelling: `word${i}`, definition: `释义${i}` }))

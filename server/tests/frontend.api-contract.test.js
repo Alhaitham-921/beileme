@@ -271,9 +271,9 @@ describe('契约：背词会话（前端最核心的链路）', () => {
     assert.ok(Array.isArray(item.word.definitions) && item.word.definitions.length > 0)
     assert.ok(Number.isInteger(item.word.difficulty))
 
-    // 选项带 index / text / primary（完整释义 + 主释义），但答案不下发
+    // 选项包含完整释义、主释义和词性，答案留在服务端。
     for (const option of item.options) {
-      assert.deepEqual(Object.keys(option).sort(), ['index', 'primary', 'text'])
+      assert.deepEqual(Object.keys(option).sort(), ['index', 'pos', 'primary', 'text'])
       assert.equal(typeof option.text, 'string')
       assert.ok(option.primary.length > 0, 'primary 用于把主释义加粗')
       assert.ok(

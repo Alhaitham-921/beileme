@@ -264,7 +264,7 @@ export async function buildOptionsFor(word, { count = 4 } = {}) {
     if (!text || seen.has(text)) continue
     seen.add(text)
 
-    const option = { text, primary: definitions[0] || '', correct: false, wordId: Number(row.id) }
+    const option = { text, primary: definitions[0] || '', pos: row.pos || '', correct: false, wordId: Number(row.id) }
     if (Number(row.relation_score) > 0 && related.length < optionCount - 1) related.push(option)
     else others.push(option)
   }
@@ -272,7 +272,7 @@ export async function buildOptionsFor(word, { count = 4 } = {}) {
   const distractors = [...related, ...others].slice(0, optionCount - 1)
 
   return shuffle([
-    { text: correctText, primary: word.definitions[0] || '', correct: true, wordId: word.id },
+    { text: correctText, primary: word.definitions[0] || '', pos: word.pos || '', correct: true, wordId: word.id },
     ...distractors,
   ])
 }

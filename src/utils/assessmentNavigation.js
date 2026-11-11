@@ -1,69 +1,87 @@
-/** Keep the visible question until its answer is saved and continuation is requested. */
 export function createAssessmentNavigation({ state, submit, now = () => performance.now(), onAdvance = () => {} }) {
   let generation = 0
-  let request = null
+  let queue = []
+  let pendingSave
   let shownAt = now()
+
+  function show(session) {
+    if (session?.question?.wordId !== state.session?.question?.wordId || session?.id !== state.session?.id) {
+      shownAt = now()
+    }
+    state.session = session
+    state.selected = null
+  }
 
   function reset(session) {
     generation++
-    request = null
+    queue = []
+    pendingSave = undefined
+    show(session)
     shownAt = now()
-    Object.assign(state, { session, selected: null, pending: null, busy: false, error: '', continueRequested: false })
+    Object.assign(state, { saving: false, error: '', needsReload: false })
   }
 
-  function advance() {
-    if (state.selected === null || state.error) return
-    if (state.busy) { state.continueRequested = true; return }
-    if (!state.pending) return
-    const next = state.pending
-    reset(next)
-    onAdvance(next)
+  function preview(session) {
+    show({ ...session, answered: session.answered + 1, question: session.upcoming, upcoming: null })
   }
 
   async function save() {
-    if (!request || state.busy || state.pending) return
+    if (!queue.length || state.saving) return
     const currentGeneration = generation
-    const currentRequest = request
-    state.busy = true
+    const { sessionId, body } = queue[0]
+    state.saving = true
     state.error = ''
     try {
-      const next = await submit(currentRequest.sessionId, { ...currentRequest.body })
+      const next = await submit(sessionId, body)
       if (currentGeneration !== generation) return
-      state.pending = next
-    } catch (e) {
-      if (currentGeneration !== generation) return
-      state.error = e.message || '保存失败，请重试'
-      // A failed attempt never carries a queued continuation into its retry.
-      state.continueRequested = false
-    } finally {
-      if (currentGeneration === generation) {
-        state.busy = false
-        if (state.continueRequested && state.pending) advance()
+      queue.shift()
+      if (!queue.length) {
+        show(next)
+        onAdvance(next)
+      } else if (next.question?.wordId !== queue[0].body.wordId) {
+        // Another tab may have moved past the preview while this request was in flight.
+        reset(next)
+        onAdvance(next)
+        return
+      } else if (next.upcoming) {
+        preview(next)
       }
+    } catch (error) {
+      if (currentGeneration !== generation) return
+      state.error = error.message || '保存失败，请重试'
+      state.needsReload = error.status === 409
+    } finally {
+      if (currentGeneration === generation) state.saving = false
     }
+    if (currentGeneration === generation && !state.error && queue.length) return save()
   }
 
   function answer(selectedIndex) {
-    if (state.busy || state.selected !== null || !state.session?.question) return
     const { session } = state
+    if (state.error || state.selected !== null || !session?.question) return
     if (selectedIndex !== -1 && (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= session.question.options.length)) return
-    state.selected = selectedIndex
-    request = {
+    queue.push({
       sessionId: session.id,
       body: { wordId: session.question.wordId, selectedIndex, rtMs: Math.max(0, Math.min(3600000, Math.round(now() - shownAt))) },
-    }
-    return save()
+    })
+    if (session.upcoming) preview(session)
+    else state.selected = selectedIndex
+    return startSaving()
+  }
+
+  function startSaving() {
+    if (!state.saving) pendingSave = save()
+    return pendingSave
   }
 
   function retry() {
-    if (!state.error || state.selected === null) return
-    return save()
+    if (state.error && !state.needsReload) return startSaving()
   }
 
   function dispose() {
     generation++
-    request = null
+    queue = []
   }
 
-  return { reset, answer, advance, retry, dispose }
+  return { reset, answer, retry, dispose, whenSaved: () => pendingSave }
 }

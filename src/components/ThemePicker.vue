@@ -282,6 +282,14 @@ async function restoreDefaults() {
 .mini-header > span:first-child { font-size: 15px; color: var(--accent-deep); }
 .mini-header > span:last-child { margin-left: auto; color: #a7b1c4; font-size: 8px; }
 .mini-word-card { display: flex; flex-direction: column; align-items: center; padding: 17px 17px 15px; margin-top: 31px; border: 1px solid rgba(220, 229, 249, .14); border-radius: 12px; background: rgba(17, 26, 42, var(--glass-preview-opacity, .73)); box-shadow: 0 10px 30px rgba(0, 0, 0, .14), inset 0 1px rgba(255, 255, 255, .04); backdrop-filter: blur(18px) brightness(var(--glass-backdrop-brightness, 1)); color: #e7ebf4; }
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass .mini-word-card {
+    background-image: var(--frost-texture);
+    border-color: var(--frost-edge);
+    -webkit-backdrop-filter: var(--frost-filter);
+    backdrop-filter: var(--frost-filter);
+  }
+}
 .solid .mini-word-card { background: #1a2333; backdrop-filter: none; }
 .compact .mini-word-card { padding: 12px 14px; }
 .mini-progress { display: flex; justify-content: space-between; align-items: center; align-self: stretch; gap: 8px; font-size: 7px; color: #a5aec0; }

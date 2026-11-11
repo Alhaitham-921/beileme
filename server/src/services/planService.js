@@ -42,11 +42,16 @@ export function mapPlanRow(row) {
   }
 }
 
-/** 待复习单词数（next_review_at 已到期） */
+/** 待复习单词数，包括已到时间的手动安排。同一个词只计一次。 */
 export async function countDueWords(userId, now = new Date()) {
   const row = await queryOne(
-    'SELECT COUNT(*) AS total FROM user_word_progress WHERE user_id = ? AND next_review_at <= ?',
-    [userId, now]
+    `SELECT COUNT(*) AS total FROM (
+      SELECT word_id FROM user_word_progress WHERE user_id=? AND next_review_at<=?
+      UNION
+      SELECT f.word_id FROM practice_followups f JOIN words w ON w.id=f.word_id
+        WHERE f.user_id=? AND f.status='pending' AND f.scheduled_at<=?
+    ) due`,
+    [userId, now, userId, now]
   )
   return Number(row?.total || 0)
 }

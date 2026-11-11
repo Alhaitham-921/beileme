@@ -185,22 +185,26 @@ async function submit() {
         </button>
       </form>
 
-      <button v-if="mode === 'login'" class="text-button" @click="switchMode('recover')">忘记密码？</button>
-      <section v-if="mode === 'recover'" aria-label="找回密码">
-       <h2>通过邮箱找回密码</h2>
-       <p>仅支持已验证的注册邮箱。旧账号请先登录，在偏好设置 → 账号安全中完成邮箱验证；无法登录且邮箱未验证时，请联系管理员核验。</p>
-       <form class="form" @submit.prevent="recover(false)">
-        <label class="field"><span>注册邮箱</span><input class="input" v-model="recovery.email" type="email" autocomplete="email" required maxlength="190" /></label>
-        <button class="btn btn-secondary" :disabled="recoveryBusy">获取重置码</button>
-       </form>
-       <form class="form" @submit.prevent="recover(true)">
-        <label class="field"><span>邮件中的32位重置码</span><input class="input" v-model="recovery.code" autocomplete="one-time-code" autocapitalize="none" spellcheck="false" required minlength="32" maxlength="32" /></label>
-        <label class="field"><span>新密码</span><input class="input" v-model="recovery.password" type="password" autocomplete="new-password" required minlength="8" maxlength="128" placeholder="至少8位，包含字母和数字" /></label>
-        <label class="field"><span>确认新密码</span><input class="input" v-model="recovery.confirm" type="password" autocomplete="new-password" required minlength="8" maxlength="128" /></label>
-        <button class="btn btn-primary" :disabled="recoveryBusy">重置密码</button>
-       </form>
-       <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
-       <p class="muted">重置码15分钟有效。重新获取需间隔60秒，请同时检查垃圾邮件。</p>
+      <div v-if="mode === 'login'" class="recovery-action">
+        <button type="button" class="btn btn-quiet" @click="switchMode('recover')">忘记密码？</button>
+      </div>
+      <section v-if="mode === 'recover'" class="recovery-panel" aria-labelledby="recovery-title">
+        <div>
+          <h2 id="recovery-title">通过邮箱找回密码</h2>
+          <p class="muted">仅支持已验证的注册邮箱。旧账号请先登录，在偏好设置 → 账号安全中完成邮箱验证；无法登录且邮箱未验证时，请联系管理员核验。</p>
+        </div>
+        <form class="form" @submit.prevent="recover(false)">
+          <label class="field"><span class="field-label">注册邮箱</span><input class="input" v-model="recovery.email" type="email" autocomplete="email" required maxlength="190" /></label>
+          <button type="submit" class="btn btn-secondary" :disabled="recoveryBusy">获取重置码</button>
+        </form>
+        <form class="form recovery-reset" @submit.prevent="recover(true)">
+          <label class="field"><span class="field-label">邮件中的32位重置码</span><input class="input" v-model="recovery.code" autocomplete="one-time-code" autocapitalize="none" spellcheck="false" required minlength="32" maxlength="32" /></label>
+          <label class="field"><span class="field-label">新密码</span><input class="input" v-model="recovery.password" type="password" autocomplete="new-password" required minlength="8" maxlength="128" placeholder="至少8位，包含字母和数字" /></label>
+          <label class="field"><span class="field-label">确认新密码</span><input class="input" v-model="recovery.confirm" type="password" autocomplete="new-password" required minlength="8" maxlength="128" /></label>
+          <button type="submit" class="btn btn-primary" :disabled="recoveryBusy">重置密码</button>
+        </form>
+        <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
+        <p class="muted">重置码15分钟有效。重新获取需间隔60秒，请同时检查垃圾邮件。</p>
       </section>
       <p v-if="recoveryNotice" role="status">{{ recoveryNotice }}</p>
       <p class="hint">
@@ -272,6 +276,32 @@ async function submit() {
 .form {
   display: grid;
   gap: 16px;
+}
+
+.recovery-action {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.recovery-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.recovery-panel h2 {
+  margin: 0 0 6px;
+  font-size: 19px;
+}
+
+.recovery-panel .muted {
+  margin: 0;
+  font-size: 13px;
+}
+
+.recovery-reset {
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
 }
 
 .field {

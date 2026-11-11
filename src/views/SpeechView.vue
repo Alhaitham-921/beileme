@@ -6,7 +6,8 @@ import AppIcon from '../components/AppIcon.vue'
 
 const speech = usePracticeSpeech()
 const { available, statusLoading, statusReason, supported, isStarting, isRecording, isTranscribing,
-  error, transcript, elapsedSeconds, maxSeconds, remaining } = speech
+  error, transcript, elapsedSeconds, maxSeconds, remaining,
+  microphones, selectedMicrophone, deviceError, isRefreshingMicrophones } = speech
 const draft = ref(''), copyMessage = ref('')
 watch(transcript, text => { if (text) { draft.value = text; copyMessage.value = '' } })
 async function copy() {
@@ -26,8 +27,16 @@ async function copy() {
       <p v-else-if="!supported" role="alert">当前环境无法录音。请使用 HTTPS 或 localhost，并在新版浏览器中打开。</p>
       <p v-else-if="!available" role="status">{{ statusReason }}</p>
       <p v-else class="quota">每段最多 {{ maxSeconds }} 秒 · 今日剩余 {{ remaining }} 次</p>
+      <label for="speech-microphone">录音设备</label>
+      <select id="speech-microphone" v-model="selectedMicrophone" :disabled="isRecording || isStarting || isTranscribing || isRefreshingMicrophones">
+        <option value="">浏览器默认麦克风</option>
+        <option v-for="device in microphones" :key="device.id" :value="device.id">{{ device.label }}</option>
+      </select>
+      <button type="button" class="btn" :disabled="isRecording || isStarting || isRefreshingMicrophones" @click="speech.refreshMicrophones({ requestPermission: true })">{{ isRefreshingMicrophones ? '正在获取设备…' : '授权并刷新设备' }}</button>
+      <p v-if="deviceError" class="error" role="status">{{ deviceError }}</p>
+      <p>首次使用请点击「授权并刷新设备」并允许权限，再选择要使用的麦克风。设备检测不会上传录音。</p>
       <div class="actions">
-        <button v-if="!isRecording" class="btn btn-primary" :disabled="!available || statusLoading || isStarting || isTranscribing" @click="speech.start"><AppIcon name="microphone" /> {{ isTranscribing ? '正在识别…' : isStarting ? '正在开启麦克风…' : '开始录音' }}</button>
+        <button v-if="!isRecording" class="btn btn-primary" :disabled="!available || statusLoading || isStarting || isTranscribing || isRefreshingMicrophones" @click="speech.start"><AppIcon name="microphone" /> {{ isTranscribing ? '正在识别…' : isStarting ? '正在开启麦克风…' : '开始录音' }}</button>
         <button v-else class="btn btn-primary" @click="speech.stop">停止并转文字 · {{ elapsedSeconds }} 秒</button>
         <button v-if="isRecording || isStarting || isTranscribing" class="btn" @click="speech.cancel">取消</button>
         <button v-else class="btn" :disabled="statusLoading" @click="speech.refreshStatus">刷新服务状态</button>
@@ -50,4 +59,5 @@ async function copy() {
 .actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 18px 0; }.actions .btn { display: inline-flex; align-items: center; gap: 8px; }
 label { display: block; margin: 24px 0 10px; }textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: inherit; font: inherit; line-height: 1.8; }
 .error { color: var(--bad); }small { line-height: 1.7; }
+select { max-width: 100%; margin: 0 12px 12px 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: inherit; }
 </style>

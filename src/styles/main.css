@@ -6,6 +6,10 @@
   --glass-preview-opacity: .73;
   --glass-elevated-opacity: 1;
   --glass-backdrop-brightness: 1;
+  --frost-filter: blur(24px) saturate(1.15) brightness(var(--glass-backdrop-brightness));
+  --frost-texture: linear-gradient(155deg, rgba(224, 237, 255, .075), transparent 65%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='grain'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' fill='%23fff' filter='url(%23grain)' opacity='.05'/%3E%3C/svg%3E");
+  --frost-edge: rgba(220, 234, 250, .18);
   --color-surface: rgba(20, 31, 43, var(--glass-opacity));
   --color-surface-elevated: #1a2735;
   --surface-study: rgba(18, 28, 40, var(--glass-study-opacity));
@@ -138,6 +142,8 @@ h1, h2, h3, p { overflow-wrap: anywhere; }
 .btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
 .btn-ghost { color: var(--ink-soft); background: transparent; border-color: var(--line); }
 .btn-ghost:hover:not(:disabled) { color: var(--ink); background: rgba(220,235,250,.045); border-color: var(--ink-muted); }
+.btn-quiet { padding: 8px 14px; font-size: 13px; color: var(--accent-deep); background: transparent; border-color: var(--line); }
+.btn-quiet:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); }
 .btn-secondary, .btn:not([class*='btn-']) { background: var(--accent-soft); color: var(--accent-deep); }
 .btn-danger { background: transparent; color: var(--bad); border-color: var(--bad-soft); }
 .btn-danger:hover { background: var(--bad-soft); }
@@ -157,6 +163,14 @@ h1, h2, h3, p { overflow-wrap: anywhere; }
 .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 28px; }
 .page-heading .section-sub { margin-bottom: 0; }
 /* Keep nested surfaces quiet and use the same materials throughout every route. */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root[data-material='glass'] :where(.card:not(.word-card, .result-card), .sidebar, .mobile-header) {
+    background-image: var(--frost-texture);
+    border-color: var(--frost-edge);
+    -webkit-backdrop-filter: var(--frost-filter);
+    backdrop-filter: var(--frost-filter);
+  }
+}
 .conversation-shell { backdrop-filter: blur(22px) brightness(var(--glass-backdrop-brightness)); -webkit-backdrop-filter: blur(22px) brightness(var(--glass-backdrop-brightness)); }
 :root[data-material='glass'] .conversation-shell { background: rgba(26,39,53,var(--glass-elevated-opacity)); }
 :root[data-material='solid'] :is(.card, .sidebar, .conversation-shell, .mobile-header) { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--color-surface); }

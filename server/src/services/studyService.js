@@ -25,6 +25,7 @@ import {
 } from './planService.js'
 import { diffSpelling } from './wordRelations.js'
 import { evaluateBadges } from './badgeService.js'
+import { listScheduledStudyWords, completeScheduledStudy } from './practiceFollowups.js'
 
 /** 「再学一组」的题量与构成 */
 export const EXTRA_SESSION_SIZE = 10
@@ -67,6 +68,7 @@ function buildQueueItem(wordRow, kind, options) {
       text: option.text,
       // 词表里的第一条释义，前端据此加粗（是排序位置，不是词频标注）
       primary: option.primary || '',
+      pos: option.pos,
       correct: Boolean(option.correct),
       wordId: option.wordId ?? null,
     })),
@@ -92,11 +94,12 @@ function publicWord(row) {
 }
 
 /** 普通练习单独给出正确选项下标，保留现有选项结构。 */
-function publicOptions(options) {
+function publicOptions(options, wordsById) {
   return options.map((option) => ({
     index: option.index,
     text: option.text,
     primary: option.primary || '',
+    pos: option.pos ?? wordsById.get(Number(option.wordId))?.pos ?? '',
   }))
 }
 
@@ -104,9 +107,14 @@ function publicOptions(options) {
 async function materializeItems(queueItems) {
   if (!queueItems.length) return []
 
-  const ids = [...new Set(queueItems.map((item) => Number(item.wordId)))]
-  const placeholders = ids.map(() => '?').join(',')
-  const rows = await query(`SELECT * FROM words WHERE id IN (${placeholders})`, ids)
+  const ids = new Set(queueItems.map(item => Number(item.wordId)))
+  for (const item of queueItems) {
+    for (const option of item.options) {
+      if (option.pos === undefined && option.wordId) ids.add(Number(option.wordId))
+    }
+  }
+  const placeholders = Array.from(ids, () => '?').join(',')
+  const rows = await query(`SELECT * FROM words WHERE id IN (${placeholders})`, [...ids])
   const byId = new Map(rows.map((row) => [Number(row.id), row]))
 
   const items = []
@@ -119,7 +127,7 @@ async function materializeItems(queueItems) {
       reviewReason: item.reviewReason || (item.kind==='review'?'按复习计划再次巩固':'新词学习'),
       nextReviewAt: item.nextReviewAt || null,
       word: publicWord(row),
-      options: publicOptions(item.options),
+      options: publicOptions(item.options, byId),
       answered: Boolean(item.answered),
       correctOptionIndex: item.options.find(option => option.correct)?.index ?? null,
       ...(item.answered ? { correct: Boolean(item.correct), ...(item.unknown ? { unknown: true } : {}), selectedOptionIndex: item.selectedOptionIndex ?? null } : {}),
@@ -146,23 +154,33 @@ export async function createSession(userId, { kind = 'daily', studyMode = 'revie
   const queue = []
   const workload=budgetMinutes?await studyWorkload(userId):null
   const cap=taskCap(budgetMinutes,workload?.secondsPerWord)
+  const groupCap = studyMode === 'review-only' || kind === 'extra' ? Math.min(cap, EXTRA_SESSION_SIZE) : cap
+  const scheduleCutoff = new Date()
+  const scheduled = await listScheduledStudyWords(userId, scheduleCutoff, groupCap)
+  const scheduledIds = new Set(scheduled.map(row => Number(row.id)))
+  const excludeScheduled = (rows, limit) => rows.filter(row => !scheduledIds.has(Number(row.id))).slice(0, limit)
+  for (const row of scheduled) {
+    const item = buildQueueItem(row, row.learned_word_id ? 'review' : 'new', await buildOptionsFor(mapWordRow(row)))
+    queue.push({ ...item, reviewReason: '来自情境练习的自主安排', practiceScheduleCutoff: scheduleCutoff.toISOString() })
+  }
 
   if (kind === 'daily' || studyMode === 'review-only') {
     const entries = await selectDailyWords({ plan, studyMode,
-      listDue: limit => limit > 0 ? listDueWords(userId, { limit }) : [],
-      listFresh: limit => limit > 0 ? listFreshWords(userId, wordbook.id, { limit, studyStartLevel }) : [],
-      maxSize: cap,
+      listDue: async limit => limit > 0 ? excludeScheduled(await listDueWords(userId, { limit: limit + scheduled.length }), limit) : [],
+      listFresh: async limit => limit > 0 ? excludeScheduled(await listFreshWords(userId, wordbook.id, { limit: limit + scheduled.length, studyStartLevel }), limit) : [],
+      maxSize: groupCap - queue.length,
     })
     for (const {row, kind: itemKind} of entries) queue.push(buildQueueItem(row, itemKind, await buildOptionsFor(mapWordRow(row))))
   } else {
     // 「再学一组」：不受每日计划限制，提前复习 + 补充新词
-    const freshRows = await listFreshWords(userId, wordbook.id, { limit: EXTRA_SESSION_SIZE, studyStartLevel })
-    const learnedRows = studyMode === 'new-only' ? [] : await listLearnedWords(userId, { limit: EXTRA_SESSION_SIZE })
+    const remaining = EXTRA_SESSION_SIZE - queue.length
+    const freshRows = remaining > 0 ? await listFreshWords(userId, wordbook.id, { limit: EXTRA_SESSION_SIZE, studyStartLevel }) : []
+    const learnedRows = remaining > 0 && studyMode !== 'new-only' ? await listLearnedWords(userId, { limit: EXTRA_SESSION_SIZE }) : []
 
-    const mixed = shuffle([
+    const mixed = excludeScheduled(shuffle([
       ...freshRows.map((row) => ({ row, kind: 'new' })),
       ...learnedRows.map((row) => ({ row, kind: 'review' })),
-    ]).slice(0, EXTRA_SESSION_SIZE)
+    ]), remaining)
 
     for (const entry of mixed) {
       queue.push(buildQueueItem(entry.row, entry.kind, await buildOptionsFor(mapWordRow(entry.row))))
@@ -444,6 +462,7 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
       )
     }
 
+    if (item.practiceScheduleCutoff) await completeScheduledStudy(conn, userId, wordId, item.practiceScheduleCutoff)
     const correctOption = item.options.find(option => option.correct)
     queue[itemIndex] = { ...item, answered: true, correct: isCorrect, ...(payload.unknown ? { unknown: true } : {}), selectedOptionIndex: chosenOption?.index ?? null }
 

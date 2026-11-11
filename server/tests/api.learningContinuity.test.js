@@ -47,6 +47,90 @@ test('only independent production in another setting completes a transfer task',
  assert.equal((await queryOne('SELECT status FROM practice_followups WHERE id=?',[task.id])).status,'independent')
 })
 
+test('manual followup schedules enter the next group once per word and survive until an answer', async () => {
+ const client = createClient((await getTestServer()).baseUrl)
+ const user = await createOnboardedUser(client)
+ const other = await createOnboardedUser(client)
+ const word = await queryOne('SELECT id FROM words ORDER BY id LIMIT 1')
+ const original = await fixture(user, source(), report())
+ const tasksPath = '/api/v1/practice/followups'
+ const list = () => client.get(tasksPath + '?sourceId=' + original.id, { token: user.token })
+ const task = (await list()).data.tasks[0]
+ await execute('UPDATE practice_followups SET word_id=? WHERE id=?', [word.id, task.id])
+ const schedulePath = tasksPath + '/' + task.id + '/schedule'
+ const schedule = body => client.post(schedulePath, { token: user.token, body })
+ const createGroup = (token = user.token) => client.post('/api/v1/study/sessions', { token, body: { studyMode: 'review-only' } })
+ const future = new Date(Date.now() + 3_600_000).toISOString()
+
+ assert.equal((await client.post(schedulePath, { token: other.token, body: { mode: 'next' } })).status, 404)
+ assert.equal((await schedule({ mode: 'time', scheduledAt: new Date(0).toISOString() })).status, 400)
+ const scheduled = await schedule({ mode: 'time', scheduledAt: future })
+ assert.equal(scheduled.status, 200, JSON.stringify(scheduled.raw))
+ assert.equal((await list()).data.tasks[0].scheduledAt, future)
+ assert.equal((await createGroup()).data.items.length, 0)
+ await execute('UPDATE practice_followups SET scheduled_at=UTC_TIMESTAMP(3)-INTERVAL 1 SECOND WHERE id=?', [task.id])
+ assert.equal((await createGroup()).data.items[0].wordId, Number(word.id))
+ assert.equal((await list()).data.tasks[0].scheduleMode, 'time')
+
+ const next = await schedule({ mode: 'next' })
+ assert.equal(next.status, 200, JSON.stringify(next.raw))
+ assert.equal(next.data.remainingDueCount, 1)
+ assert.equal((await createGroup(other.token)).data.items.length, 0)
+ const group = await createGroup()
+ assert.equal(group.status, 201, JSON.stringify(group.raw))
+ assert.equal(group.data.items.length, 1)
+ const { session, items: [item] } = group.data
+ assert.equal(item.wordId, Number(word.id))
+ assert.match(item.reviewReason, /情境练习/)
+ const result = await client.post('/api/v1/study/sessions/' + session.id + '/answers', {
+  token: user.token, body: { wordId: item.wordId, optionIndex: await correctOptionIndex(session.id, item.wordId), hesitationMs: 800 },
+ })
+ assert.equal(result.status, 201, JSON.stringify(result.raw))
+ const after = (await list()).data.tasks[0]
+ assert.equal(after.scheduleMode, null)
+ assert.equal(after.status, 'pending')
+})
+
+test('short grading accepts alternative wording and keeps failed model output separate from learning records', async () => {
+ const client = createClient((await getTestServer()).baseUrl)
+ const user = await createOnboardedUser(client)
+ const other = await createOnboardedUser(client)
+ const original = await fixture(user, source(), report())
+ const tasksPath = '/api/v1/practice/followups'
+ const list = () => client.get(tasksPath + '?sourceId=' + original.id, { token: user.token })
+ const task = (await list()).data.tasks[0]
+ const path = tasksPath + '/' + task.id + '/grade'
+ const answer = 'My reservation is under Lee.'
+ assert.equal((await client.post(path, { token: other.token, body: { answer } })).status, 404)
+
+ const { config } = await import('../src/config.js')
+ const oldKey = config.ai.apiKey
+ const oldFetch = globalThis.fetch
+ config.ai.apiKey = 'followup-test-only'
+ let feedback = { verdict: 'correct', explanation: '用 reservation 表达预订自然且符合题意。', revision: '' }
+ globalThis.fetch = async (url, options) => {
+  if (!String(url).endsWith('/chat/completions')) return oldFetch(url, options)
+  const request = JSON.parse(options.body)
+  assert.deepEqual(JSON.parse(request.messages[1].content), { word: 'reservation', sense: '预订', prompt: task.prompt, answer })
+  return Response.json({ choices: [{ message: { content: JSON.stringify(feedback) }, finish_reason: 'stop' }], usage: { prompt_tokens: 20, completion_tokens: 15 } })
+ }
+ try {
+  const graded = await client.post(path, { token: user.token, body: { answer } })
+  assert.equal(graded.status, 200, JSON.stringify(graded.raw))
+  assert.deepEqual(graded.data.feedback, feedback)
+  feedback = { verdict: 'invalid' }
+  const failed = await client.post(path, { token: user.token, body: { answer } })
+  assert.equal(failed.status, 503, JSON.stringify(failed.raw))
+  const after = (await list()).data.tasks[0]
+  assert.equal(after.practiceAnswer, undefined)
+  assert.equal(after.status, 'pending')
+  assert.equal(after.nextCheckAt, task.nextCheckAt)
+ } finally {
+  config.ai.apiKey = oldKey
+  globalThis.fetch = oldFetch
+ }
+})
+
 test('time budgets cap the group without changing the daily plan and pause retains unanswered work',async()=>{
  assert.equal(taskCap(5,25),12);assert.equal(taskCap(10,25),24);assert.equal(taskCap(null),60)
  const client=createClient((await getTestServer()).baseUrl),user=await createOnboardedUser(client),other=await createOnboardedUser(client)

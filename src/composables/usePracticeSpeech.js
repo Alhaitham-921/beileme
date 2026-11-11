@@ -52,16 +52,36 @@ export function usePracticeSpeech() {
   const selectedMicrophone = ref('')
   const rawAudio = ref(true)
   const deviceError = ref('')
+  const isRefreshingMicrophones = ref(false)
 
-  async function refreshMicrophones() {
+  async function refreshMicrophones({ requestPermission = false } = {}) {
+    if (disposed || (requestPermission && (isRefreshingMicrophones.value || isStarting.value || isRecording.value))) return
+    let permissionStream = null
+    const token = generation
     try {
-      if (!navigator.mediaDevices?.enumerateDevices) return
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices || window.isSecureContext === false) {
+        deviceError.value = '当前环境无法读取麦克风，请通过 HTTPS 或 localhost 打开，并使用支持麦克风的浏览器。'
+        return
+      }
+      if (requestPermission) {
+        isRefreshingMicrophones.value = true
+        deviceError.value = ''
+        // Keep the temporary stream open while enumerating: some browsers only
+        // expose other inputs and their labels while microphone access is active.
+        permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+        if (disposed || token !== generation) return
+      }
       const devices = await navigator.mediaDevices.enumerateDevices()
-      if (disposed) return
+      if (disposed || (requestPermission && token !== generation)) return
       microphones.value = devices.filter(device => device.kind === 'audioinput' && device.deviceId)
         .map((device, index) => ({ id: device.deviceId, label: device.label || `麦克风 ${index + 1}` }))
-      deviceError.value = ''
-    } catch { deviceError.value = '无法读取麦克风列表，请检查浏览器麦克风权限。' }
+      deviceError.value = microphones.value.length ? '' : '浏览器尚未提供可选麦克风，请点击「授权并刷新设备」并允许麦克风权限。'
+    } catch (cause) {
+      if (!disposed && token === generation) deviceError.value = microphoneError(cause)
+    } finally {
+      permissionStream?.getTracks().forEach(track => track.stop())
+      if (requestPermission) isRefreshingMicrophones.value = false
+    }
   }
   const inputStatus = computed(() => !meterReady.value ? '音量检测不可用，请录音后回放检查' :
     inputLevel.value > 0.015 ? '正在接收声音' : detectedSound.value ? '已收到声音，正在等待你继续说话' : '暂未检测到声音，请说一句话试试')
@@ -210,7 +230,7 @@ export function usePracticeSpeech() {
     try{await transcribeRecording(token)}catch(cause){if(token===generation)error.value=cause.message || '识别失败，录音已保留。'}
   }
   async function start() {
-    if (isStarting.value || isRecording.value || isTranscribing.value || disposed) return
+    if (isStarting.value || isRecording.value || isTranscribing.value || isRefreshingMicrophones.value || disposed) return
     phase.value='recording'
     error.value = ''
     transcript.value = ''
@@ -349,7 +369,7 @@ export function usePracticeSpeech() {
 
   function onPageHide() {
     stopSpeaking()
-    if (isRecording.value || isStarting.value || isTranscribing.value) {
+    if (isRecording.value || isStarting.value || isTranscribing.value || isRefreshingMicrophones.value) {
       cancel()
       error.value = lastRecording ? '页面切到后台，已停止等待。录音已保留，返回后可重试。' : '页面切到后台，录音已停止。返回后可以重新录音。'
     }
@@ -373,6 +393,6 @@ export function usePracticeSpeech() {
 
   return { phase, canRetry, retryTranscription, isPreparingSpeech, supported, available, configured, statusLoading, statusReason, isStarting, isRecording, isTranscribing,
     inputLevel, waveform, meterReady, detectedSound, microphoneName, recordingUrl, inputStatus,
-    microphones, selectedMicrophone, rawAudio, deviceError, refreshMicrophones,
+    microphones, selectedMicrophone, rawAudio, deviceError, isRefreshingMicrophones, refreshMicrophones,
     error, transcript, elapsedSeconds, maxSeconds, remaining, refreshStatus, start, stop, cancel, speak, stopSpeaking, isSpeaking }
 }

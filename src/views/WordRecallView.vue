@@ -92,13 +92,13 @@ onMounted(load)
       <p>{{ session.answered }} / {{ session.total }} · {{ labels[feedback.result] }}</p>
       <h2 lang="en">{{ feedback.spelling }}</h2>
       <p>{{ feedback.meaning }}</p>
+      <button type="button" class="btn btn-primary" @click="showFeedback = false">{{ question ? '下一词' : '查看本组结果' }}</button>
       <p v-if="feedback.example" lang="en" class="recall-context">{{ feedback.example }}</p>
       <p v-if="feedback.translation">{{ feedback.translation }}</p>
       <p v-if="feedback.collocation"><strong lang="en">{{ feedback.collocation.phrase }}</strong> · {{ feedback.collocation.translation }}</p>
       <p v-if="feedback.dialogue">对话「{{ feedback.dialogue.sourceTitle }}」· {{ feedback.dialogue.reason }}。本次填词 · {{ labels[feedback.result] }}。</p>
       <p v-if="feedback.previous">上次 {{ labels[feedback.previous] }} · 本次 {{ labels[feedback.result] }}</p>
       <p v-if="feedback.nextDate" class="muted">复测日期 · {{ feedback.nextDate }}</p>
-      <button class="btn btn-primary" @click="showFeedback = false">{{ question ? '下一词' : '查看本组结果' }}</button>
     </section>
     <section v-else-if="question" class="card recall-card">
       <p>{{ session.mode === 'retest' ? '隔天复测' : '错词专项' }} · {{ session.answered + 1 }} / {{ session.total }}</p>

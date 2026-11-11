@@ -5,11 +5,13 @@ import { words, study } from '../api'
 import { useAppStore } from '../stores/app'
 import { toggleCollectionIds, allCollectionIdsSelected } from '../utils/collectionSelection.js'
 import FavoriteWord from '../components/FavoriteWord.vue'
+import WordMemoryImage from '../components/WordMemoryImage.vue'
 const route = useRoute(), router = useRouter(), app = useAppStore()
 const books = ref([]), bookId = ref(0), items = ref([]), name = ref(''), search = ref('')
 const source = ref(route.query.source === 'mistakes' ? 'mistakes' : 'favorites')
 const loading = ref(true), creating = ref(false), error = ref(''), mask = ref('none'), revealed = ref(new Set())
 const selected = ref(new Set()), matchingIds = ref([]), selectingAll = ref(false), starting = ref(false)
+const openMemoryWord = ref(null)
 const page = ref(1), total = ref(0), totalPages = ref(0), wrongCount = ref(0), savedCount = ref(0), previousBatch = ref(null)
 const currentBook = computed(() => books.value.find(book => Number(book.id) === bookId.value))
 const title = computed(() => source.value === 'mistakes' ? '错题本' : source.value === 'favorites' ? '全部单词本' : currentBook.value?.name || '单词本')
@@ -21,6 +23,7 @@ async function loadList(reset = true) {
   if (reset) page.value = 1
   const token = ++version, options = query()
   loading.value = true; error.value = ''; revealed.value = new Set()
+  openMemoryWord.value = null
   if (reset) { items.value = []; matchingIds.value = [] }
   try {
     const [content, ids] = await Promise.all([
@@ -83,7 +86,7 @@ async function changed() {
   try { await loadOverview(); await loadList() } catch (e) { error.value = e.message }
 }
 async function changePage(value) { if (loading.value || value<1 || value>totalPages.value) return; page.value=value; await loadList(false) }
-function changeMask(value) { mask.value = value; revealed.value = new Set() }
+function changeMask(value) { mask.value = value; revealed.value = new Set(); openMemoryWord.value = null }
 function hidden(id, side) { return mask.value === side && !revealed.value.has(id) }
 function reveal(id) { const next = new Set(revealed.value); next.has(id) ? next.delete(id) : next.add(id); revealed.value = next }
 function date(value) { return value ? new Date(value).toLocaleDateString() : '' }
@@ -128,12 +131,23 @@ onUnmounted(() => { alive=false; version++; clearTimeout(timer) })
         <div v-else-if="!items.length&&!error" class="empty-book"><h3>{{search?'没有找到匹配单词':source==='mistakes'?'还没有历史错词':'这里还没有收藏词'}}</h3><p>{{source==='mistakes'?'之后答错的单词会自动收进来。':'在背词或错词旁点击收藏，即可收进单词本。'}}</p></div>
         <div v-else-if="items.length" class="word-table-wrap">
           <table class="word-table"><thead><tr><th scope="col">选择</th><th scope="col">英文</th><th scope="col">中文释义</th><th scope="col">收藏管理</th></tr></thead><tbody>
-            <tr v-for="word in items" :key="word.id" :class="{picked:selected.has(word.id)}">
+            <template v-for="word in items" :key="word.id">
+            <tr :class="{picked:selected.has(word.id)}">
               <td class="check-cell"><input type="checkbox" :checked="selected.has(word.id)" :aria-label="'选择 '+word.spelling" :disabled="selectingAll||starting" @change="toggle(word.id,$event.target.checked)"></td>
               <td class="english-cell"><button v-if="mask==='en'" type="button" :class="['answer',{covered:hidden(word.id,'en')}]" :aria-label="hidden(word.id,'en')?'查看英文答案':'重新遮住英文答案'" @click="reveal(word.id)">{{hidden(word.id,'en')?'点击查看英文':word.spelling}}</button><template v-else><strong class="spelling">{{word.spelling}}</strong><small v-if="word.phonetic" class="phonetic">{{word.phonetic}}</small></template><small v-if="source==='mistakes'" class="wrong-meta">累计错 {{word.wrongTimes}} 次<span v-if="word.lastWrongAt"> · 最近 {{date(word.lastWrongAt)}}</span></small></td>
               <td class="meaning-cell"><button v-if="mask==='zh'" type="button" :class="['answer',{covered:hidden(word.id,'zh')}]" :aria-label="hidden(word.id,'zh')?'查看中文答案':'重新遮住中文答案'" @click="reveal(word.id)">{{hidden(word.id,'zh')?'点击查看中文':word.definitions.join('；')}}</button><span v-else>{{word.definitions.join('；')}}</span></td>
-              <td class="favorite-cell"><FavoriteWord :word-id="word.id" :initial-saved="word.saved" @change="changed" /></td>
+              <td class="favorite-cell">
+                <FavoriteWord :word-id="word.id" :initial-saved="word.saved" @change="changed" />
+                <button v-if="source==='mistakes' && !hidden(word.id,mask)" type="button" class="text-button"
+                  :aria-expanded="openMemoryWord===word.id" @click="openMemoryWord=openMemoryWord===word.id ? null : word.id">
+                  {{ openMemoryWord===word.id ? '收起记忆图' : '查看记忆图' }}
+                </button>
+              </td>
             </tr>
+            <tr v-if="source==='mistakes' && openMemoryWord===word.id && !hidden(word.id,mask)" class="memory-row">
+              <td colspan="4"><WordMemoryImage :word="word" can-generate /></td>
+            </tr>
+            </template>
           </tbody></table>
         </div>
         <nav v-if="totalPages>1" class="pagination" aria-label="单词列表翻页"><button class="btn btn-ghost" :disabled="loading||page===1" @click="changePage(page-1)">上一页</button><span>第 {{page}} / {{totalPages}} 页</span><button class="btn btn-ghost" :disabled="loading||page===totalPages" @click="changePage(page+1)">下一页</button></nav>
@@ -154,5 +168,6 @@ onUnmounted(() => { alive=false; version++; clearTimeout(timer) })
 .new-book input,.search-label input { border:1px solid var(--line);border-radius:7px;padding:10px 12px;background:var(--bg-card);color:var(--ink);font:inherit;font-size:12px; }
 .text-button { border:0;background:transparent;color:var(--accent-deep);font:inherit;font-size:12px;padding:7px 4px;cursor:pointer; }.text-button:disabled { opacity:.45;cursor:default; }
 button { touch-action:manipulation; }
+.memory-row td { grid-column: 1 / -1; }
 @media(max-width:800px) { .notebooks-layout { grid-template-columns:1fr; }.book-sidebar { padding:14px; }.book-option { padding:10px; }.notebook-content { padding:16px; }.start-review { width:100%;margin-left:0; }.word-table,.word-table tbody { display:block; }.word-table thead { display:none; }.word-table tr { display:grid;grid-template-columns:30px minmax(0,1fr);padding:14px 0;border-bottom:1px solid var(--line); }.word-table td { display:block;border:0;padding:3px 6px; }.check-cell { grid-column:1;grid-row:1 / span 3; }.english-cell,.meaning-cell,.favorite-cell { grid-column:2; }.selection-tools { gap:12px 16px; } }
 </style>

@@ -7,6 +7,10 @@ const saved = `(EXISTS (SELECT 1 FROM user_favorite_words f WHERE f.user_id=? AN
 const wrong = `(COALESCE(p.times_wrong,0)>0 OR EXISTS (SELECT 1 FROM answer_logs a WHERE a.user_id=? AND a.word_id=w.id AND a.result=0))`
 const from = 'FROM words w LEFT JOIN user_word_progress p ON p.word_id=w.id AND p.user_id=?'
 
+export async function hasMistake(userId, wordId) {
+  return Boolean(await queryOne(`SELECT w.id ${from} WHERE w.id=? AND ${wrong}`, [userId, wordId, userId]))
+}
+
 async function filter(userId, { source = 'favorites', notebookId = 0, q = '' } = {}) {
   let sql, params
   if (source === 'notebook') {

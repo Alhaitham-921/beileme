@@ -220,6 +220,60 @@ test('disconnected selected microphone reports device recovery without fallback'
   assert.equal(speech.isStarting.value, false)
 })
 
+test('device discovery requests permission only on demand and enumerates before releasing the temporary stream', async (t) => {
+  const { speech, tracks, requests, recorders } = mountSpeech(t)
+  await nextTick()
+  assert.equal(tracks.length, 0)
+  navigator.mediaDevices.enumerateDevices = async () => tracks.some(track => !track.stopped)
+    ? [{ kind: 'audioinput', deviceId: 'usb', label: 'USB microphone' }]
+    : [{ kind: 'audioinput', deviceId: '', label: '' }]
+  await speech.refreshMicrophones()
+  assert.deepEqual(speech.microphones.value, [])
+  assert.equal(tracks.length, 0)
+  await speech.refreshMicrophones({ requestPermission: true })
+  assert.deepEqual(speech.microphones.value, [{ id: 'usb', label: 'USB microphone' }])
+  assert.equal(tracks[0].stopped, 1)
+  assert.equal(speech.isRefreshingMicrophones.value, false)
+  assert.equal(requests.length, 0)
+  assert.equal(recorders.length, 0)
+})
+
+test('device discovery reports denied permission and insecure origins', async (t) => {
+  const { speech } = mountSpeech(t, { getUserMedia: async () => { throw new DOMException('denied', 'NotAllowedError') } })
+  navigator.mediaDevices.enumerateDevices = async () => []
+  await speech.refreshMicrophones({ requestPermission: true })
+  assert.match(speech.deviceError.value, /麦克风权限/)
+  assert.equal(speech.isRefreshingMicrophones.value, false)
+  window.isSecureContext = false
+  await speech.refreshMicrophones({ requestPermission: true })
+  assert.match(speech.deviceError.value, /HTTPS 或 localhost/)
+})
+
+test('device discovery releases temporary tracks when enumeration fails', async (t) => {
+  const { speech, tracks } = mountSpeech(t)
+  navigator.mediaDevices.enumerateDevices = async () => { throw new Error('cannot enumerate') }
+  await speech.refreshMicrophones({ requestPermission: true })
+  assert.equal(tracks[0].stopped, 1)
+  assert.match(speech.deviceError.value, /cannot enumerate/)
+  assert.equal(speech.isRefreshingMicrophones.value, false)
+})
+
+test('late device-discovery permission after unmount releases tracks without enumerating', async (t) => {
+  let grant, enumerations = 0
+  const track = { stopped: 0, stop() { this.stopped++ } }
+  const { speech, app } = mountSpeech(t, { getUserMedia: () => new Promise(resolve => { grant = resolve }) })
+  navigator.mediaDevices.enumerateDevices = async () => { enumerations++; return [] }
+  const refreshing = speech.refreshMicrophones({ requestPermission: true })
+  assert.equal(speech.isRefreshingMicrophones.value, true)
+  await speech.start()
+  assert.equal(speech.isStarting.value, false)
+  app.unmount()
+  grant({ getTracks: () => [track] })
+  await refreshing
+  assert.equal(track.stopped, 1)
+  assert.equal(enumerations, 0)
+})
+
 test('native speech keeps a replacement active when an older call completes and reports engine recovery', async (t) => {
   const calls = []
   let stops = 0

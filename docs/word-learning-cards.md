@@ -18,9 +18,19 @@
 
 免费词典原文缓存存入新增的 word_learning_dictionary_cache，按拼写跨词书复用，正缓存 30 天，词条缺失缓存 7 天；失败短暂退避。同词并发去重，外部查询同时最多 4 个、5 秒超时。私人 AI 卡片仍通过 generated_contents 按 user_id 读取，不进入公共词典缓存。新增迁移 022 仅建缓存表，不更改学习记录。
 
+## 错词记忆图
+
+在背词中答错或选择「不认识」后，可以选择一条词义并点「生成记忆图」。生成期间可继续答题，完成后可从「单词本 → 错题本 → 查看记忆图」回看；再次复习时，已保存的图在提交答案后展示。图片按账号、单词和词义保存在 MySQL，服务商只收到目标词和对应的词库释义。
+
+默认使用硅基流动的 `Kwai-Kolors/Kolors`。本地安装依赖并运行 `npm run db:migrate` 后，在 `server/.env` 设置 `WORD_IMAGE_API_KEY` 并重启后端。Docker 部署在 `deploy/.env` 配置同一项，再运行 `sh deploy/compose.sh up -d --build api`。如果之前设过生图地址或模型，改为 `WORD_IMAGE_BASE_URL=https://api.siliconflow.cn/v1` 和 `WORD_IMAGE_MODEL=Kwai-Kolors/Kolors`。服务端会下载图片并转成 WebP 保存，方便之后回看。[硅基流动 API 密钥](https://cloud.siliconflow.cn/account/ak) · [生图接口](https://api-docs.siliconflow.cn/docs/api/images-generations-post)
+
+生成前，系统用偏好设置中的文字 AI（或服务器配置的文字模型），根据目标词义和保存的误选项设计可画的场景，再将场景交给生图服务。图下「这样记」说明画面中的细节如何对应目标词义。旧图可在错题本中点击「重新生成记忆图」升级，新图生成失败时仍可回看原图。两个接口各自按服务商计费。
+
+插图使用统一的方形构图、暖灰米色底、低饱和莫兰迪配色和扁平矢量风格。每个账号默认每天最多尝试 5 次，可用 `WORD_IMAGE_DAILY_QUOTA` 调整。留空 Key 或将额度设为 `0` 即可关闭新生成，已保存的图仍可查看。
+
 ## 自动朗读
 
-- 默认开启；页面开关在本设备保存。手动喇叭可以重播或取消正在准备的音频。
+- 默认开启。可在「偏好设置 → 学习环境」关闭，设置保存在本设备。手动喇叭可以重播或取消正在准备的音频。
 - 单词、题号或会话改变时播放；仅提交答案不会重复朗读。暂停、退出、切换模式或页面隐藏立即取消过时请求和播放。
 - 继续使用服务器 Kokoro，无需安装手机系统 TTS。短词音频最多缓存 24 条，按登录身份、接口、拼写和语速隔离，重播不重复请求服务器。
 - 安卓 WebView 通过 WebSettings.setMediaPlaybackRequiresUserGesture(false) 支持自动播放，需安装新 APK 才能获得这一原生配置。浏览器仍可能要求先与页面交互，界面会提示点喇叭启用。

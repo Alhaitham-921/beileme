@@ -1,7 +1,8 @@
 import { query, queryOne, execute } from '../db/pool.js'
 import { toDateKey } from '../utils/time.js'
 import { parseJson } from '../utils/json.js'
-import { notFound } from '../utils/errors.js'
+import { badRequest, conflict, notFound } from '../utils/errors.js'
+import { countDueWords } from './planService.js'
 
 /** Reports can schedule a practice, but quotations must come from the learner. */
 export function followupCandidates(session, report) {
@@ -76,11 +77,13 @@ export async function listFollowups(userId, { sourceId } = {}) {
   const rows = await query(`SELECT f.*, r.due_on AS recall_due_on, r.last_result AS recall_result
     FROM practice_followups f LEFT JOIN dialogue_recall_tasks r ON r.id=f.recall_task_id AND r.user_id=f.user_id
     WHERE f.user_id=?` + (sourceId ? ' AND f.source_session_id=?' : '') +
-    " ORDER BY (f.status='pending') DESC,f.next_check_at ASC,f.id DESC LIMIT 20", params)
+    " ORDER BY (f.status='pending') DESC,COALESCE(f.scheduled_at,f.next_check_at) ASC,f.id DESC LIMIT 20", params)
   return rows.map(r => ({ ...parseJson(r.details, {}), id: Number(r.id), sourceSessionId: Number(r.source_session_id),
     wordId: r.word_id ? Number(r.word_id) : null,
     recall: r.recall_task_id ? { dueOn: toDateKey(r.recall_due_on), result: r.recall_result } : null,
-    status: r.status, nextCheckAt: r.next_check_at, due: new Date(r.next_check_at) <= new Date() }))
+    status: r.status, nextCheckAt: r.next_check_at,
+    scheduleMode: r.schedule_mode, scheduledAt: r.scheduled_at,
+    due: new Date(r.scheduled_at || r.next_check_at) <= new Date() }))
 }
 
 export async function getFollowup(userId, id) {
@@ -91,6 +94,41 @@ export async function getFollowup(userId, id) {
 
 export async function saveShortPractice(userId, id, answer) {
   await getFollowup(userId, id)
-  await execute("UPDATE practice_followups SET details=JSON_SET(details,'$.practiceAnswer',?) WHERE id=? AND user_id=?", [answer, id, userId])
+  await execute(`UPDATE practice_followups SET details=JSON_SET(details,'$.practiceAnswer',?),
+    schedule_mode=IF(word_id IS NULL AND scheduled_at<=UTC_TIMESTAMP(3),NULL,schedule_mode),
+    scheduled_at=IF(word_id IS NULL AND scheduled_at<=UTC_TIMESTAMP(3),NULL,scheduled_at)
+    WHERE id=? AND user_id=?`, [answer, id, userId])
   return { saved: true, message: '短句已保存。请对照参考表达；这不会自动判定为掌握。' }
+}
+
+export async function scheduleFollowup(userId, id, { mode, scheduledAt }) {
+  const task = await getFollowup(userId, id)
+  if (mode === 'next' && !task.wordId) throw badRequest('这个词尚未收录到词库，可以自选时间做短句练习')
+
+  const now = new Date()
+  const time = mode === 'next' ? now : new Date(scheduledAt)
+  if (mode === 'time' && !(time > now)) throw badRequest('请选择晚于当前时间的练习时间')
+  const result = await execute(`UPDATE practice_followups SET schedule_mode=?, scheduled_at=?
+    WHERE id=? AND user_id=? AND status='pending'`, [mode, time, id, userId])
+  if (!result.affectedRows) throw conflict('这项练习已完成，请刷新任务')
+  return { scheduleMode: mode, scheduledAt: time, due: mode === 'next', remainingDueCount: await countDueWords(userId) }
+}
+
+export async function listScheduledStudyWords(userId, now, limit) {
+  return query(`SELECT w.*, p.word_id AS learned_word_id
+    FROM (
+      SELECT word_id, MIN(scheduled_at) AS first_due
+      FROM practice_followups
+      WHERE user_id=? AND status='pending' AND scheduled_at<=? AND word_id IS NOT NULL
+      GROUP BY word_id
+    ) scheduled
+    JOIN words w ON w.id=scheduled.word_id
+    LEFT JOIN user_word_progress p ON p.user_id=? AND p.word_id=w.id
+    ORDER BY scheduled.first_due, w.id LIMIT ?`, [userId, now, userId, limit])
+}
+
+export async function completeScheduledStudy(conn, userId, wordId, cutoff) {
+  await conn.execute(`UPDATE practice_followups SET schedule_mode=NULL, scheduled_at=NULL
+    WHERE user_id=? AND word_id=? AND status='pending' AND scheduled_at<=?`,
+  [userId, wordId, new Date(cutoff)])
 }

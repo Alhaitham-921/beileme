@@ -94,7 +94,9 @@ describe('创建学习会话', () => {
     for (const item of response.data.items) {
       assert.equal(item.correctOptionIndex, await correctOptionIndex(response.data.session.id, item.wordId))
       for (const option of item.options) {
-        assert.deepEqual(Object.keys(option).sort(), ['index', 'primary', 'text'])
+        // 选项公开释义和词性，答案留在服务端。
+        assert.deepEqual(Object.keys(option).sort(), ['index', 'pos', 'primary', 'text'])
+        assert.equal(typeof option.pos, 'string')
       }
     }
   })
