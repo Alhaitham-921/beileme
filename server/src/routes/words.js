@@ -12,7 +12,11 @@ import {
   recentLearnedWords,
 } from '../services/wordService.js'
 import { getWordLearningCard } from '../services/wordLearningService.js'
-import { getWordMemoryImage, startWordMemoryImage } from '../services/wordMemoryImageService.js'
+import { lookupInput, lookupInWordbooks, lookupWithAi } from '../services/wordLookupService.js'
+import {
+  getWordMemoryImage, listWordMemoryImages, readWordMemoryImage, startWordMemoryImage,
+  getRecallExampleReplacement, listRecallExampleReplacements, readRecallExampleReplacement, startRecallExampleReplacement,
+} from '../services/wordMemoryImageService.js'
 import { buildConfusableCard } from '../services/studyService.js'
 
 import { listCollectionWords, collectionWordIds } from '../services/collectionService.js'
@@ -119,7 +123,41 @@ router.delete('/:id/favorite', requireAuth, validate({ params: wordIdParam, quer
   return ok(res, { saved: false })
 }))
 
-// GET /api/v1/words/:id
+router.get('/lookup', requireAuth, validate({ query: lookupInput }), asyncHandler(async (req, res) => {
+  return ok(res, await lookupInWordbooks(req.valid.query.q))
+}))
+router.post('/lookup/ai', requireAuth, validate({ body: lookupInput }), asyncHandler(async (req, res) => {
+  return ok(res, await lookupWithAi(req.user.id, req.valid.body.q))
+}))
+
+router.get('/memory-images', requireAuth, asyncHandler(async (req, res) => {
+  res.set('Cache-Control', 'no-store')
+  const [items, replacements] = await Promise.all([
+    listWordMemoryImages(req.user.id), listRecallExampleReplacements(req.user.id),
+  ])
+  return ok(res, { items, replacements })
+}))
+
+const imageKey = z.string().regex(/^[0-9a-f]{64}$/)
+const exampleParam = z.object({ exampleKey: z.string().regex(/^example-\d{1,5}$/) })
+const learnerCue = z.string().trim().min(1).max(300).optional()
+router.get('/memory-images/examples/:exampleKey', requireAuth, validate({ params: exampleParam }),
+  asyncHandler(async (req, res) => {
+    res.set('Cache-Control', 'no-store')
+    return ok(res, await getRecallExampleReplacement(req.user.id, req.valid.params.exampleKey))
+  }))
+router.post('/memory-images/examples/:exampleKey', requireAuth, validate({ params: exampleParam, body: z.object({ learnerCue }) }),
+  asyncHandler(async (req, res) => ok(res,
+    await startRecallExampleReplacement(req.user.id, req.valid.params.exampleKey, req.valid.body.learnerCue))))
+router.get('/memory-images/examples/:exampleKey/:revision', requireAuth, validate({ params: exampleParam.extend({ revision: imageKey }) }),
+  asyncHandler(async (req, res) => {
+    const { exampleKey, revision } = req.valid.params
+    const image = await readRecallExampleReplacement(req.user.id, exampleKey, revision)
+    res.vary('Authorization')
+    res.set('Cache-Control', 'private, max-age=3600')
+    return res.type('image/webp').send(image)
+  }))
+
 router.get(
   '/:id',
   validate({ params: wordIdParam }),
@@ -160,16 +198,25 @@ router.get('/:id/learning-card', requireAuth, validate({ params: wordIdParam, qu
   asyncHandler(async (req,res) => ok(res, { card: await getWordLearningCard(req.user.id, req.valid.params.id, { localOnly: req.valid.query.local === '1' }) })))
 
 const memorySense = z.string().min(1).max(1000)
+router.get('/:id/memory-image/:senseHash/:revision{/:variant}', requireAuth, validate({ params: wordIdParam.extend({
+  senseHash: imageKey, revision: imageKey, variant: z.literal('tile').optional(),
+}) }), asyncHandler(async (req, res) => {
+  const { id, senseHash, revision, variant } = req.valid.params
+  const image = await readWordMemoryImage(req.user.id, id, senseHash, revision, variant === 'tile')
+  res.vary('Authorization')
+  res.set('Cache-Control', 'private, max-age=3600')
+  return res.type('image/webp').send(image)
+}))
 router.get('/:id/memory-image', requireAuth, validate({ params: wordIdParam, query: z.object({ sense: memorySense.optional() }) }),
   asyncHandler(async (req, res) => {
     res.set('Cache-Control', 'no-store')
     return ok(res, await getWordMemoryImage(req.user.id, req.valid.params.id, req.valid.query.sense))
   }))
 router.post('/:id/memory-image', requireAuth, validate({ params: wordIdParam, body: z.object({
-  sense: memorySense, sessionId: z.number().int().positive().optional(), regenerate: z.boolean().optional(),
+  sense: memorySense, sessionId: z.number().int().positive().optional(), regenerate: z.boolean().optional(), learnerCue,
 }) }), asyncHandler(async (req, res) => {
-  const { sense, sessionId, regenerate } = req.valid.body
-  return ok(res, await startWordMemoryImage(req.user.id, req.valid.params.id, sense, { sessionId, regenerate }))
+  const { sense, sessionId, regenerate, learnerCue } = req.valid.body
+  return ok(res, await startWordMemoryImage(req.user.id, req.valid.params.id, sense, { sessionId, regenerate, learnerCue }))
 }))
 
 export default router

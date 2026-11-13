@@ -21,6 +21,7 @@ const sidebar = ref(null)
 const links = [
   { to: '/', icon: 'home', label: '今日', caption: 'TODAY' },
   { to: '/study', icon: 'book', label: '单词学习' },
+  { to: '/lookup', icon: 'search', label: '查词' },
   { to: '/review', icon: 'repeat', label: '温故知新' },
   { to: '/notebooks', icon: 'book', label: '我的单词本' },
   { to: '/practice', icon: 'chat', label: '情境练习' },
@@ -33,12 +34,12 @@ const androidTabs = [
   { to: '/study', icon: 'book', label: '背单词', pages: ['/study', '/assessment'] },
   { to: '/notebooks', icon: 'layers', label: '单词本', pages: ['/notebooks', '/recall'] },
   { to: '/practice', icon: 'chat', label: '情境', pages: ['/practice', '/practice/demo', '/speech'] },
-  { to: '/more', icon: 'menu', label: '更多', pages: ['/more', '/settings', '/review', '/roots', '/dashboard', '/article'] },
+  { to: '/more', icon: 'menu', label: '更多', pages: ['/more', '/lookup', '/settings', '/review', '/review/images', '/roots', '/dashboard', '/article'] },
 ]
 watch(() => route.path, () => {
   if (isAndroid) window.scrollTo({ top: 0, behavior: 'instant' })
 }, { flush: 'post' })
-const pageLabel = computed(() => [...links, { to: '/settings', label: '偏好设置' }, { to: '/article', label: '阅读巩固' }, { to: '/assessment', label: '学习起点' }, { to: '/recall', label: '错词专项' }].find(item => item.to === route.path)?.label || (route.path.startsWith('/ielts') ? '雅思专项' : '学习空间'))
+const pageLabel = computed(() => route.meta.title || [...links, { to: '/settings', label: '偏好设置' }, { to: '/article', label: '阅读巩固' }, { to: '/assessment', label: '学习起点' }, { to: '/recall', label: '错词专项' }].find(item => item.to === route.path)?.label || (route.path.startsWith('/ielts') ? '雅思专项' : '学习空间'))
 
 async function closeMenu(restoreFocus = true) {
   menuOpen.value = false
@@ -94,11 +95,15 @@ function focusMain() { document.getElementById('main-content')?.focus() }
     <a class="accessibility-skip" href="#main-content" @click.prevent="focusMain">跳到主要内容</a>
     <header v-if="showChrome && isAndroid" class="android-header">
       <router-link to="/" class="brand"><span class="brand-symbol"><img :src="brandMark" alt="" /></span><span>背了么<span class="brand-dot">.</span></span></router-link>
+      <router-link to="/lookup" class="icon-button header-lookup" aria-label="查词"><AppIcon name="search" /></router-link>
     </header>
     <template v-if="showChrome && !isAndroid">
       <header class="mobile-header">
         <router-link to="/" class="brand"><span class="brand-symbol"><img :src="brandMark" alt="" /></span><span>背了么<span class="brand-dot">.</span></span></router-link>
-        <button ref="menuButton" class="icon-button" aria-label="打开导航" :aria-expanded="menuOpen" aria-controls="app-navigation" @click="openMenu"><AppIcon name="menu" /></button>
+        <div class="mobile-actions">
+          <router-link to="/lookup" class="icon-button" aria-label="查词"><AppIcon name="search" /></router-link>
+          <button ref="menuButton" class="icon-button" aria-label="打开导航" :aria-expanded="menuOpen" aria-controls="app-navigation" @click="openMenu"><AppIcon name="menu" /></button>
+        </div>
       </header>
       <div v-if="menuOpen" class="navigation-overlay" @click="closeMenu()"></div>
       <aside id="app-navigation" ref="sidebar" class="sidebar" :class="{ 'is-open': menuOpen }" :role="menuOpen ? 'dialog' : undefined" :aria-modal="menuOpen ? true : undefined" aria-label="学习导航">
@@ -128,3 +133,8 @@ function focusMain() { document.getElementById('main-content')?.focus() }
     <footer v-if="showChrome && !isAndroid" class="workspace-footer"><span>背了么 · 用单词，而不是背单词</span><span>MAKE ROOM FOR GROWTH.</span></footer>
   </div>
 </template>
+
+<style scoped>
+.mobile-actions { display: flex; align-items: center; gap: 4px; }
+.header-lookup { margin-inline-start: auto; }
+</style>

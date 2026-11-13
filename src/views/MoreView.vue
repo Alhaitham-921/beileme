@@ -6,6 +6,7 @@ import AppIcon from '../components/AppIcon.vue'
 const auth = useAuthStore()
 const router = useRouter()
 const links = [
+  { to: '/lookup', icon: 'search', label: '查词' },
   { to: '/review', icon: 'repeat', label: '温故知新' },
   { to: '/roots', icon: 'layers', label: '词根词缀' },
   { to: '/dashboard', icon: 'chart', label: '学习足迹' },

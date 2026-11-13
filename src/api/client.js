@@ -176,7 +176,7 @@ function ensureRefreshed() {
  * @throws {ApiError}
  */
 export async function request(method, path, options = {}) {
-  const { body, query, auth = true, retryOn401 = true, timeoutMs, signal, onUploadComplete, timeoutMessage } = options
+  const { body, query, auth = true, retryOn401 = true, timeoutMs, signal, onUploadComplete, timeoutMessage, responseType } = options
 
   const headers = {}
   if (body !== undefined) headers['Content-Type'] = 'application/json'
@@ -192,6 +192,7 @@ export async function request(method, path, options = {}) {
       signal: mergeSignals([signal, timeoutMs ? AbortSignal.timeout(timeoutMs) : null]),
       ...(onUploadComplete ? {onUploadComplete} : {}),
     })
+    if (response.ok && responseType === 'blob') return await response.blob()
   } catch (error) {
     if (signal?.aborted) throw new ApiError(499, 'REQUEST_CANCELLED', '已取消等待；已提交的后台操作仍可能完成。')
     if (error.name === 'TimeoutError' || error.name === 'AbortError') throw new ApiError(0, 'TIMEOUT', timeoutMessage || '请求超时，请稍后重试；已提交的操作可能仍在后台处理。')
@@ -228,6 +229,7 @@ export async function request(method, path, options = {}) {
 
 export const http = {
   get: (path, options) => request('GET', path, options),
+  getBlob: (path, options) => request('GET', path, { ...options, responseType: 'blob' }),
   post: (path, options) => request('POST', path, options),
   put: (path, options) => request('PUT', path, options),
   del: (path, options) => request('DELETE', path, options),

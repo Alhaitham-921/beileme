@@ -99,6 +99,7 @@ function generateArticleForToday() {
       <button class="tab" :class="{ active: tab === 'articles' }" :aria-pressed="tab === 'articles'" @click="tab = 'articles'">
         短文回顾 <span v-if="articles.length" class="tab-count">{{ articles.length }}</span>
       </button>
+      <router-link class="tab" :to="{ name: 'image-recall' }">看图回忆</router-link>
     </div>
 
     <div v-if="loading && !review" class="card loading-card" role="status"><span class="loading-mark" aria-hidden="true"></span><p class="muted">正在整理今天的学习记录…</p></div>
@@ -231,7 +232,7 @@ function generateArticleForToday() {
 .msg.error { margin: 12px 0 20px; padding: 10px 14px; font-size: 12px; color: var(--bad); background: var(--bad-soft); border-radius: var(--radius-sm); }
 @media (max-width: 560px) {
   .tabs { display: flex; width: 100%; }
-  .tab { min-width: 0; flex: 1; }
+  .tab { min-width: 0; flex: 1; padding-inline: 5px; white-space: nowrap; }
   .load-error { align-items: flex-start; flex-direction: column; }
   .actions-row > .btn { padding: 10px 13px; }
   .wrong-item { padding-top: 21px; padding-bottom: 21px; gap: 11px; }

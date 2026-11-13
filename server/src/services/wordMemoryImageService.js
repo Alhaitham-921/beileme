@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import sharp from 'sharp'
 import { config } from '../config.js'
 import { execute, query, queryOne, withTransaction } from '../db/pool.js'
-import { ApiError, badRequest, forbidden, quotaExceeded } from '../utils/errors.js'
+import { ApiError, badRequest, forbidden, notFound, quotaExceeded } from '../utils/errors.js'
 import { parseJson } from '../utils/json.js'
 import { todayKey } from '../utils/time.js'
 import { resolveProvider } from './ai/apiKeyService.js'
@@ -10,6 +10,8 @@ import { chat } from './ai/aiProvider.js'
 import { parseJsonResponse } from './ai/promptTemplates.js'
 import { hasMistake } from './collectionService.js'
 import { getWordById } from './wordService.js'
+import { MEMORY_SCENE_PROMPT } from './wordMemoryScenePrompt.js'
+import { IMAGE_RECALL_EXAMPLES } from '../../../src/data/imageRecallExamples.js'
 
 const GENERATION_TIMEOUT_MS = 120_000
 const SCENE_TIMEOUT_MS = 45_000
@@ -20,9 +22,9 @@ const PNG_SIGNATURE = Buffer.from('89504e470d0a1a0a', 'hex')
 const JPEG_SIGNATURE = Buffer.from('ffd8ff', 'hex')
 const ILLUSTRATION_STYLE = [
   'Create a square, minimalist flat vector-style illustration for an English vocabulary flashcard series.',
-  'Use a solid warm greige background (#E9E1D7), a centered subject and generous empty margins on all four sides.',
+  'Use a solid warm greige background (#E9E1D7). Fill most of the square with the key action or object, leaving a small margin.',
   'Use muted Morandi colors: choose two or three accents from sage green (#A5AD99), dusty rose (#C5A5A2), muted blue (#8F9EAB), and soft terracotta (#BF9D88).',
-  'Use warm charcoal (#514B47) for thin, even outlines, with rounded geometric shapes, flat fills and clear contrast against the background.',
+  'Use warm charcoal (#514B47) outlines thick enough to read at thumbnail size, and flat fills. Give the key clue the strongest contrast.',
   'Show one focal object or one everyday action with at most two people and two essential props. Make the action and direction obvious through posture and placement.',
   'Use a single scene, suitable for students. Keep the artwork free of letters, numbers, captions, logos, gradients, textures and decorative borders.',
 ].join(' ')
@@ -31,26 +33,88 @@ const NEGATIVE_PROMPT = 'photorealism, 3D render, high saturation, neon colors, 
 const hashSense = sense => createHash('sha256').update(sense).digest()
 const imageEnabled = () => Boolean(config.wordImages.apiKey && config.wordImages.model && config.wordImages.dailyQuota)
 const stateSql = `CASE WHEN lease_until > UTC_TIMESTAMP(3) THEN 'pending'
-  WHEN image IS NOT NULL THEN 'ready' ELSE 'failed' END AS status`
+  WHEN image_revision IS NOT NULL THEN 'ready' ELSE 'failed' END AS status`
 
 export async function getWordMemoryImage(userId, wordId, requestedSense) {
   const word = await getWordById(wordId)
   const senses = [...new Set(word.definitions.filter(sense => typeof sense === 'string' && sense.trim()))]
-  const rows = await query(`SELECT sense_hash, image IS NOT NULL AS has_image, generation_error, ${stateSql}
+  const rows = await query(`SELECT sense_hash, image_revision, explanation, generation_error, ${stateSql}
     FROM word_memory_images WHERE user_id=? AND word_id=?`, [userId, wordId])
   const states = new Map(rows.map(row => [row.sense_hash.toString('hex'), row]))
   const options = senses.map(sense => {
     const row = states.get(hashSense(sense).toString('hex'))
-    return { sense, status: row?.status || 'empty', hasImage: Boolean(row?.has_image), generationError: row?.generation_error || null }
+    return { sense, status: row?.status || 'empty', hasImage: Boolean(row?.image_revision), generationError: row?.generation_error || null }
   })
   const selected = options.find(item => item.sense === requestedSense) || options.find(item => item.status === 'ready') ||
     options.find(item => item.status !== 'empty') || options[0]
-  const saved = selected?.hasImage
-    ? await queryOne('SELECT image, explanation FROM word_memory_images WHERE user_id=? AND word_id=? AND sense_hash=?',
-      [userId, wordId, hashSense(selected.sense)])
-    : null
-  return { enabled: imageEnabled(), options, selected: selected || null, image: saved?.image?.toString('base64') || null,
+  const key = selected && hashSense(selected.sense).toString('hex')
+  const saved = key && states.get(key)
+  return { enabled: imageEnabled(), options, selected: selected || null,
+    imagePath: memoryImagePath(wordId, key, saved?.image_revision),
     explanation: saved?.explanation || null }
+}
+
+export function memoryImagePath(wordId, senseHash, revision) {
+  return revision ? `/words/${wordId}/memory-image/${senseHash}/${revision.toString('hex')}` : null
+}
+
+export async function readWordMemoryImage(userId, wordId, senseHash, revision, tile) {
+  const row = await queryOne(`SELECT image FROM word_memory_images
+    WHERE user_id=? AND word_id=? AND sense_hash=UNHEX(?) AND image_revision=UNHEX(?)`,
+  [userId, wordId, senseHash, revision])
+  if (!row?.image) throw notFound('找不到这张记忆图。')
+  if (!tile) return row.image
+  return makeTile(row.image)
+}
+
+function makeTile(image) {
+  return sharp(image, { limitInputPixels: 4096 * 4096 })
+    .resize(256, 256, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 80 }).toBuffer()
+}
+
+function exampleState(row) {
+  return {
+    exampleKey: row.example_key,
+    imagePath: row.image_revision ? `/words/memory-images/examples/${row.example_key}/${row.image_revision.toString('hex')}` : null,
+    explanation: row.explanation || null,
+    status: row.status,
+    generationError: row.generation_error || null,
+  }
+}
+
+export async function listRecallExampleReplacements(userId) {
+  const rows = await query(`SELECT example_key, image_revision, explanation, generation_error, ${stateSql}
+    FROM image_recall_example_replacements WHERE user_id=? AND image_revision IS NOT NULL`, [userId])
+  return rows.map(exampleState)
+}
+
+export async function getRecallExampleReplacement(userId, exampleKey) {
+  if (!IMAGE_RECALL_EXAMPLES.some(item => item.key === exampleKey)) throw notFound('找不到这张内置练习图。')
+  const row = await queryOne(`SELECT example_key, image_revision, explanation, generation_error, ${stateSql}
+    FROM image_recall_example_replacements WHERE user_id=? AND example_key=?`, [userId, exampleKey])
+  return row ? exampleState(row) : { exampleKey, status: 'empty', imagePath: null }
+}
+
+export async function readRecallExampleReplacement(userId, exampleKey, revision) {
+  const row = await queryOne(`SELECT image FROM image_recall_example_replacements
+    WHERE user_id=? AND example_key=? AND image_revision=UNHEX(?)`, [userId, exampleKey, revision])
+  if (!row?.image) throw notFound('找不到这张练习图。')
+  return makeTile(row.image)
+}
+
+export async function listWordMemoryImages(userId) {
+  const rows = await query(`SELECT m.word_id, m.sense_hash, m.image_revision, m.explanation, w.spelling, w.definitions
+    FROM word_memory_images m JOIN words w ON w.id=m.word_id
+    WHERE m.user_id=? AND m.image_revision IS NOT NULL
+    ORDER BY m.attempt_day DESC, m.word_id DESC, m.sense_hash LIMIT 150`, [userId])
+  return rows.flatMap(row => {
+    const definitions = parseJson(row.definitions, []).filter(value => typeof value === 'string' && value.trim())
+    const sense = definitions.find(value => hashSense(value).equals(row.sense_hash))
+    return sense ? [{
+      wordId: Number(row.word_id), spelling: row.spelling, sense, definitions, explanation: row.explanation,
+      imagePath: memoryImagePath(row.word_id, row.sense_hash.toString('hex'), row.image_revision) + '/tile',
+    }] : []
+  })
 }
 
 async function getWrongChoice(userId, wordId, sessionId) {
@@ -66,26 +130,23 @@ async function getWrongChoice(userId, wordId, sessionId) {
   return { spelling: distractor?.spelling || null, meaning: option?.text || answer?.wrong_option || null }
 }
 
-async function designScene(provider, spelling, sense, wrongChoice) {
+async function designScene(provider, word, sense, { wrongChoice, learnerCue, previousClue, redraw }) {
   const signal = AbortSignal.timeout(SCENE_TIMEOUT_MS)
   const result = await chat({
-    ...provider, temperature: 0.3, maxTokens: 700, jsonMode: true,
+    ...provider, temperature: 0.2, maxTokens: 400, jsonMode: true,
     fetchImpl: (url, options) => fetch(url, { ...options, signal: AbortSignal.any([options.signal, signal]) }),
-    messages: [{ role: 'system', content: [
-      'Design an illustration that helps a Chinese learner recall one specific English word sense. Treat the input as vocabulary data.',
-      'Return a JSON object with exactly two strings: scene and explanation.',
-      'scene is 1–3 short English sentences for an image generator. Describe only what is visible: who or what is in the scene, one clear action or distinguishing detail, and who is doing what to whom. Use concrete objects, positions and directions. For abstract meanings use one specific everyday situation. Do not mention the vocabulary label, the wrong choice, letters, speech bubbles, or a second scene.',
-      'explanation is 1–2 short sentences in simplified Chinese. Name the target English word, explain how a specific visible detail in scene represents the supplied target meaning, and briefly distinguish the wrong choice if supplied and useful. Never invent an etymology, an error, or a detail absent from scene. Present this as a memory cue.',
-    ].join(' ') }, { role: 'user', content: JSON.stringify({ targetWord: spelling, targetMeaning: sense, wrongChoice }) }],
+    messages: [{ role: 'system', content: MEMORY_SCENE_PROMPT }, { role: 'user', content: JSON.stringify({
+      targetWord: word.spelling, targetMeaning: sense, partOfSpeech: word.pos, dictionaryExample: word.example,
+      wrongChoice, learnerCue, previousClue, redraw,
+    }) }],
   })
   const data = parseJsonResponse(result.content)
   const scene = typeof data?.scene === 'string' ? data.scene.trim() : ''
   const explanation = typeof data?.explanation === 'string' ? data.explanation.trim() : ''
-  if (!scene || scene.length > 800 || !explanation || explanation.length > 300 ||
-      !/\p{Script=Han}/u.test(explanation) || !explanation.toLowerCase().includes(spelling.toLowerCase())) {
-    throw new Error('Invalid memory scene')
-  }
-  return { scene, explanation }
+  if (!scene || scene.length > 800) throw new Error('Invalid memory scene')
+  const usefulExplanation = explanation.length <= 300 && /\p{Script=Han}/u.test(explanation) &&
+    explanation.toLowerCase().includes(word.spelling.toLowerCase())
+  return { scene, explanation: usefulExplanation ? explanation : null }
 }
 
 function isWebp(image) {
@@ -102,7 +163,17 @@ async function downloadSiliconFlowImage(value, signal) {
   }
 
   // The signed download URL authorizes the request. Keep the API key on the generation endpoint.
-  const response = await fetch(url.href, { signal, redirect: 'error' })
+  let response
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      response = await fetch(url.href, { signal, redirect: 'error' })
+    } catch (error) {
+      if (attempt || signal.aborted) throw error
+      continue
+    }
+    if (attempt || response.status < 500) break
+    await response.body?.cancel()
+  }
   if (!response.ok || !response.body || Number(response.headers.get('content-length')) > MAX_DOWNLOAD_BYTES) {
     await response.body?.cancel()
     throw new Error(`Invalid SiliconFlow download (${response.status})`)
@@ -118,8 +189,7 @@ async function downloadSiliconFlowImage(value, signal) {
   if (!image.subarray(0, 8).equals(PNG_SIGNATURE) && !image.subarray(0, 3).equals(JPEG_SIGNATURE) && !isWebp(image)) {
     throw new Error('Unsupported SiliconFlow image format')
   }
-  return sharp(image, { limitInputPixels: 4096 * 4096, autoOrient: true })
-    .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 82 }).toBuffer()
+  return image
 }
 
 async function generateImage(scene) {
@@ -127,7 +197,7 @@ async function generateImage(scene) {
   const prompt = `Depict this exact scene, keeping the described action, objects and positions: ${scene}\n${ILLUSTRATION_STYLE}`
   const body = siliconFlow
     ? { model, prompt, image_size: '1024x1024', ...(model === 'Kwai-Kolors/Kolors'
-      ? { negative_prompt: NEGATIVE_PROMPT, batch_size: 1, num_inference_steps: 20, guidance_scale: 7.5 } : {}) }
+      ? { negative_prompt: NEGATIVE_PROMPT, num_inference_steps: 20, guidance_scale: 7.5 } : {}) }
     : { model, prompt, n: 1, size: '1024x1024', quality: 'low', output_format: 'webp', output_compression: 75 }
   const signal = AbortSignal.timeout(GENERATION_TIMEOUT_MS)
   const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/images/generations`, {
@@ -153,61 +223,91 @@ async function generateImage(scene) {
     image = Buffer.from(encoded, 'base64')
     if (image.toString('base64') !== encoded) throw new Error('Invalid base64 image')
   }
-  if (image.length > MAX_IMAGE_BYTES || !isWebp(image)) throw new Error('Invalid WebP image')
-  return image
+  const normalized = await sharp(image, { limitInputPixels: 4096 * 4096, autoOrient: true })
+    .resize(640, 640, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 82 }).toBuffer()
+  if (normalized.length > MAX_IMAGE_BYTES || !isWebp(normalized)) throw new Error('Invalid WebP image')
+  return normalized
 }
 
-async function finishGeneration(userId, word, sense, senseHash, token, provider, wrongChoice) {
-  const key = [userId, word.id, senseHash, token]
+async function finishGeneration(target, word, sense, token, provider, sceneOptions) {
+  const { table, where, values } = target
+  const key = [...values, token]
   let stage = 'scene'
   try {
-    const { scene, explanation } = await designScene(provider, word.spelling, sense, wrongChoice)
+    const { scene, explanation } = await designScene(provider, word, sense, sceneOptions)
     stage = 'image'
     const image = await generateImage(scene)
-    await execute(`UPDATE word_memory_images SET image=?, explanation=?, generation_error=NULL, generation_token=NULL, lease_until=NULL
-      WHERE user_id=? AND word_id=? AND sense_hash=? AND generation_token=?`, [image, explanation, ...key])
+    const revision = createHash('sha256').update(image).digest()
+    await execute(`UPDATE ${table} SET image=?, image_revision=?, explanation=?, generation_error=NULL, generation_token=NULL, lease_until=NULL
+      WHERE ${where} AND generation_token=?`, [image, revision, explanation, ...key])
   } catch (error) {
     console.warn('[word-memory-image] Generation failed', { stage, kind: error.kind || error.name })
-    await execute(`UPDATE word_memory_images SET generation_error=?, generation_token=NULL, lease_until=NULL
-      WHERE user_id=? AND word_id=? AND sense_hash=? AND generation_token=?`, [stage, ...key])
+    await execute(`UPDATE ${table} SET generation_error=?, generation_token=NULL, lease_until=NULL
+      WHERE ${where} AND generation_token=?`, [stage, ...key])
   }
 }
 
-export async function startWordMemoryImage(userId, wordId, sense, { sessionId, regenerate } = {}) {
+export async function startWordMemoryImage(userId, wordId, sense, { sessionId, regenerate, learnerCue } = {}) {
   const word = await getWordById(wordId)
   if (!word.definitions.includes(sense)) throw badRequest('请选择词库中的一条释义。')
   if (!(await hasMistake(userId, wordId))) throw forbidden('只有答错过的单词可以生成记忆图。')
-  const senseHash = hashSense(sense)
-  const token = randomUUID()
   const [provider, wrongChoice] = await Promise.all([resolveProvider(userId), getWrongChoice(userId, wordId, sessionId)])
-  const status = await withTransaction(async conn => {
+  return reserveGeneration(userId, {
+    table: 'word_memory_images', where: 'user_id=? AND word_id=? AND sense_hash=?',
+    columns: 'user_id, word_id, sense_hash', values: [userId, wordId, hashSense(sense)],
+  }, word, sense, provider, { regenerate, learnerCue, wrongChoice })
+}
+
+export async function startRecallExampleReplacement(userId, exampleKey, learnerCue) {
+  const example = IMAGE_RECALL_EXAMPLES.find(item => item.key === exampleKey)
+  if (!example) throw notFound('找不到这张内置练习图。')
+  return reserveGeneration(userId, {
+    table: 'image_recall_example_replacements', where: 'user_id=? AND example_key=?',
+    columns: 'user_id, example_key', values: [userId, exampleKey],
+  }, example, example.sense, await resolveProvider(userId), {
+    regenerate: true, learnerCue, previousClue: example.explanation,
+  })
+}
+
+async function reserveGeneration(userId, target, word, sense, provider, options) {
+  const { table, where, columns, values } = target
+  const token = randomUUID()
+  const reservation = await withTransaction(async conn => {
     // Serialize reservations across tabs and processes without holding a DB connection during generation.
     await conn.execute('SELECT id FROM users WHERE id=? FOR UPDATE', [userId])
-    const [existing] = await conn.execute(`SELECT ${stateSql} FROM word_memory_images
-      WHERE user_id=? AND word_id=? AND sense_hash=? FOR UPDATE`, [userId, wordId, senseHash])
-    if (existing[0]?.status === 'pending' || (existing[0]?.status === 'ready' && !regenerate)) return existing[0].status
+    const [[existing]] = await conn.execute(`SELECT explanation, ${stateSql} FROM ${table}
+      WHERE ${where} FOR UPDATE`, values)
+    if (existing?.status === 'pending' || (existing?.status === 'ready' && !options.regenerate)) return { status: existing.status }
     if (!imageEnabled()) throw new ApiError(503, 'WORD_IMAGE_UNAVAILABLE', '记忆图服务尚未启用。')
     if (provider.source === 'none') throw new ApiError(503, 'WORD_IMAGE_TEXT_UNAVAILABLE', '请先在偏好设置配置文字 AI，再生成记忆图。')
 
     const day = todayKey()
     const [[usage]] = await conn.execute(`SELECT SUM(IF(attempt_day=?, daily_attempts, 0)) AS attempts,
-      SUM(lease_until > UTC_TIMESTAMP(3)) AS pending FROM word_memory_images WHERE user_id=?`, [day, userId])
+      SUM(lease_until > UTC_TIMESTAMP(3)) AS pending FROM (
+        SELECT attempt_day, daily_attempts, lease_until FROM word_memory_images WHERE user_id=?
+        UNION ALL
+        SELECT attempt_day, daily_attempts, lease_until FROM image_recall_example_replacements WHERE user_id=?
+      ) attempts`, [day, userId, userId])
     if (Number(usage.pending)) throw quotaExceeded('另一张记忆图正在生成，稍后可以再试。')
     if (Number(usage.attempts) >= config.wordImages.dailyQuota) throw quotaExceeded('今天的记忆图生成次数已用完。')
 
     const leaseUntil = new Date(Date.now() + LEASE_MS)
-    await conn.execute(`INSERT INTO word_memory_images (user_id, word_id, sense_hash, generation_token, lease_until, attempt_day)
-      VALUES (?, ?, ?, ?, ?, ?)
+    const placeholders = values.map(() => '?').join(', ')
+    await conn.execute(`INSERT INTO ${table} (${columns}, generation_token, lease_until, attempt_day)
+      VALUES (${placeholders}, ?, ?, ?)
       ON DUPLICATE KEY UPDATE generation_token=?, lease_until=?, generation_error=NULL,
         daily_attempts=IF(attempt_day=?, daily_attempts+1, 1), attempt_day=?`,
-      [userId, wordId, senseHash, token, leaseUntil, day, token, leaseUntil, day, day])
-    return 'started'
+      [...values, token, leaseUntil, day, token, leaseUntil, day, day])
+    return { status: 'started', previousClue: existing?.explanation || options.previousClue }
   })
 
-  if (status === 'started') {
-    void finishGeneration(userId, word, sense, senseHash, token, provider, wrongChoice).catch(error => {
+  if (reservation.status === 'started') {
+    void finishGeneration(target, word, sense, token, provider, {
+      wrongChoice: options.wrongChoice, learnerCue: options.learnerCue,
+      previousClue: reservation.previousClue, redraw: Boolean(options.regenerate),
+    }).catch(error => {
       console.error('[word-memory-image] Could not save generation result', { name: error.name })
     })
   }
-  return { status: status === 'started' ? 'pending' : status }
+  return { status: reservation.status === 'started' ? 'pending' : reservation.status }
 }

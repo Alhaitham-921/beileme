@@ -47,6 +47,8 @@ export const profile = {
 }
 
 export const words = {
+  lookup: (q, signal) => http.get('/words/lookup', { query: { q }, signal, timeoutMs: 7000 }),
+  lookupAi: (q, signal) => http.post('/words/lookup/ai', { body: { q }, signal, timeoutMs: 30_000 }),
   collection: (query) => http.get('/words/collections', {query}),
   collectionIds: (query) => http.get('/words/collections/ids', {query}),
   favorites: () => http.get('/words/favorites'),
