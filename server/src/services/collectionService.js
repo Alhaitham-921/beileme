@@ -4,8 +4,10 @@ import { requireNotebook } from './notebookService.js'
 
 const saved = `(EXISTS (SELECT 1 FROM user_favorite_words f WHERE f.user_id=? AND f.word_id=w.id)
   OR EXISTS (SELECT 1 FROM user_notebook_words n JOIN user_notebooks b ON b.id=n.notebook_id WHERE b.user_id=? AND n.word_id=w.id))`
-const wrong = `(COALESCE(p.times_wrong,0)>0 OR EXISTS (SELECT 1 FROM answer_logs a WHERE a.user_id=? AND a.word_id=w.id AND a.result=0))`
-const from = 'FROM words w LEFT JOIN user_word_progress p ON p.word_id=w.id AND p.user_id=?'
+const wrong = `(COALESCE(p.times_wrong,0)>0 OR EXISTS (SELECT 1 FROM answer_logs a WHERE a.user_id=? AND a.word_id=w.id AND a.result=0)
+  OR EXISTS (SELECT 1 FROM collocation_progress cp WHERE cp.user_id=learner.user_id AND cp.word_id=w.id AND cp.times_wrong>0)
+  OR EXISTS (SELECT 1 FROM assessment_answers aa WHERE aa.user_id=learner.user_id AND aa.word_id=w.id AND aa.correct=0))`
+const from = 'FROM words w CROSS JOIN (SELECT ? AS user_id) learner LEFT JOIN user_word_progress p ON p.word_id=w.id AND p.user_id=learner.user_id'
 
 export async function hasMistake(userId, wordId) {
   return Boolean(await queryOne(`SELECT w.id ${from} WHERE w.id=? AND ${wrong}`, [userId, wordId, userId]))
@@ -43,15 +45,21 @@ export async function listCollectionWords(userId, { page = 1, size = 50, ...opti
   const [count, rows] = await Promise.all([
     queryOne(`SELECT COUNT(*) total ${from} WHERE ${where.sql}`, [userId, ...where.params]),
     query(`SELECT w.*, GREATEST(COALESCE(p.times_wrong,0),
-      (SELECT COUNT(*) FROM answer_logs a WHERE a.user_id=? AND a.word_id=w.id AND a.result=0)) AS wrong_times,
-      COALESCE((SELECT MAX(a.created_at) FROM answer_logs a WHERE a.user_id=? AND a.word_id=w.id AND a.result=0),
-        p.last_review_at,p.first_learned_at) AS last_wrong_at,
+      (SELECT COUNT(*) FROM answer_logs a WHERE a.user_id=? AND a.word_id=w.id AND a.result=0),
+      COALESCE((SELECT SUM(cp.times_wrong) FROM collocation_progress cp WHERE cp.user_id=learner.user_id AND cp.word_id=w.id),0),
+      (SELECT COUNT(*) FROM assessment_answers aa WHERE aa.user_id=learner.user_id AND aa.word_id=w.id AND aa.correct=0)) AS wrong_times,
+      GREATEST(COALESCE((SELECT MAX(a.created_at) FROM answer_logs a WHERE a.user_id=? AND a.word_id=w.id AND a.result=0),'1970-01-01'),
+        COALESCE((SELECT MAX(cp.last_wrong_at) FROM collocation_progress cp WHERE cp.user_id=learner.user_id AND cp.word_id=w.id),'1970-01-01'),
+        COALESCE((SELECT MAX(aa.created_at) FROM assessment_answers aa WHERE aa.user_id=learner.user_id AND aa.word_id=w.id AND aa.correct=0),'1970-01-01'),
+        COALESCE(p.last_review_at,p.first_learned_at,'1970-01-01')) AS last_wrong_at,
+      COALESCE((SELECT SUM(cp.times_wrong) FROM collocation_progress cp WHERE cp.user_id=learner.user_id AND cp.word_id=w.id),0) AS collocation_wrong_times,
       ${saved} AS saved
       ${from} WHERE ${where.sql}
       ORDER BY ${options.source === 'mistakes' ? 'last_wrong_at DESC,' : ''} w.id DESC LIMIT ${size} OFFSET ${offset}`,
     [userId, userId, userId, userId, userId, ...where.params]),
   ])
-  return { items: rows.map(row => ({ ...mapWordRow(row), saved: Boolean(row.saved), wrongTimes: Number(row.wrong_times), lastWrongAt: row.last_wrong_at })),
+  return { items: rows.map(row => ({ ...mapWordRow(row), saved: Boolean(row.saved), wrongTimes: Number(row.wrong_times),
+    collocationWrongTimes: Number(row.collocation_wrong_times), lastWrongAt: row.last_wrong_at })),
     page, size, total: Number(count.total), totalPages: Math.ceil(Number(count.total) / size) }
 }
 

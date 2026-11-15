@@ -272,6 +272,7 @@ const typeLabels = { dialogue: '情境对话（含复盘与重试）',
   quiz: '阅读理解题',
   error_card: '错词卡片',
   weak_summary: '薄弱点小结',
+  assessment_analysis: '自测综合解释',
 }
 </script>
 

@@ -24,6 +24,10 @@ export const pool = mysql.createPool({
   dateStrings: false,
 })
 
+// mysql2's timezone only controls Date serialization, not MySQL NOW()/column defaults.
+// Set the server session too so completion cutoffs and learning logs share UTC.
+pool.on('connection', connection => { connection.query("SET time_zone = '+00:00'") })
+
 /** 查询并返回行数组 */
 export async function query(sql, params = []) {
   const [rows] = await pool.execute(sql, params)

@@ -77,6 +77,7 @@ function generateArticleForToday() {
       <div>
         <p class="page-eyebrow">REFLECT &amp; REMEMBER</p>
         <h1 class="section-title">今日回顾</h1>
+    <router-link to="/collocations" class="btn btn-ghost">搭配错题与到期复习</router-link>
         <p class="section-sub">
           <template v-if="review">{{ review.date }} · 今天完成 {{ review.answered }} 次作答，{{ review.wrongCount }} 次需要再巩固</template>
           <template v-else>让学过的词，再熟悉一点。</template>

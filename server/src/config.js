@@ -129,6 +129,7 @@ export const config = {
       error_card: readInt('AI_DAILY_ERROR_CARD_QUOTA', 10),
       // 薄弱点小结同样会调用模型，必须一并限额，否则会出现「唯一不设上限的生成类型」
       weak_summary: readInt('AI_DAILY_WEAK_SUMMARY_QUOTA', 2),
+      assessment_analysis: readInt('AI_DAILY_ASSESSMENT_ANALYSIS_QUOTA', 3),
     },
     /**
      * 用户自带 Key 时额度放宽的倍数。

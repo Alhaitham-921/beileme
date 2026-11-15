@@ -12,7 +12,7 @@ test('learning card endpoint requires login and provides usage for words whether
   assert.equal((await client.get(`/api/v1/words/${word.id}/learning-card`)).status,401)
   const response=await client.get(`/api/v1/words/${word.id}/learning-card`,{token:user.token})
   assert.equal(response.status,200);const card=response.data.card
-  assert.equal(card.wordId,Number(word.id));assert.ok(card.examples[0].translation);assert.equal(card.collocations.length,2)
+  assert.equal(card.wordId,Number(word.id));assert.ok(card.examples[0].translation);assert.equal(card.collocations.length,4)
   assert.ok(Array.isArray(card.contrasts));assert.equal(card.dictionaryUnavailable,false)
   assert.equal((await client.get('/api/v1/words/0/learning-card',{token:user.token})).status,400)
   assert.equal((await client.get('/api/v1/words/999999999/learning-card',{token:user.token})).status,404)

@@ -21,6 +21,8 @@ export const assessment = {
   start: () => http.post('/assessment/placement', { timeoutMs: 8000 }),
   setPreference: (level) => http.put('/assessment/placement/preference', { body: { level }, timeoutMs: 8000 }),
   answer: (id, body) => http.post(`/assessment/${id}/answers`, { body, timeoutMs: 8000 }),
+  report: (id, options = {}) => http.get(`/assessment/placement/${id}/report`, { timeoutMs: 12000, ...options }),
+  explain: (id) => http.post(`/assessment/placement/${id}/explanation`, { timeoutMs: 150000 }),
 }
 
 export const recall = {

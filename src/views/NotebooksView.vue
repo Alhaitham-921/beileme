@@ -110,8 +110,9 @@ onUnmounted(() => { alive=false; version++; clearTimeout(timer) })
       </aside>
       <section class="card notebook-content" :aria-busy="loading">
         <div class="notebook-title"><h2>{{title}}</h2><span>共 {{total}} 个单词</span></div>
-        <p v-if="source==='mistakes'" class="list-hint">收录所有曾答错的单词，答对后仍保留，方便随时回顾。</p>
+        <p v-if="source==='mistakes'" class="list-hint">收录单词或搭配曾答错、未答出的词，答对后仍保留，方便随时回顾。</p>
         <router-link v-if="source==='mistakes'" to="/recall" class="btn btn-primary">错词专项与隔天复测</router-link>
+        <router-link to="/collocations" class="btn btn-ghost">搭配错题与到期复习</router-link>
         <p v-if="error" class="book-error" role="alert">{{error}} <button type="button" class="text-button" @click="refresh">重试</button></p>
         <div class="list-controls"><label class="search-label">查找单词<input v-model="search" type="search" maxlength="100" placeholder="搜索英文或中文"></label><fieldset><legend>回顾模式</legend><button v-for="option in [{value:'none',label:'中英对照'},{value:'zh',label:'遮住中文'},{value:'en',label:'遮住英文'}]" :key="option.value" type="button" :class="{chosen:mask===option.value}" :aria-pressed="mask===option.value" @click="changeMask(option.value)">{{option.label}}</button></fieldset></div>
         <div class="selection-tools" aria-label="批量选择复习词">
@@ -138,6 +139,7 @@ onUnmounted(() => { alive=false; version++; clearTimeout(timer) })
               <td class="meaning-cell"><button v-if="mask==='zh'" type="button" :class="['answer',{covered:hidden(word.id,'zh')}]" :aria-label="hidden(word.id,'zh')?'查看中文答案':'重新遮住中文答案'" @click="reveal(word.id)">{{hidden(word.id,'zh')?'点击查看中文':word.definitions.join('；')}}</button><span v-else>{{word.definitions.join('；')}}</span></td>
               <td class="favorite-cell">
                 <FavoriteWord :word-id="word.id" :initial-saved="word.saved" @change="changed" />
+                <router-link :to="{path:'/collocations',query:{wordId:word.id}}" class="text-button">练搭配<span v-if="word.collocationWrongTimes"> · 搭配曾错 {{word.collocationWrongTimes}} 次</span></router-link>
                 <button v-if="source==='mistakes' && !hidden(word.id,mask)" type="button" class="text-button"
                   :aria-expanded="openMemoryWord===word.id" @click="openMemoryWord=openMemoryWord===word.id ? null : word.id">
                   {{ openMemoryWord===word.id ? '收起记忆图' : '查看记忆图' }}

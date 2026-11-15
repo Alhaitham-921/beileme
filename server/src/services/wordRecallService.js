@@ -139,13 +139,15 @@ export async function startRecall(userId, mode) {
       : await conn.execute(`${latestRecall} SELECT w.*, a.result AS previous_result, a.prompt_key
           FROM words w LEFT JOIN user_word_progress p ON p.user_id=? AND p.word_id=w.id
           LEFT JOIN last_recall a ON a.word_id=w.id
-          LEFT JOIN (SELECT word_id, COUNT(*) AS times_wrong, MAX(created_at) AS last_wrong
-            FROM answer_logs WHERE user_id=? AND result=0 GROUP BY word_id) logs ON logs.word_id=w.id
+          LEFT JOIN (SELECT word_id, COUNT(*) AS times_wrong, MAX(created_at) AS last_wrong FROM (
+            SELECT word_id,created_at FROM answer_logs WHERE user_id=? AND result=0
+            UNION ALL SELECT word_id,created_at FROM assessment_answers WHERE user_id=? AND correct=0 AND word_id IS NOT NULL
+          ) wrongs GROUP BY word_id) logs ON logs.word_id=w.id
           WHERE (COALESCE(p.times_wrong,0)>0 OR logs.times_wrong>0)
             AND (a.id IS NULL OR (a.next_check_on IS NULL AND a.answered_on<?))
           ORDER BY (p.next_review_at IS NOT NULL AND p.next_review_at<=UTC_TIMESTAMP()) DESC,
             a.answered_on ASC, GREATEST(COALESCE(p.times_wrong,0),COALESCE(logs.times_wrong,0)) DESC,
-            logs.last_wrong DESC, w.id LIMIT 5`, [userId, userId, userId, day])
+            logs.last_wrong DESC, w.id LIMIT 5`, [userId, userId, userId, userId, day])
     if (!rows.length) return null
     const state = { mode, items: rows.map(question), answers: [] }
     const [inserted] = await conn.execute('INSERT INTO word_recall_sessions (user_id,state) VALUES (?,?)', [userId, JSON.stringify(state)])

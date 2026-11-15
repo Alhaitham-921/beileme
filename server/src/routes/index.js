@@ -12,6 +12,7 @@ import gameRoutes from './games.js'
 import healthRoutes from './health.js'
 import assessmentRoutes from './assessment.js'
 import recallRoutes from './recall.js'
+import collocationRoutes from './collocations.js'
 import practiceRoutes from './practice.js'
 import speechRoutes from './speech.js'
 import ttsRoutes from './tts.js'
@@ -27,6 +28,7 @@ router.use('/ielts', ieltsRoutes)
 router.use('/health', healthRoutes)
 router.use('/assessment', assessmentRoutes)
 router.use('/recall', recallRoutes)
+router.use('/collocations', collocationRoutes)
 router.use('/practice', practiceRoutes)
 router.use('/speech', speechRoutes)
 router.use('/tts', ttsRoutes)

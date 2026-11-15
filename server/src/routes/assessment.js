@@ -9,12 +9,13 @@ import { badRequest, notFound, conflict } from '../utils/errors.js'
 import { resolveWordbookForUser } from '../services/wordService.js'
 import { getProfile } from '../services/profileService.js'
 import { nextQuestion, summarize, shuffled, compactPool } from '../services/assessmentEngine.js'
-import { PLACEMENT_VERSION, START_LEVELS, advancePlacement, newPlacement, placementForms, trialSuggestion } from '../services/placementService.js'
+import { PLACEMENT_VERSION, START_LEVELS, advancePlacement, newPlacement, placementForms, trialSuggestion, historicalPlacementQuestions } from '../services/placementService.js'
+import { assessmentReport, explainAssessment } from '../services/assessmentReportService.js'
 
 const router = Router()
 router.use(requireAuth)
 function publicQuestion(q) {
-  return q ? { wordId: q.wordId, spelling: q.spelling, options: q.options, context: q.context || '', optionDetails: q.optionDetails } : null
+  return q ? { wordId: q.wordId, spelling: q.spelling, options: q.options, context: q.context || '', optionDetails: q.optionDetails, purpose: q.purpose || 'core' } : null
 }
 function present(row, state) {
   const upcoming = state.methodVersion === PLACEMENT_VERSION
@@ -73,6 +74,14 @@ router.get('/placement', asyncHandler(async (req, res) => {
     items: rows.map(row => ({ ...present(row, parseJson(row.state, {})), takenAt: row.completed_at })) })
 }))
 
+const reportParams = z.object({ id: z.coerce.number().int().positive() })
+router.get('/placement/:id/report', validate({ params: reportParams }), asyncHandler(async (req, res) => {
+  res.set('Cache-Control', 'no-store')
+  return ok(res, await assessmentReport(req.user.id, req.valid.params.id))
+}))
+router.post('/placement/:id/explanation', validate({ params: reportParams }), asyncHandler(async (req, res) =>
+  ok(res, await explainAssessment(req.user.id, req.valid.params.id))))
+
 router.put('/placement/preference', validate({ body: z.object({ level: z.enum(START_LEVELS) }) }),
   asyncHandler(async (req, res) => {
     const { level } = req.valid.body
@@ -94,7 +103,8 @@ router.post('/placement', asyncHandler(async (req, res) => {
     if (latest && !rows[0].completed_at) return present(rows[0], latest)
     if (!forms) throw badRequest('当前词书暂时无法组成两套分层题，可直接自选学习起点。')
     const form = latest ? (latest.form === 'A' ? 'B' : 'A') : (userId % 2 === 0 ? 'A' : 'B')
-    const state = newPlacement(book, form, forms)
+    const [history] = await conn.execute(`${placementRows} AND completed_at IS NOT NULL ORDER BY id DESC LIMIT 20`, [userId, PLACEMENT_VERSION, book.id])
+    const state = newPlacement(book, form, forms, historicalPlacementQuestions(history))
     const [saved] = await conn.execute('INSERT INTO assessment_sessions (user_id,state) VALUES (?,?)', [userId, JSON.stringify(state)])
     return present({ id: saved.insertId }, state)
   })
@@ -115,7 +125,16 @@ router.post('/:id/answers', validate({ body: z.object({ wordId: z.number().int()
     }
     if (answer.selectedIndex >= state.current.options.length) throw badRequest('请选择有效选项')
     const correct = answer.selectedIndex === state.current.correctIndex
-    state.answers.push({ ...answer, band: state.current.band, correct })
+    const snapshot = { ...state.current }
+    if (state.methodVersion === PLACEMENT_VERSION) {
+      const [words] = await conn.execute('SELECT id FROM words WHERE wordbook_id=? AND spelling_norm=? ORDER BY id LIMIT 1',
+        [state.bookId, snapshot.spelling.normalize('NFKC').trim().toLowerCase()])
+      snapshot.dictionaryWordId = words[0] ? Number(words[0].id) : null
+      await conn.execute(`INSERT INTO assessment_answers
+        (session_id,question_id,user_id,word_id,question,selected_index,correct,rt_ms,purpose) VALUES (?,?,?,?,?,?,?,?,?)`,
+      [row.id, snapshot.wordId, req.user.id, snapshot.dictionaryWordId, JSON.stringify(snapshot), answer.selectedIndex, correct, answer.rtMs, snapshot.purpose || 'core'])
+    }
+    state.answers.push({ ...answer, band: state.current.band, correct, purpose: snapshot.purpose || 'core', snapshot })
     if (state.methodVersion === PLACEMENT_VERSION) {
       advancePlacement(state)
     } else {
@@ -138,7 +157,7 @@ router.post('/:id/answers', validate({ body: z.object({ wordId: z.number().int()
         delete state.pool
       }
     }
-    await conn.execute('UPDATE assessment_sessions SET state = ?, completed_at = IF(?, NOW(), NULL) WHERE id = ?', [JSON.stringify(state), Boolean(state.result), row.id])
+    await conn.execute('UPDATE assessment_sessions SET state = ?, completed_at = IF(?, UTC_TIMESTAMP(), NULL) WHERE id = ?', [JSON.stringify(state), Boolean(state.result), row.id])
     return present(row, state)
   })
   return ok(res, response)

@@ -96,6 +96,7 @@ onMounted(load)
       <p v-if="feedback.example" lang="en" class="recall-context">{{ feedback.example }}</p>
       <p v-if="feedback.translation">{{ feedback.translation }}</p>
       <p v-if="feedback.collocation"><strong lang="en">{{ feedback.collocation.phrase }}</strong> · {{ feedback.collocation.translation }}</p>
+      <router-link :to="{path:'/collocations',query:{wordId:feedback.wordId}}" class="text-button">复习这个词的搭配</router-link>
       <p v-if="feedback.dialogue">对话「{{ feedback.dialogue.sourceTitle }}」· {{ feedback.dialogue.reason }}。本次填词 · {{ labels[feedback.result] }}。</p>
       <p v-if="feedback.previous">上次 {{ labels[feedback.previous] }} · 本次 {{ labels[feedback.result] }}</p>
       <p v-if="feedback.nextDate" class="muted">复测日期 · {{ feedback.nextDate }}</p>

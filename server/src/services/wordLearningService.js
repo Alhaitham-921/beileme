@@ -3,6 +3,7 @@ import { getWordById, getRelatedWords } from './wordService.js'
 import { diffSpelling, formSimilarity, levenshtein } from './wordRelations.js'
 import { parseJson } from '../utils/json.js'
 import { WORD_USAGE } from '../../data/wordUsage.js'
+import { COLLOCATION_SUPPLEMENTS } from '../../data/collocationSupplements.js'
 import corpus from '../../data/bilingualExamples.json' with { type: 'json' }
 
 const text = (value, max = 320) => typeof value === 'string' ? value.trim().slice(0, max) : ''
@@ -65,7 +66,7 @@ export function normalizeAiUsage(card, spelling) {
     .map(item => ({ text: text(item.example), translation: text(item.translation), source: 'ai' }))
   const collocations = (Array.isArray(card.collocations) ? card.collocations : [])
     .map(item => ({ phrase: text(item?.phrase, 100), translation: text(item?.translation, 150), source: 'ai' }))
-  return { examples: unique(examples, 'text', 2), collocations: unique(collocations, 'phrase', 4) }
+  return { examples: unique(examples, 'text', 2), collocations: unique(collocations, 'phrase', 6) }
 }
 
 /** Coalesce free dictionary lookups across books/users, bound concurrency and back off on failures. */
@@ -144,6 +145,13 @@ export function bilingualExamplesFor(word) {
     }))
 }
 
+export function localCollocationsFor(spelling) {
+  const key = String(spelling).toLowerCase()
+  const original = Object.hasOwn(WORD_USAGE, key) ? WORD_USAGE[key].collocations : []
+  const extra = Object.hasOwn(COLLOCATION_SUPPLEMENTS, key) ? COLLOCATION_SUPPLEMENTS[key] : []
+  return unique([...original, ...extra], 'phrase', 6).map(item => ({ ...item, source: 'local' }))
+}
+
 async function extraFormWords(word) {
   const spelling = word.spelling.toLowerCase()
   if (!/^[a-z]{4,32}$/.test(spelling)) return []
@@ -176,7 +184,7 @@ export async function getWordLearningCard(userId, wordId, { dictionaryLookup = l
     ...(word.examples || []).filter(item => typeof item === 'string').map(example => ({ text: example, translation: '', source: 'wordbook' })),
     ...saved.examples,
   ]
-  const collocations = [...local.collocations.map(item => ({ ...item, source: 'local' })), ...saved.collocations]
+  const collocations = [...localCollocationsFor(spelling), ...saved.collocations]
   const needsDictionary = !examples.length || !collocations.length
   const remote = !localOnly && needsDictionary ? await dictionaryLookup(spelling) : { examples: [] }
   const choices = related.some(item => item.relationType === 'form') ? related : [...related, ...await extraFormWords(word)]
@@ -185,7 +193,7 @@ export async function getWordLearningCard(userId, wordId, { dictionaryLookup = l
   return {
     wordId: word.id, spelling: word.spelling,
     examples: pairedUsage([...examples, ...remote.examples], 'text', 3, saved.translations),
-    collocations: pairedUsage([...collocations, ...(remote.collocations || [])], 'phrase', 4, saved.translations),
+    collocations: pairedUsage([...collocations, ...(remote.collocations || [])], 'phrase', 6, saved.translations),
     contrasts, needsDictionary, dictionaryUnavailable: Boolean(remote.unavailable),
   }
 }

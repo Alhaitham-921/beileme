@@ -7,6 +7,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --chown=node:node server ./server
 COPY --chown=node:node src/data ./src/data
+COPY --chown=node:node src/utils/collocationPractice.js ./src/utils/collocationPractice.js
 COPY --chown=node:node third_party ./third_party
 COPY --chown=node:node scripts/seed-ielts.mjs ./scripts/seed-ielts.mjs
 RUN mkdir -p server/data/wordlists server/media && chown -R node:node server/data server/media

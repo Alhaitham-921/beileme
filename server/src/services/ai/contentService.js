@@ -154,7 +154,7 @@ export async function getUsage(userId, dateKey = todayKey()) {
   const byType = new Map(rows.map((row) => [row.type, row]))
 
   const result = {}
-  for (const type of CONTENT_TYPES) {
+  for (const type of [...CONTENT_TYPES, 'assessment_analysis']) {
     const row = byType.get(type)
     result[type] = {
       used: Number(row?.used_count || 0),
@@ -981,7 +981,7 @@ async function generateErrorCardsInner(
     wordIds: words.map((word) => word.id),
     difficulty: 3,
     goal: profile.goal,
-    topic: usageTexts.length ? `usage-translation-v1:${hashContent(JSON.stringify(usageTexts))}` : 'usage-v2',
+    topic: usageTexts.length ? `usage-translation-v2:${hashContent(JSON.stringify(usageTexts))}` : 'usage-v3-collocations',
   })
 
   if (!forceNew) {

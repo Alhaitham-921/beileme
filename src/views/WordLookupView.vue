@@ -69,6 +69,7 @@ onBeforeUnmount(() => activeRequest?.abort())
             <span v-if="entry.phonetic" class="muted">{{ entry.phonetic }}</span>
           </header>
           <p v-if="entry.pos" class="entry-pos muted">{{ entry.pos }}</p>
+          <router-link v-if="entry.id" :to="{ path: '/collocations', query: { wordId: entry.id } }" class="text-button">学习搭配与练习</router-link>
           <ol class="entry-definitions">
             <li v-for="definition in entry.definitions" :key="definition">{{ definition }}</li>
           </ol>

@@ -79,16 +79,36 @@ export async function placementForms(book) {
   return buildMatchedForms(rows, book.code)
 }
 
-export function newPlacement(book, form, forms) {
+export function newPlacement(book, form, forms, historyQuestions = []) {
   const bands = forms[form].map((rows, band) => rows.map((row, index) => item(row, band, index)))
   const queue = shuffled(bands.flatMap(rows => rows.slice(0, CORE_PER_BAND)))
-  return { methodVersion: PLACEMENT_VERSION, form, bookName: book.name, bookId: book.id,
-    queue, reserve: bands.map(rows => rows.slice(CORE_PER_BAND)), answers: [], total: queue.length, current: queue[0] }
+  return { methodVersion: PLACEMENT_VERSION, questionSetVersion: stableRank(JSON.stringify(forms)), form, bookName: book.name, bookId: book.id,
+    queue, reserve: bands.map(rows => rows.slice(CORE_PER_BAND)), historyQuestions,
+    answers: [], total: queue.length, current: queue[0] }
+}
+
+// Old sessions without snapshots retain their scores, but cannot safely reconstruct questions.
+export function historicalPlacementQuestions(rows) {
+  const latest = new Map()
+  for (const row of rows) {
+    const state = parseJson(row.state, {})
+    for (const answer of state.answers || []) {
+      const q = answer.snapshot
+      if (!q?.spelling || !Array.isArray(q.options) || !Number.isInteger(q.correctIndex) ||
+          q.correctIndex < 0 || q.correctIndex >= q.options.length) continue
+      const key = JSON.stringify([q.spelling.toLowerCase(), q.options[q.correctIndex]])
+      if (!latest.has(key)) latest.set(key, { answer, row })
+    }
+  }
+  return [...latest.values()].filter(({ answer }) => !answer.correct).slice(0, 12).map(({ answer, row }, index) => ({
+    ...answer.snapshot, wordId: 9000 + index, purpose: 'history',
+    historySource: { sessionId: Number(row.id), takenAt: row.completed_at },
+  }))
 }
 
 function counts(state) {
   return START_LEVELS.map((level, band) => {
-    const rows = state.answers.filter(answer => answer.band === band)
+    const rows = state.answers.filter(answer => answer.band === band && answer.purpose !== 'history')
     return { level, tested: rows.length, correct: rows.filter(answer => answer.correct).length,
       unsure: rows.filter(answer => answer.selectedIndex === -1).length }
   })
@@ -115,15 +135,26 @@ export function advancePlacement(state) {
     }
     state.reserve = []
   }
+  if (state.answers.length === state.total && state.historyQuestions?.length) {
+    const tested = new Set(state.queue.map(question => question.spelling.toLowerCase()))
+    state.queue.push(...state.historyQuestions.filter(question => !tested.has(question.spelling.toLowerCase())).slice(0, 4))
+    state.historyQuestions = []
+    state.total = state.queue.length
+  }
   state.current = state.queue[state.answers.length] || null
   if (state.current) return
   const bands = counts(state)
   const reaches = (band, ratio) => bands[band].correct >= threshold(bands[band], ratio)
   const recommended = !reaches(0, 0.75) ? 'foundation'
     : reaches(1, 0.75) && reaches(2, 0.5) ? 'challenge' : 'standard'
-  state.result = { methodVersion: PLACEMENT_VERSION, form: state.form, bookName: state.bookName,
+  state.result = { methodVersion: PLACEMENT_VERSION, questionSetVersion: state.questionSetVersion, form: state.form, bookName: state.bookName,
     bookId: state.bookId, recommended, borderline: boundaryBand(bands) >= 0,
-    bands, total: state.answers.length }
+    bands, total: state.answers.length,
+    coreTotal: bands.reduce((total, band) => total + band.tested, 0),
+    historyRetest: state.answers.filter(answer => answer.purpose === 'history').map(answer => ({
+      spelling: answer.snapshot.spelling, meaning: answer.snapshot.options[answer.snapshot.correctIndex],
+      correct: answer.correct, unsure: answer.selectedIndex === -1, source: answer.snapshot.historySource,
+    })), completedAt: new Date().toISOString() }
   delete state.queue
 }
 

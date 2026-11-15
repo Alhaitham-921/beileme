@@ -2,9 +2,11 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { http } from '../api/client.js'
 import WordMemoryImage from './WordMemoryImage.vue'
+import CollocationPractice from './CollocationPractice.vue'
 
 const props = defineProps({ word: { type: Object, required: true }, initialContrast: Object, compact: Boolean, answered: Boolean, wrong: Boolean, sessionId: Number })
 const expanded = ref(false)
+const practicing = ref(false)
 const card = ref(null), loading = ref(true), error = ref(''), aiLoading = ref(false), aiMessage = ref(''), aiCard = ref(null)
 let controller = new AbortController(), aiController = null, alive = true, aiRun = 0
 const baseline = computed(() => (props.word.examples || [props.word.example]).filter(Boolean).map(text => ({ text, source: 'wordbook' })))
@@ -34,14 +36,14 @@ const collocations = computed(() => {
   const items = withTranslations([...(card.value?.collocations || []),
     ...(aiCard.value?.collocations || []).map(item => ({ ...item, source: 'ai' }))], 'phrase')
   items.sort((a, b) => Number(Boolean(b.translation)) - Number(Boolean(a.translation)))
-  return items.filter((item, i) => items.findIndex(other => other.phrase.toLowerCase() === item.phrase.toLowerCase()) === i).slice(0, 4)
+  return items.filter((item, i) => items.findIndex(other => other.phrase.toLowerCase() === item.phrase.toLowerCase()) === i).slice(0, 6)
 })
 const missingTranslations = computed(() => [...new Set([
   ...examples.value.filter(item => !item.translation).map(item => item.text),
   ...collocations.value.filter(item => !item.translation).map(item => item.phrase),
 ].filter(value => typeof value === 'string').map(value => value.trim()).filter(value => value && value.length <= 320))].slice(0, 7))
-const supplementLabel = computed(() => missingTranslations.value.length ? 'AI 补充中文译文' : 'AI 补充双语例句与搭配')
-const needsSupplement = computed(() => !examples.value.length || !collocations.value.length ||
+const supplementLabel = computed(() => collocations.value.length < 4 ? 'AI 补充常用搭配与译文' : missingTranslations.value.length ? 'AI 补充中文译文' : 'AI 补充双语例句与搭配')
+const needsSupplement = computed(() => !examples.value.length || collocations.value.length < 4 ||
   examples.value.some(item => !item.translation) || collocations.value.some(item => !item.translation))
 const contrasts = computed(() => card.value?.contrasts || props.initialContrast?.contrasts || [])
 const formWords = computed(() => contrasts.value.filter(item => item.relationType === 'form'))
@@ -86,7 +88,7 @@ async function supplement() {
       const found = Array.isArray(data.cards) ? data.cards.find(item => typeof item.spelling === 'string' && item.spelling.toLowerCase() === props.word.spelling.toLowerCase()) : null
       aiCard.value = found ? { ...found,
         distinctions: (Array.isArray(found.distinctions) ? found.distinctions : []).filter(item => typeof item.spelling === 'string' && typeof item.example === 'string'),
-        collocations: (Array.isArray(found.collocations) ? found.collocations : []).filter(item => typeof item.phrase === 'string').slice(0, 4),
+        collocations: (Array.isArray(found.collocations) ? found.collocations : []).filter(item => typeof item.phrase === 'string').slice(0, 6),
       } : null
       let translated = 0
       const updated = new Map(translations.value)
@@ -97,12 +99,14 @@ async function supplement() {
         }
       }
       translations.value = updated
+      const phraseMessage = `当前可查看 ${collocations.value.length} 条搭配。`
       if (usageTexts.length) aiMessage.value = translated
         ? `已补充 ${translated} 条中文译文，译文由 AI 提供。`
         : '这次未返回对应的中文译文，已保留英文原文。'
       else aiMessage.value = (examples.value.some(item => item.source === 'ai' && item.translation) ||
         collocations.value.some(item => item.translation && item.source === 'ai'))
         ? '已补充双语用法资料，请结合语境核对。' : '这次未返回可展示的双语用法，可稍后重试。'
+      aiMessage.value += ' ' + phraseMessage
     }
   } catch (cause) { if (alive && run === aiRun && !request.signal.aborted) aiMessage.value = cause.message }
   finally { if (alive && run === aiRun) aiLoading.value = false }
@@ -130,9 +134,13 @@ onBeforeUnmount(() => { alive = false; controller.abort(); aiController?.abort()
         <p v-else class="preview-translation">{{ loading ? '正在读取例句…' : '暂未收录例句' }}</p>
       </section>
       <section>
-        <h3>短语搭配</h3>
-        <p v-if="collocations[0]"><strong lang="en">{{ collocations[0].phrase }}</strong><span class="preview-translation"> · {{ collocations[0].translation || '暂无中文译文' }}</span><small v-if="collocations[0].translationSource === 'ai'"> · AI 译文</small></p>
-        <p v-else class="preview-translation">{{ loading ? '正在读取搭配…' : '暂未收录搭配' }}</p>
+        <h3>短语搭配<span v-if="collocations.length"> · {{ collocations.length }} 条</span></h3>
+        <template v-if="!practicing">
+          <p v-for="phrase in collocations.slice(0, 3)" :key="phrase.phrase"><strong lang="en">{{ phrase.phrase }}</strong><span class="preview-translation"> · {{ phrase.translation || '暂无中文译文' }}</span><small v-if="phrase.translationSource === 'ai'"> · AI 译文</small></p>
+          <p v-if="collocations.length > 3" class="preview-translation">展开详情可看全部搭配。</p>
+          <p v-if="!collocations.length" class="preview-translation">{{ loading ? '正在读取搭配…' : '暂未收录搭配，可点 AI 补充。' }}</p>
+        </template>
+        <p v-else class="preview-translation">搭配已暂时隐藏，先独立回忆。</p>
       </section>
       <section>
         <h3>形近词</h3>
@@ -147,7 +155,7 @@ onBeforeUnmount(() => { alive = false; controller.abort(); aiController?.abort()
       </button>
       <button v-if="needsSupplement && !aiLoading" type="button" class="usage-ai" :disabled="loading"
         :aria-label="supplementLabel + '，按服务计费'" @click="supplement">
-        <span>AI 补充</span><small>按服务计费</small>
+        <span>{{ collocations.length < 4 ? '补充搭配（AI）' : 'AI 补充译文' }}</span><small>按服务计费</small>
       </button>
       <button v-if="aiLoading" type="button" class="usage-detail" @click="cancelAi">取消补充</button>
     </div>
@@ -166,9 +174,9 @@ onBeforeUnmount(() => { alive = false; controller.abort(); aiController?.abort()
       <p v-if="!loading && !examples.length" class="usage-hint">暂未收录可靠例句，可选择下方 AI 补充。</p>
     </section>
     <section class="usage-section">
-      <h3>短语搭配</h3>
-      <ul v-if="collocations.length" class="phrase-list"><li v-for="(phrase,index) in collocations" :key="index"><strong lang="en">{{ phrase.phrase }}</strong><span lang="zh-CN">{{ phrase.translation || '暂无中文译文' }}<small v-if="phrase.translationSource === 'ai'"> · AI 译文</small></span><p v-if="phrase.source === 'dictionary'" class="attribution">词典用法片段<span v-if="phrase.sense"> · {{ phrase.sense }}</span> · <a v-if="safeUrl(phrase.sourceUrl)" :href="safeUrl(phrase.sourceUrl)" target="_blank" rel="noopener noreferrer">原词条</a> · <a v-if="safeUrl(phrase.license?.url)" :href="safeUrl(phrase.license.url)" target="_blank" rel="noopener noreferrer">{{ phrase.license.name }}</a></p></li></ul>
-      <p v-else class="usage-hint">当前词库暂无搭配，可选择 AI 补充。</p>
+      <h3>短语搭配<span v-if="collocations.length"> · {{ collocations.length }} 条</span></h3>
+      <ul v-if="collocations.length && !practicing" class="phrase-list"><li v-for="(phrase,index) in collocations" :key="index"><strong lang="en">{{ phrase.phrase }}</strong><span lang="zh-CN">{{ phrase.translation || '暂无中文译文' }}<small v-if="phrase.translationSource === 'ai'"> · AI 译文</small></span><p v-if="phrase.source === 'dictionary'" class="attribution">词典用法片段<span v-if="phrase.sense"> · {{ phrase.sense }}</span> · <a v-if="safeUrl(phrase.sourceUrl)" :href="safeUrl(phrase.sourceUrl)" target="_blank" rel="noopener noreferrer">原词条</a> · <a v-if="safeUrl(phrase.license?.url)" :href="safeUrl(phrase.license.url)" target="_blank" rel="noopener noreferrer">{{ phrase.license.name }}</a></p></li></ul>
+      <p v-else class="usage-hint">{{ practicing ? '搭配已暂时隐藏，先独立回忆。' : '当前词库暂无搭配，可选择 AI 补充。' }}</p>
       <p v-if="collocations.some(item => item.source === 'ai') || aiCard?.collocations?.length" class="attribution">AI 辅助内容，请结合语境核对。</p>
     </section>
     <section v-for="group in [{ title: '形近词 · 看清拼写', words: formWords }, { title: '近义词 · 对照词义', words: meaningWords }]" :key="group.title" class="usage-section">
@@ -183,6 +191,7 @@ onBeforeUnmount(() => { alive = false; controller.abort(); aiController?.abort()
     </section>
     <div v-if="error || card?.dictionaryUnavailable" class="usage-retry"><p role="status">{{ error || '免费词典暂时不可用，已有资料仍可查看。' }}</p><button type="button" class="text-button" :disabled="loading" @click="load">重新加载资料</button></div>
     </template>
+    <CollocationPractice :phrases="collocations" :spelling="word.spelling" :word-id="Number(word.id)" @active="practicing = $event" />
     <footer v-if="!compact && (needsSupplement || aiLoading || aiMessage)" class="usage-footer">
       <p class="usage-hint">免费资料优先。AI 补充仅在点击后调用，按当前 AI 服务计费，优先读取缓存。</p>
       <button v-if="needsSupplement && !aiLoading" :disabled="loading" type="button" class="btn btn-ghost" @click="supplement">{{ supplementLabel }}</button>

@@ -17,6 +17,7 @@ const routes = [
   { path: '/practice', name: 'practice', component: () => import('../views/PracticeView.vue') },
   { path: '/practice/demo', name: 'practice-demo', component: () => import('../views/PracticeDemoView.vue') },
   { path: '/recall', name: 'recall', component: () => import('../views/WordRecallView.vue') },
+  { path: '/collocations', name: 'collocations', component: () => import('../views/CollocationsView.vue') },
   { path: '/review/images', name: 'image-recall', component: () => import('../views/ImageRecallView.vue'), meta: { title: '看图回忆' } },
   { path: '/assessment', name: 'assessment', component: () => import('../views/AssessmentView.vue') },
   { path: '/login', name: 'login', component: () => import('../views/LoginView.vue'), meta: { public: true } },
