@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildImageRecallRounds, matchesImageRecall } from '../../src/utils/imageRecall.js'
+import { buildImageRecallRounds, buildSpatialRecallRounds, matchesImageRecall } from '../../src/utils/imageRecall.js'
 
 const picture = (spelling, sense, key) => ({ spelling, sense, imagePath: '/image/' + key })
 
@@ -12,6 +12,19 @@ test('内置练习每组有五道九宫格题，题图不依赖接口', () => {
     assert.ok(options.every(option => option.url.startsWith('data:image/svg+xml,')))
     assert.ok(options.some(option => option.correct))
     assert.ok(options.some(option => !option.correct))
+  }
+})
+
+test('方位介词题使用同组四张位置对照图，只有目标关系算正确', () => {
+  const rounds = buildSpatialRecallRounds(() => 0.5)
+  const words = ['between', 'in', 'on', 'under']
+  assert.deepEqual(rounds.map(round => round.spelling).sort(), words)
+  for (const round of rounds) {
+    assert.equal(new Set(round.options.map(option => option.key)).size, 9)
+    assert.ok(round.options.every(option => option.url.startsWith('data:image/svg+xml,')))
+    assert.deepEqual(round.options.filter(option => option.key.startsWith('spatial-')).map(option => option.spelling).sort(), words)
+    assert.equal(matchesImageRecall(round, [`spatial-${round.spelling}`]), true)
+    assert.equal(matchesImageRecall(round, words.map(word => `spatial-${word}`)), false)
   }
 })
 

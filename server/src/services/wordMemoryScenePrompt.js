@@ -18,10 +18,16 @@ lightbulbs, thought bubbles, decorative symbols, and any metaphor that needs the
 - Adjectives: make the property physically visible, using a familiar object and a comparison if needed.
   "Fragile" (易碎的): a thin glass ornament cracks where it lightly bumps a wooden shelf; the shelf is intact.
 - Adverbs: make the manner or degree visible through posture, trajectory, spacing or repetition.
-  "Carefully" (小心地): a person steadies a brimming bowl with both hands, taking a short step over a cable.
+  "Carefully" (小心地): two hands grip a bowl filled to the rim, keeping the bowl level. Frame the hands and
+  the waterline together. Use a single visible action so the crucial feature survives a tight crop.
 - Abstract nouns, verbs and relational words: stage one concrete cause and visible consequence or
   unmistakable relationship. "Shortage" (短缺): several shoppers reach toward a bread rack with one loaf left.
   "Between" (在……之间): a small red ball sits on the floor, centered between two tall blue boxes.
+  For spatial prepositions, keep a single focal object and reference objects in a simple front or side view.
+  State exactly what touches, overlaps, or stays apart. For "in", the rim must partly occlude the focal object;
+  for "on", the focal object touches the top surface; for "under", leave a visible gap directly above it.
+  For time, purpose, and other non-spatial preposition senses, pick one example situation matching the word's
+  sense and give a short example phrase in the explanation after the picture is shown.
   For senses that are hard to isolate, use a specific mnemonic situation rather than claiming a picture
   can literally show the definition.
 

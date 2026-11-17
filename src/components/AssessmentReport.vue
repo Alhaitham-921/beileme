@@ -55,6 +55,31 @@ async function review() {
     <p v-if="loading" role="status">正在关联历史自测和学习记录…</p>
     <p v-else-if="error" role="alert">{{ error }} <button class="btn btn-ghost" @click="load">重试读取分析</button></p>
     <template v-if="baseline">
+      <h2>复测对比</h2>
+      <template v-if="baseline.previous">
+        <p class="muted">已关联此前 {{ baseline.history.usedTests }} 次可比较的自测。答对率按各次实际题量计算。</p>
+        <table class="comparison-table" aria-label="上次与本次的分档结果">
+          <thead>
+            <tr>
+              <th scope="col">难度</th>
+              <th scope="col">上次<small>{{ baseline.previous.form }} 卷 · {{ date(baseline.previous.takenAt) }}</small></th>
+              <th scope="col">本次<small>{{ baseline.current.form }} 卷 · {{ date(baseline.current.takenAt) }}</small></th>
+              <th scope="col">答对率变化</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in baseline.comparisons" :key="item.level">
+              <th scope="row">{{ labels[item.level] }}</th>
+              <td v-if="item.previous">{{ item.previous.correct }}/{{ item.previous.tested }}<small>{{ item.previous.unsure }} 题不确定</small></td>
+              <td v-else>暂无</td>
+              <td>{{ item.current.correct }}/{{ item.current.tested }}<small>{{ item.current.unsure }} 题不确定</small></td>
+              <td v-if="item.change !== null">{{ item.change > 0 ? '+' : '' }}{{ item.change }}<small>百分点</small></td>
+              <td v-else>暂无</td>
+            </tr>
+          </tbody>
+        </table>
+      </template>
+      <p v-else>{{ fact('comparison').text }}</p>
       <div v-if="baseline.synthesis" class="synthesis">
         <h2>综合学习建议</h2>
         <strong>{{ baseline.synthesis.title }}</strong>
@@ -73,16 +98,6 @@ async function review() {
           </ol>
         </details>
       </div>
-      <h2>与历史相比</h2>
-      <p v-if="baseline.previous" class="muted">对照 {{ date(baseline.previous.takenAt) }} 的 {{ baseline.previous.form }} 卷；已关联最近 {{ baseline.history.usedTests }} 次可比较的自测。</p>
-      <p v-else>{{ fact('comparison').text }}</p>
-      <ul v-if="baseline.comparisons.length" class="comparison-list">
-        <li v-for="item in baseline.comparisons" :key="item.level">
-          <strong>{{ labels[item.level] }}</strong>
-          <span>上次 {{ item.previous?.correct ?? '—' }}/{{ item.previous?.tested ?? '—' }} → 本次 {{ item.current.correct }}/{{ item.current.tested }}</span>
-          <span class="muted">{{ item.change === null ? '暂无比较' : item.change === 0 ? '正确率相同' : `${item.change > 0 ? '提高' : '降低'} ${Math.abs(item.change)} 个百分点` }}</span>
-        </li>
-      </ul>
       <p v-if="fact('history-retest')">{{ fact('history-retest').text }}</p>
       <p v-if="fact('recurring')">{{ fact('recurring').text }}</p>
       <p v-if="fact('recovered')">{{ fact('recovered').text }}</p>
@@ -138,9 +153,11 @@ async function review() {
 .assessment-report { margin-top: 18px; line-height: 1.7; }
 h2 { margin-top: 0; } h3 { margin: 24px 0 10px; font-size: 17px; }
 .muted { color: var(--ink-soft); font-size: 13px; }
-.comparison-list { list-style: none; padding: 0; display: grid; gap: 12px; }
-.comparison-list li { display: flex; flex-wrap: wrap; gap: 4px 14px; }
-.synthesis { padding-bottom: 22px; margin-bottom: 22px; border-bottom: 1px solid var(--line); }
+.comparison-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.comparison-table th, .comparison-table td { padding: 8px 4px; border-bottom: 1px solid var(--line); text-align: center; }
+.comparison-table th:first-child { text-align: left; }
+.comparison-table small { display: block; color: var(--ink-soft); font-weight: 400; }
+.synthesis { margin-block: 22px; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
 .trend-list { padding-left: 20px; }.trend-list li { margin: 8px 0; }
 .history-series { padding-left: 22px; font-size: 13px; }.history-series li { margin: 12px 0; }
 .history-series span { display: block; color: var(--ink-soft); }
@@ -150,5 +167,5 @@ h2 { margin-top: 0; } h3 { margin: 24px 0 10px; font-size: 17px; }
 .ai-explanation { border-top: 1px solid var(--line); margin-top: 16px; }.ai-observation { margin: 14px 0; }
 .ai-observation p { margin-bottom: 5px; }.analysis-scope { margin-top: 20px; font-size: 13px; }
 summary { cursor: pointer; } button { touch-action: manipulation; }
-@media (max-width: 480px) { .next-action { align-items: flex-start; flex-direction: column; gap: 7px; }.comparison-list li { flex-direction: column; gap: 2px; } }
+@media (max-width: 480px) { .next-action { align-items: flex-start; flex-direction: column; gap: 7px; }.comparison-table { font-size: 13px; } }
 </style>

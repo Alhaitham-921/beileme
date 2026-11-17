@@ -1,4 +1,4 @@
-import { IMAGE_RECALL_EXAMPLES } from '../data/imageRecallExamples.js'
+import { IMAGE_RECALL_EXAMPLES, SPATIAL_RECALL_EXAMPLES } from '../data/imageRecallExamples.js'
 
 const fold = value => value.normalize('NFKC').toLowerCase().trim()
 const meanings = sense => fold(sense).split(/[；;、，,\/]/u)
@@ -15,6 +15,16 @@ function shuffle(items, random) {
     ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
   }
   return shuffled
+}
+
+export function buildSpatialRecallRounds(random = Math.random) {
+  const distractors = IMAGE_RECALL_EXAMPLES.filter(option =>
+    !['between', 'narrow', 'bridge', 'anchor', 'light'].includes(option.spelling))
+  return shuffle(SPATIAL_RECALL_EXAMPLES, random).map(target => ({
+    spelling: target.spelling,
+    options: shuffle([...SPATIAL_RECALL_EXAMPLES, ...shuffle(distractors, random).slice(0, 5)], random)
+      .map(option => ({ ...option, correct: option.key === target.key })),
+  }))
 }
 
 export function buildImageRecallRounds(saved, random = Math.random, replacements = []) {

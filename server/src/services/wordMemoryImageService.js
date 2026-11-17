@@ -192,7 +192,7 @@ async function downloadSiliconFlowImage(value, signal) {
   return image
 }
 
-async function generateImage(scene) {
+async function generateImage(scene, timings) {
   const { baseUrl, apiKey, model, siliconFlow } = config.wordImages
   const prompt = `Depict this exact scene, keeping the described action, objects and positions: ${scene}\n${ILLUSTRATION_STYLE}`
   const body = siliconFlow
@@ -200,6 +200,7 @@ async function generateImage(scene) {
       ? { negative_prompt: NEGATIVE_PROMPT, num_inference_steps: 20, guidance_scale: 7.5 } : {}) }
     : { model, prompt, n: 1, size: '1024x1024', quality: 'low', output_format: 'webp', output_compression: 75 }
   const signal = AbortSignal.timeout(GENERATION_TIMEOUT_MS)
+  const requestedAt = performance.now()
   const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/images/generations`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -212,6 +213,8 @@ async function generateImage(scene) {
     throw new Error(`Image provider HTTP ${response.status}`)
   }
   const payload = await response.json()
+  timings.providerMs = Math.round(performance.now() - requestedAt)
+  const receivedAt = performance.now()
   let image
   if (siliconFlow) {
     image = await downloadSiliconFlowImage(payload?.images?.[0]?.url, signal)
@@ -223,25 +226,34 @@ async function generateImage(scene) {
     image = Buffer.from(encoded, 'base64')
     if (image.toString('base64') !== encoded) throw new Error('Invalid base64 image')
   }
+  timings.downloadMs = Math.round(performance.now() - receivedAt)
+  const decodedAt = performance.now()
   const normalized = await sharp(image, { limitInputPixels: 4096 * 4096, autoOrient: true })
     .resize(640, 640, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 82 }).toBuffer()
   if (normalized.length > MAX_IMAGE_BYTES || !isWebp(normalized)) throw new Error('Invalid WebP image')
+  timings.normalizeMs = Math.round(performance.now() - decodedAt)
   return normalized
 }
 
 async function finishGeneration(target, word, sense, token, provider, sceneOptions) {
   const { table, where, values } = target
   const key = [...values, token]
+  const startedAt = performance.now()
+  const timings = {}
   let stage = 'scene'
   try {
     const { scene, explanation } = await designScene(provider, word, sense, sceneOptions)
+    timings.sceneMs = Math.round(performance.now() - startedAt)
     stage = 'image'
-    const image = await generateImage(scene)
+    const image = await generateImage(scene, timings)
     const revision = createHash('sha256').update(image).digest()
     await execute(`UPDATE ${table} SET image=?, image_revision=?, explanation=?, generation_error=NULL, generation_token=NULL, lease_until=NULL
       WHERE ${where} AND generation_token=?`, [image, revision, explanation, ...key])
+    console.info('[word-memory-image] Generation completed', { ...timings, totalMs: Math.round(performance.now() - startedAt) })
   } catch (error) {
-    console.warn('[word-memory-image] Generation failed', { stage, kind: error.kind || error.name })
+    console.warn('[word-memory-image] Generation failed', {
+      stage, kind: error.kind || error.name, ...timings, totalMs: Math.round(performance.now() - startedAt),
+    })
     await execute(`UPDATE ${table} SET generation_error=?, generation_token=NULL, lease_until=NULL
       WHERE ${where} AND generation_token=?`, [stage, ...key])
   }

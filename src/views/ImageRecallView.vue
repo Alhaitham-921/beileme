@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { http } from '../api/client.js'
-import { buildImageRecallRounds, matchesImageRecall } from '../utils/imageRecall.js'
+import { buildImageRecallRounds, buildSpatialRecallRounds, matchesImageRecall } from '../utils/imageRecall.js'
 import { loadMemoryImage } from '../utils/memoryImageAssets.js'
 
 const loading = ref(true)
@@ -30,6 +30,7 @@ const libraryRequest = new AbortController()
 const pending = new Set()
 let pollTimer
 let stopPoll
+let runStartedAt = null
 
 const round = computed(() => rounds.value[index.value])
 const isMultipleChoice = computed(() => (round.value?.options.filter(option => option.correct).length ?? 0) > 1)
@@ -81,11 +82,19 @@ function prepare(current) {
   current?.options.forEach(loadOption)
 }
 watch(round, prepare)
-watch(ready, value => {
-  if (value) prepare(rounds.value[index.value + 1])
+watch([round, ready], ([, value]) => {
+  if (!value) return
+  if (runStartedAt !== null) {
+    const name = `image-recall.${source.value}.first-ready`
+    performance.clearMeasures(name)
+    performance.measure(name, { start: runStartedAt })
+    runStartedAt = null
+  }
+  prepare(rounds.value[index.value + 1])
 })
 
 async function start(mode, focus = true) {
+  runStartedAt = performance.now()
   resetImages()
   run.value++
   source.value = mode
@@ -94,7 +103,8 @@ async function start(mode, focus = true) {
   selected.value = []
   revealed.value = false
   closeEditor()
-  rounds.value = buildImageRecallRounds(mode === 'personal' ? saved.value : [], Math.random, replacements.value)
+  rounds.value = mode === 'spatial' ? buildSpatialRecallRounds()
+    : buildImageRecallRounds(mode === 'personal' ? saved.value : [], Math.random, replacements.value)
   await nextTick()
   if (focus) heading.value?.focus()
 }
@@ -265,13 +275,13 @@ onBeforeUnmount(() => {
 
     <template v-if="round || !loading">
       <div class="recall-source">
-        <span>{{ source === 'personal' ? '我的记忆图' : '内置练习' }}</span>
-        <button v-if="saved.length" class="text-button" @click="start(source === 'personal' ? 'examples' : 'personal')">
-          {{ source === 'personal' ? '试试内置练习' : '用我的记忆图练习' }}
-        </button>
-        <span v-else-if="loading" role="status">正在查找我的记忆图…</span>
-        <button v-else-if="loadError" class="text-button" @click="load">重新读取记忆图</button>
-        <router-link v-else class="text-button" to="/notebooks?source=mistakes">去错题本生成记忆图</router-link>
+        <span>{{ { personal: '我的记忆图', examples: '内置练习', spatial: '方位介词' }[source] }}</span>
+        <button v-if="source === 'examples'" class="text-button" @click="start('spatial')">练习方位介词</button>
+        <button v-else class="text-button" @click="start('examples')">返回内置练习</button>
+        <button v-if="saved.length && source !== 'personal'" class="text-button" @click="start('personal')">用我的记忆图练习</button>
+        <span v-else-if="!saved.length && loading" role="status">正在查找我的记忆图…</span>
+        <button v-else-if="!saved.length && loadError" class="text-button" @click="load">重新读取记忆图</button>
+        <router-link v-else-if="!saved.length" class="text-button" to="/notebooks?source=mistakes">去错题本生成记忆图</router-link>
       </div>
       <p v-if="loadError" class="muted" role="status">{{ loadError }}</p>
 
@@ -329,8 +339,8 @@ onBeforeUnmount(() => {
       </div>
     </template>
 
-    <section v-if="round || replacementMessage" class="picture-help">
-      <button v-if="round" type="button" class="text-button help-toggle" :aria-expanded="showEditor"
+    <section v-if="(round && source !== 'spatial') || replacementMessage" class="picture-help">
+      <button v-if="round && source !== 'spatial'" type="button" class="text-button help-toggle" :aria-expanded="showEditor"
         aria-controls="recall-image-editor" @click="showEditor ? closeEditor() : openEditor()">对图片有疑问</button>
       <p v-if="replacementMessage" :class="{ 'replacement-error': replacementError }" role="status">{{ replacementMessage }}</p>
       <div v-if="showEditor && round" id="recall-image-editor" ref="editor" class="card picture-editor">
@@ -361,7 +371,7 @@ onBeforeUnmount(() => {
 .recall-heading { margin: 14px 0 20px; }
 .recall-heading p { margin-bottom: 0; }
 .recall-source, .round-heading, .round-controls { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.recall-source { border-bottom: 1px solid var(--line); padding-bottom: 9px; color: var(--ink-soft); font-size: 12px; }
+.recall-source { flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: 9px; color: var(--ink-soft); font-size: 12px; }
 .round-heading { align-items: baseline; margin: 12px 0; color: var(--ink-soft); }
 .round-heading h2 { margin: 0; font: 500 clamp(27px, 6vw, 39px)/1.15 var(--serif); color: var(--ink); overflow-wrap: anywhere; }
 .round-meta { display: flex; flex: none; align-items: center; gap: 8px; font-size: 12px; }

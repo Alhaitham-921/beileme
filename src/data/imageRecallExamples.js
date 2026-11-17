@@ -2,6 +2,20 @@
 const frame = art => `data:image/svg+xml,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160"><path fill="#e9e1d7" d="M0 0h160v160H0z"/><g stroke="#514b47" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">${art}</g></svg>`
 )}`
+
+const ball = (x, y) => `<circle cx="${x}" cy="${y}" r="13" fill="#be766d"/>`
+const box = (x, y) => `<rect x="${x}" y="${y}" width="46" height="36" rx="2" fill="#8f9eab"/>`
+const spatialPicture = (ballArt, foreground = '') => `
+  <path d="M14 129h132" fill="none"/>${box(22, 75)}${box(98, 75)}${ballArt}${foreground}`
+
+export const SPATIAL_RECALL_EXAMPLES = [
+  ['in', '在……里面', '红球装在左边敞口盒子里，盒子的前沿挡住了球的下半部。',
+    spatialPicture(`<path d="M22 75l7-9h44l-5 16H22z" fill="#778895"/>${ball(45, 76)}`, '<path d="M22 82h46v29H22z" fill="#8f9eab"/>')],
+  ['on', '在……上面（接触表面）', '红球压在左边盒子的顶面上。', spatialPicture(ball(45, 62))],
+  ['under', '在……下面', '左边盒子架高，红球在盒子正下方。', `
+    <path d="M14 129h132M23 79v50m44-50v50" fill="none"/>${box(22, 43)}${box(98, 75)}${ball(45, 115)}`],
+  ['between', '在……之间', '红球处在两个同样的盒子中间。', spatialPicture(ball(83, 101))],
+].map(([spelling, sense, explanation, art]) => ({ key: `spatial-${spelling}`, spelling, sense, explanation, url: frame(art) }))
 const pictures = [
   ['light', '光线', '光穿过窗户，在地板上投出一块亮斑。', `
     <path fill="#8f9eab" d="M38 21h56v67H38z"/><path fill="#ffe5a4" stroke="none" d="M43 28h46v54H43zM42 85h50l49 48H66z"/>
