@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const EXPLANATION_VALIDATION_VERSION = 'assessment-explanation-v2'
+export const EXPLANATION_VALIDATION_VERSION = 'assessment-explanation-v3'
 const labels = { foundation: '高频基础', standard: '常规难度', challenge: '更有挑战' }
 
 // The model chooses the emphasis and order. Factual conclusions are rendered from
@@ -15,6 +15,8 @@ export function assessmentConclusions(baseline) {
   const summary = baseline.synthesis
   add(`synthesis-${summary.decision}`, ['synthesis', ...summary.evidenceIds], `${summary.title}。${summary.detail}`)
   for (const trend of summary.trends) add(`trend-${trend.level}-${trend.status}`, [`trend-${trend.level}`], trend.text)
+  if (baseline.reliability) add('learning-reliability', ['reliability'], baseline.reliability.text)
+  for (const fact of baseline.facts.filter(fact => fact.id.startsWith('word-'))) add(fact.id, [fact.id], fact.text)
   for (const comparison of baseline.comparisons) {
     const change = comparison.change
     if (change === null) continue

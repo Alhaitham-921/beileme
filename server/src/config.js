@@ -54,6 +54,9 @@ export const config = {
   timezoneOffsetMinutes: readInt('APP_TIMEZONE_OFFSET_MINUTES', 480),
   corsOrigins: readList('CORS_ORIGIN', ['http://localhost:5174', 'http://127.0.0.1:5174', 'https://localhost']),
 
+  // Applies only to creating new accounts; never blocks existing users or token refresh.
+  auth: { requireRegistrationEmailVerification: true },
+
   db: {
     host: readString('DB_HOST', '127.0.0.1'),
     port: readInt('DB_PORT', 3306),

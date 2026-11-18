@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { query, queryOne, withTransaction } from '../db/pool.js'
 import { parseJson } from '../utils/json.js'
+import { recordWordEvidence } from './wordLearningEvidence.js'
 import { conflict, notFound } from '../utils/errors.js'
 import { getWordById } from './wordService.js'
 import { getWordLearningCard } from './wordLearningService.js'
@@ -99,9 +100,11 @@ export async function answerCollocation(userId, sessionId, questionIndex, answer
     const feedback = { index: questionIndex, wordId: item.wordId, spelling: item.spelling, phrase: item.phrase,
       translation: item.translation, answer: item.answer, input: answer, result, previous: previous?.last_result || null,
       nextReviewAt: next.nextReviewAt.toISOString() }
-    await conn.execute(`INSERT INTO collocation_attempts
+    const [attempt] = await conn.execute(`INSERT INTO collocation_attempts
       (user_id,word_id,phrase_key,session_id,question_index,answer,result) VALUES (?,?,?,?,?,?,?)`,
     [userId, item.wordId, item.key, sessionId, questionIndex, answer, result])
+    await recordWordEvidence(conn, { userId, wordId: item.wordId, sense: item.sense || null, source: 'collocation',
+      sourceKey: attempt.insertId, result, details: { phrase: item.phrase, translation: item.translation }, at: now })
     await conn.execute(`INSERT INTO collocation_progress
       (user_id,word_id,phrase_key,question,times_seen,times_correct,times_wrong,last_result,repetitions,ef,interval_days,next_review_at,last_review_at,last_wrong_at)
       VALUES (?,?,?,?,1,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE

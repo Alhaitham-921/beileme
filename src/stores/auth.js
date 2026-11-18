@@ -85,11 +85,11 @@ export const useAuthStore = defineStore('auth', {
       }
     },
 
-    async register({ email, password, nickname }) {
+    async register({ email, emailCode, password, nickname }) {
       this.loading = true
       this.error = ''
       try {
-        const data = await api.auth.register({ email, password, nickname })
+        const data = await api.auth.register({ email, emailCode, password, nickname })
         resetAccountStores()
         setTokens(data.tokens)
         this.user = data.user

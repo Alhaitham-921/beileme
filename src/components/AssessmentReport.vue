@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { assessment } from '../api'
 import { useAppStore } from '../stores/app'
+import WordEvidenceReport from './WordEvidenceReport.vue'
 
 const props = defineProps({ sessionId: { type: Number, required: true }, preferenceBusy: Boolean })
 const emit = defineEmits(['retest', 'adopt'])
@@ -16,6 +17,7 @@ const labels = { foundation: '高频基础', standard: '常规难度', challenge
 let request, revision = 0, alive = true
 const date = value => new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 const fact = id => baseline.value?.facts.find(item => item.id === id)
+const rate = band => band?.tested ? `${Math.round(band.correct / band.tested * 100)}%` : '未测'
 
 async function load() {
   request?.abort()
@@ -58,6 +60,7 @@ async function review() {
       <h2>复测对比</h2>
       <template v-if="baseline.previous">
         <p class="muted">已关联此前 {{ baseline.history.usedTests }} 次可比较的自测。答对率按各次实际题量计算。</p>
+        <div class="comparison-scroll" tabindex="0" role="region" aria-label="自测分档对比，可左右滑动">
         <table class="comparison-table" aria-label="上次与本次的分档结果">
           <thead>
             <tr>
@@ -70,14 +73,16 @@ async function review() {
           <tbody>
             <tr v-for="item in baseline.comparisons" :key="item.level">
               <th scope="row">{{ labels[item.level] }}</th>
-              <td v-if="item.previous">{{ item.previous.correct }}/{{ item.previous.tested }}<small>{{ item.previous.unsure }} 题不确定</small></td>
+              <td v-if="item.previous">{{ item.previous.correct }}/{{ item.previous.tested }} · {{ rate(item.previous) }}<small>{{ item.previous.unsure }} 题不确定</small></td>
               <td v-else>暂无</td>
-              <td>{{ item.current.correct }}/{{ item.current.tested }}<small>{{ item.current.unsure }} 题不确定</small></td>
+              <td>{{ item.current.correct }}/{{ item.current.tested }} · {{ rate(item.current) }}<small>{{ item.current.unsure }} 题不确定</small></td>
               <td v-if="item.change !== null">{{ item.change > 0 ? '+' : '' }}{{ item.change }}<small>百分点</small></td>
               <td v-else>暂无</td>
             </tr>
           </tbody>
         </table>
+        </div>
+        <p class="muted">不同试卷的对比仅供参考，一次答对率变化不代表长期进步或退步。</p>
       </template>
       <p v-else>{{ fact('comparison').text }}</p>
       <div v-if="baseline.synthesis" class="synthesis">
@@ -98,6 +103,7 @@ async function review() {
           </ol>
         </details>
       </div>
+      <WordEvidenceReport :history="baseline.wordHistory" :reliability="baseline.reliability" />
       <p v-if="fact('history-retest')">{{ fact('history-retest').text }}</p>
       <p v-if="fact('recurring')">{{ fact('recurring').text }}</p>
       <p v-if="fact('recovered')">{{ fact('recovered').text }}</p>
@@ -153,7 +159,8 @@ async function review() {
 .assessment-report { margin-top: 18px; line-height: 1.7; }
 h2 { margin-top: 0; } h3 { margin: 24px 0 10px; font-size: 17px; }
 .muted { color: var(--ink-soft); font-size: 13px; }
-.comparison-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.comparison-scroll { overflow-x: auto; }
+.comparison-table { width: 100%; min-width: 440px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .comparison-table th, .comparison-table td { padding: 8px 4px; border-bottom: 1px solid var(--line); text-align: center; }
 .comparison-table th:first-child { text-align: left; }
 .comparison-table small { display: block; color: var(--ink-soft); font-weight: 400; }

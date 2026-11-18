@@ -39,6 +39,26 @@ async function finish(user, correct = false, initial = null) {
 }
 const path = id => `/api/v1/assessment/placement/${id}`
 
+test('word-level evidence is account scoped and frozen with the completed report rather than rewritten by later practice', async () => {
+  const learner=await user(), auth={token:learner.token}
+  const active=(await client.post('/api/v1/assessment/placement',auth)).data
+  const row=await queryOne('SELECT state FROM assessment_sessions WHERE id=?',[active.id])
+  const question=parseJson(row.state).current
+  const word=await queryOne('SELECT id FROM words WHERE wordbook_id=? AND spelling_norm=?',[bookId,question.spelling.toLowerCase()])
+  const {withTransaction}=await import('../src/db/pool.js')
+  const {recordWordEvidence}=await import('../src/services/wordLearningEvidence.js')
+  await withTransaction(conn=>recordWordEvidence(conn,{userId:learner.userId,wordId:word.id,sense:question.options[question.correctIndex],source:'image',sourceKey:'report-image-before',result:'incorrect',at:new Date(Date.now()-3600000)}))
+  await withTransaction(conn=>recordWordEvidence(conn,{userId:learner.userId,wordId:word.id,sense:null,source:'collocation',sourceKey:'report-phrase-before',result:'incorrect',at:new Date(Date.now()-3500000)}))
+  const completed=await finish(learner,true,active)
+  const report=(await client.get(path(completed.id)+'/report',auth)).data
+  const linked=report.baseline.wordHistory.words.find(item=>item.wordId===word.id)
+  assert.ok(linked.senses.some(sense=>sense.channels.some(channel=>channel.source==='image'&&channel.correct===0)))
+  assert.ok(linked.unscoped.some(channel=>channel.source==='collocation'))
+  assert.equal(report.baseline.reliability.calibrated,false)
+  await withTransaction(conn=>recordWordEvidence(conn,{userId:learner.userId,wordId:word.id,sense:question.options[question.correctIndex],source:'image',sourceKey:'report-image-after',result:'correct',at:new Date(Date.now()+1000)}))
+  assert.deepEqual((await client.get(path(completed.id)+'/report',auth)).data.baseline,report.baseline)
+})
+
 test('first and subsequent assessments stay optional and never block direct learning', async () => {
   const learner = await user(), auth = { token: learner.token }
   const countTests = async () => Number((await queryOne('SELECT COUNT(*) AS n FROM assessment_sessions WHERE user_id=?', [learner.userId])).n)
@@ -255,7 +275,7 @@ test('cross-day history reaches the AI and yields a separate optional comprehens
   })
   const explained = await client.post(path(third.id) + '/explanation', auth)
   assert.equal(explained.status, 200, JSON.stringify(explained.raw))
-  assert.equal(explained.data.ai.explanation.validationVersion, 'assessment-explanation-v2')
+  assert.equal(explained.data.ai.explanation.validationVersion, 'assessment-explanation-v3')
   assert.ok(explained.data.ai.explanation.observations[0].evidenceIds.includes('trend-foundation'))
   assert.equal(calls, 1)
   assert.equal((await queryOne('SELECT study_start_level FROM user_profiles WHERE user_id=?', [learner.userId])).study_start_level, null)
@@ -288,7 +308,7 @@ test('legacy reports upgrade from frozen evidence without showing unchecked expl
     }) } }], usage: { prompt_tokens: 100, completion_tokens: 30 } })
   })
   const upgraded = (await client.get(path(completed.id) + '/report', auth)).data
-  assert.equal(upgraded.baseline.version, 'assessment-history-v2')
+  assert.equal(upgraded.baseline.version, 'assessment-history-v3')
   assert.deepEqual(upgraded.baseline.learning, originalReport.baseline.learning)
   assert.deepEqual(upgraded.baseline.current, originalReport.baseline.current)
   assert.equal(upgraded.baseline.asOf, originalReport.baseline.asOf)
@@ -298,7 +318,7 @@ test('legacy reports upgrade from frozen evidence without showing unchecked expl
   assert.deepEqual(parseJson((await queryOne('SELECT ai_explanation FROM assessment_reports WHERE session_id=?', [completed.id])).ai_explanation), unchecked)
   const regenerated = (await client.post(path(completed.id) + '/explanation', auth)).data
   assert.equal(regenerated.ai.needsRegeneration, false)
-  assert.equal(regenerated.ai.explanation.validationVersion, 'assessment-explanation-v2')
+  assert.equal(regenerated.ai.explanation.validationVersion, 'assessment-explanation-v3')
   assert.ok(!regenerated.ai.explanation.observations[0].explanation.includes('完全掌握'))
   assert.equal(calls, 1)
   assert.equal((await client.post(path(completed.id) + '/explanation', auth)).data.cached, true)

@@ -1,10 +1,17 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { http } from '../api/client.js'
-import { buildImageRecallRounds, buildSpatialRecallRounds, matchesImageRecall } from '../utils/imageRecall.js'
+import { useRoute, useRouter } from 'vue-router'
 import { loadMemoryImage } from '../utils/memoryImageAssets.js'
 
 const loading = ref(true)
+const route = useRoute()
+const router = useRouter()
+const sessionId = ref(null), saving = ref(false), starting = ref(false), saveError = ref(''), sessionMessage = ref('')
+const requestedSource = ref('examples')
+const reviewStatus = ref({ total: 0, due: 0, weak: 0 })
+let startVersion = 0
+let statusVersion = 0
 const loadError = ref('')
 const source = ref('examples')
 const saved = ref([])
@@ -33,7 +40,7 @@ let stopPoll
 let runStartedAt = null
 
 const round = computed(() => rounds.value[index.value])
-const isMultipleChoice = computed(() => (round.value?.options.filter(option => option.correct).length ?? 0) > 1)
+const isMultipleChoice = computed(() => Boolean(round.value?.multiple))
 const score = computed(() => results.value.filter(result => result === true).length)
 const skipped = computed(() => results.value.filter(result => result === null).length)
 const assetKey = option => option.imagePath || option.key
@@ -94,19 +101,37 @@ watch([round, ready], ([, value]) => {
 })
 
 async function start(mode, focus = true) {
+  if (saving.value || starting.value) return
+  const version = ++startVersion
+  requestedSource.value = mode
+  starting.value = true
+  saveError.value = ''; sessionMessage.value = ''
   runStartedAt = performance.now()
-  resetImages()
-  run.value++
-  source.value = mode
-  index.value = 0
-  results.value = []
-  selected.value = []
-  revealed.value = false
-  closeEditor()
-  rounds.value = mode === 'spatial' ? buildSpatialRecallRounds()
-    : buildImageRecallRounds(mode === 'personal' ? saved.value : [], Math.random, replacements.value)
-  await nextTick()
-  if (focus) heading.value?.focus()
+  try {
+    const data = await http.post('/image-recall/sessions', { body: { source: mode }, signal: libraryRequest.signal, timeoutMs: 15000 })
+    if (version !== startVersion || libraryRequest.signal.aborted) return
+    resetImages(); run.value++; source.value = mode
+    void router.replace({ query: { ...route.query, source: mode } })
+    sessionId.value = data.session?.id || null
+    rounds.value = data.session?.rounds || []
+    index.value = data.session?.answered || 0
+    results.value = (data.session?.answers || []).map(answer => answer.skipped ? null : answer.correct)
+    selected.value = []; revealed.value = false; closeEditor()
+    sessionMessage.value = data.message || (data.resumed ? '已恢复未完成的练习，已答记录按账号保存。' : '')
+    void refreshStatus()
+    await nextTick()
+    if (focus) heading.value?.focus()
+  } catch (error) { if (!libraryRequest.signal.aborted) saveError.value = error.message }
+  finally { if (version === startVersion) starting.value = false }
+}
+
+async function refreshStatus() {
+  const version = ++statusVersion
+  try {
+    const value = await http.get('/image-recall', { signal: libraryRequest.signal, timeoutMs: 8000 })
+    if (version === statusVersion && !libraryRequest.signal.aborted) reviewStatus.value = value
+  }
+  catch { /* Keep the current exercise usable; counts can refresh on the next start. */ }
 }
 
 async function load() {
@@ -127,22 +152,38 @@ async function load() {
 }
 
 function toggle(key) {
-  if (revealed.value || !ready.value) return
+  if (revealed.value || !ready.value || saving.value || starting.value) return
   selected.value = selected.value.includes(key) ? selected.value.filter(item => item !== key) : [...selected.value, key]
 }
 
-function submit() {
-  if (!ready.value || !selected.value.length || revealed.value) return
-  results.value.push(matchesImageRecall(round.value, selected.value))
-  revealed.value = true
+async function persistAnswer(skipped = false) {
+  if (saving.value || starting.value || !sessionId.value) return false
+  saving.value = true; saveError.value = ''
+  try {
+    const data = await http.post(`/image-recall/sessions/${sessionId.value}/answers`, {
+      body: { index: index.value, selectedKeys: skipped ? [] : selected.value, skipped }, signal: libraryRequest.signal,
+    })
+    const feedback = data.answers[index.value]
+    rounds.value = data.rounds
+    results.value = data.answers.map(answer => answer.skipped ? null : answer.correct)
+    sessionMessage.value = feedback.skipped ? '已保存跳过记录，并安排后续再练。' : '答题结果已保存，并安排看图复习；不自动增加整体单词掌握度。'
+    void refreshStatus()
+    return true
+  } catch (error) { if (!libraryRequest.signal.aborted) saveError.value = error.message + ' 本题选择已保留，可以重试保存。'; return false }
+  finally { saving.value = false }
+}
+async function submit() {
+  if (!ready.value || !selected.value.length || revealed.value || saving.value) return
+  if (await persistAnswer()) revealed.value = true
 }
 
 async function advance() {
-  if (!revealed.value) results.value.push(null)
+  if (saving.value || starting.value) return
+  if (!revealed.value && !await persistAnswer(true)) return
   selected.value = []
   revealed.value = false
   closeEditor()
-  index.value++
+  index.value = Math.max(index.value + 1, results.value.length)
   await nextTick()
   heading.value?.focus()
 }
@@ -184,14 +225,14 @@ function applyExampleReplacement(replacement) {
   replacements.value = [
     ...replacements.value.filter(item => item.exampleKey !== replacement.exampleKey), replacement,
   ]
-  replaceInRounds(option => option.key === replacement.exampleKey, {
+  replaceInRounds(option => option.exampleKey === replacement.exampleKey || option.key === replacement.exampleKey, {
     imagePath: replacement.imagePath, explanation: replacement.explanation,
   })
 }
 
 function applyWordReplacement(picture, card) {
   const update = { imagePath: card.imagePath + '/tile', explanation: card.explanation }
-  const matches = item => item.wordId === picture.wordId && item.sense === picture.sense
+  const matches = item => (!item.origin || item.origin === 'personal') && item.wordId === picture.wordId && item.sense === picture.sense
   saved.value = saved.value.map(item => matches(item) ? { ...item, ...update } : item)
   replaceInRounds(matches, update)
 }
@@ -206,8 +247,8 @@ function waitToPoll() {
 async function replacePicture() {
   const picture = editedPicture.value
   if (!picture || replacing.value) return
-  const isExample = picture.key.startsWith('example-')
-  const path = isExample ? `/words/memory-images/examples/${picture.key}` : `/words/${picture.wordId}/memory-image`
+  const isExample = picture.origin === 'examples' || picture.key.startsWith('example-')
+  const path = isExample ? `/words/memory-images/examples/${picture.exampleKey || picture.key}` : `/words/${picture.wordId}/memory-image`
   const query = isExample ? undefined : { sense: picture.sense }
   const body = { learnerCue: learnerCue.value.trim() || undefined }
   if (!isExample) Object.assign(body, { sense: picture.sense, regenerate: true })
@@ -253,11 +294,16 @@ async function replacePicture() {
   }
 }
 
+watch(() => route.query.source, value => {
+  if (['examples','personal','spatial','due','mistakes'].includes(value) && value !== source.value) void start(value)
+})
 onMounted(() => {
-  void start('examples', false)
+  const initial = ['examples','personal','spatial','due','mistakes'].includes(route.query.source) ? route.query.source : 'examples'
+  void start(initial, false)
   void load()
 })
 onBeforeUnmount(() => {
+  startVersion++
   libraryRequest.abort()
   clearTimeout(pollTimer)
   stopPoll?.()
@@ -270,12 +316,17 @@ onBeforeUnmount(() => {
     <router-link class="text-button" to="/review">返回今日回顾</router-link>
     <header class="recall-heading">
       <h1 id="image-recall-title" class="section-title">看图回忆</h1>
-      <p class="section-sub">从九张图中选出能表示这个单词的所有图片。</p>
+      <p class="section-sub">{{ source === 'spatial' || round?.options.length === 4 ? '看红球相对盒子的位置，从四张对照图中选择。' : '从九张图中选出能表示这个单词的所有图片。' }}</p>
+      <p class="muted">已记录 {{ reviewStatus.total }} 个图片任务 · 到期 {{ reviewStatus.due }} 个 · 待巩固 {{ reviewStatus.weak }} 个</p>
+      <div class="recall-source"><button class="text-button" :disabled="starting || saving" @click="start('due')">练到期图片</button><button class="text-button" :disabled="starting || saving" @click="start('mistakes')">重练看图错题</button></div>
+      <p v-if="starting" role="status">正在读取并恢复练习…</p>
+      <p v-if="saveError" class="replacement-error" role="alert">{{ saveError }} <button v-if="!round" class="text-button" :disabled="starting" @click="start(requestedSource)">重新读取</button></p>
+      <p v-if="sessionMessage" class="muted" role="status">{{ sessionMessage }}</p>
     </header>
 
     <template v-if="round || !loading">
       <div class="recall-source">
-        <span>{{ { personal: '我的记忆图', examples: '内置练习', spatial: '方位介词' }[source] }}</span>
+        <span>{{ { personal: '我的记忆图', examples: '内置练习', spatial: '方位介词', due: '到期看图复习', mistakes: '看图错题复习' }[source] }}</span>
         <button v-if="source === 'examples'" class="text-button" @click="start('spatial')">练习方位介词</button>
         <button v-else class="text-button" @click="start('examples')">返回内置练习</button>
         <button v-if="saved.length && source !== 'personal'" class="text-button" @click="start('personal')">用我的记忆图练习</button>
@@ -293,11 +344,11 @@ onBeforeUnmount(() => {
             <span>第 {{ index + 1 }} / {{ rounds.length }} 题</span>
           </div>
         </div>
-        <div :key="run" class="picture-grid" role="group" :aria-label="round.spelling + ' 的图片选项'">
+        <div :key="run" class="picture-grid" :class="{ 'spatial-grid': round.options.length === 4 }" role="group" :aria-label="round.spelling + ' 的图片选项'">
           <button v-for="(option, position) in round.options" :key="option.key" type="button" class="picture-tile"
             :class="{ picked: selected.includes(option.key), correct: revealed && option.correct,
               incorrect: revealed && !option.correct && selected.includes(option.key) }"
-            :disabled="!ready || revealed" :aria-pressed="selected.includes(option.key)"
+            :disabled="!ready || revealed || saving || starting" :aria-pressed="selected.includes(option.key)"
             :aria-label="revealed ? `图片 ${position + 1}：${option.spelling}，${option.sense}${option.correct ? '，正确选项' : '，干扰项'}` : `图片 ${position + 1}`"
             @click="toggle(option.key)">
             <img v-if="assetFor(option)?.url" :key="assetKey(option)" :src="assetFor(option).url" alt="" width="256" height="256"
@@ -311,12 +362,12 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <div class="round-controls">
-          <p v-if="revealed" role="status">{{ results.at(-1) ? '全部选对了。' : '带 ✓ 的图是正确选项。' }}</p>
+          <p v-if="revealed" role="status">{{ results[index] ? '全部选对了。' : '带 ✓ 的图是正确选项。' }}</p>
           <p v-else-if="failed" role="status">有图片没有加载成功。 <button class="text-button" @click="prepare(round)">重试图片</button></p>
           <p v-else-if="!ready" role="status">正在加载本题图片…</p>
           <p v-else role="status">已选 {{ selected.length }} 张</p>
-          <button v-if="!revealed" class="text-button skip" @click="advance">跳过</button>
-          <button v-if="!revealed" class="btn btn-primary" :disabled="!ready || !selected.length" @click="submit">确认选择</button>
+          <button v-if="!revealed" class="text-button skip" :disabled="saving || starting" @click="advance">跳过</button>
+          <button v-if="!revealed" class="btn btn-primary" :disabled="!ready || !selected.length || saving || starting" @click="submit">{{ saving ? '正在保存…' : '确认选择' }}</button>
           <button v-else class="btn btn-primary" @click="advance">{{ index + 1 === rounds.length ? '查看结果' : '下一题' }}</button>
         </div>
         <ul v-if="revealed" class="scene-notes">
@@ -339,8 +390,8 @@ onBeforeUnmount(() => {
       </div>
     </template>
 
-    <section v-if="(round && source !== 'spatial') || replacementMessage" class="picture-help">
-      <button v-if="round && source !== 'spatial'" type="button" class="text-button help-toggle" :aria-expanded="showEditor"
+    <section v-if="(round && revealed && round.options.length !== 4) || replacementMessage" class="picture-help">
+      <button v-if="round && revealed && round.options.length !== 4" type="button" class="text-button help-toggle" :aria-expanded="showEditor"
         aria-controls="recall-image-editor" @click="showEditor ? closeEditor() : openEditor()">对图片有疑问</button>
       <p v-if="replacementMessage" :class="{ 'replacement-error': replacementError }" role="status">{{ replacementMessage }}</p>
       <div v-if="showEditor && round" id="recall-image-editor" ref="editor" class="card picture-editor">
@@ -378,6 +429,7 @@ onBeforeUnmount(() => {
 .round-type { padding: 2px 7px; border-radius: 5px; background: var(--accent-soft); color: var(--accent-deep); font-weight: 600; }
 .picture-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(5px, 1.5vw, 10px); }
 .picture-tile { display: flex; flex-direction: column; align-items: stretch; position: relative; border: 2px solid transparent; border-radius: 9px; padding: 0; background: var(--bg-card); overflow: hidden; }
+.picture-grid.spatial-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .picture-tile:disabled { opacity: 1; }
 .picture-tile:not(:disabled):hover, .picture-tile.picked { border-color: var(--accent); }
 .picture-tile.correct { border-color: var(--color-success, #44865e); }

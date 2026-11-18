@@ -10,6 +10,7 @@ import {
 } from '../utils/token.js'
 import { conflict, unauthorized, badRequest, ERROR_CODES } from '../utils/errors.js'
 import { ensureProfile } from './profileService.js'
+import { registrationVerification } from './registrationVerification.js'
 
 /** 口令强度下限，注册与改密共用 */
 export const MIN_PASSWORD_LENGTH = 8
@@ -67,12 +68,15 @@ async function issueTokens(user, { userAgent = null, ip = null } = {}) {
 }
 
 /** 注册 */
-export async function register({ email, phone, password, nickname = '', userAgent, ip }) {
+export async function register({ email, phone, password, nickname = '', emailCode, userAgent, ip }) {
   const normalizedEmail = email ? String(email).trim().toLowerCase() : null
   const normalizedPhone = phone ? String(phone).trim() : null
 
   if (!normalizedEmail && !normalizedPhone) throw badRequest('请提供邮箱或手机号')
   assertPasswordStrength(password)
+  if (config.auth.requireRegistrationEmailVerification && !normalizedEmail) {
+    throw badRequest('新账号请使用邮箱并完成验证码验证；已有账号仍可正常登录。')
+  }
 
   if (normalizedEmail) {
     const exists = await queryOne('SELECT id FROM users WHERE email = ?', [normalizedEmail])
@@ -84,12 +88,26 @@ export async function register({ email, phone, password, nickname = '', userAgen
   }
 
   const passwordHash = await hashPassword(password)
-  const result = await execute(
-    'INSERT INTO users (email, phone, password_hash, nickname) VALUES (?, ?, ?, ?)',
-    [normalizedEmail, normalizedPhone, passwordHash, String(nickname || '').slice(0, 64)]
-  )
+  let userId
+  try {
+    if (config.auth.requireRegistrationEmailVerification) {
+      userId = await registrationVerification.registerVerified(normalizedEmail, emailCode, async (conn, verifiedAt) => {
+        const [result] = await conn.execute(
+          'INSERT INTO users (email, phone, password_hash, nickname, email_verified_at) VALUES (?, ?, ?, ?, ?)',
+          [normalizedEmail, normalizedPhone, passwordHash, String(nickname || '').slice(0, 64), verifiedAt])
+        return result.insertId
+      }, ip)
+    } else {
+      const result = await execute('INSERT INTO users (email, phone, password_hash, nickname) VALUES (?, ?, ?, ?)',
+        [normalizedEmail, normalizedPhone, passwordHash, String(nickname || '').slice(0, 64)])
+      userId = result.insertId
+    }
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') throw conflict('该邮箱或手机号已注册，请直接登录。')
+    throw error
+  }
 
-  const user = await queryOne('SELECT * FROM users WHERE id = ?', [result.insertId])
+  const user = await queryOne('SELECT * FROM users WHERE id = ?', [userId])
   // 注册即建立默认画像，避免后续每个接口都要处理画像缺失
   await ensureProfile(user.id)
 

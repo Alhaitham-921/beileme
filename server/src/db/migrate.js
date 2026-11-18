@@ -40,8 +40,10 @@ export async function ensureDatabase(database = config.db.database) {
 }
 
 /** 删除并重建数据库，仅供自动化测试使用 */
-export async function resetDatabase(database = config.db.database) {
+export async function resetDatabase(database, { confirmDatabase } = {}) {
   assertSafeIdentifier(database)
+  if (!database.endsWith('_test')) throw new Error('拒绝重建非测试库：仅允许以 _test 结尾的独立测试数据库')
+  if (config.isProduction || confirmDatabase !== database) throw new Error('禁止在生产环境重建数据库；测试重建必须显式确认相同的测试库名')
   const conn = await mysql.createConnection({ ...baseConnectionOptions(), multipleStatements: false })
   try {
     await conn.query(`DROP DATABASE IF EXISTS \`${database}\``)

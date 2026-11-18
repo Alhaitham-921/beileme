@@ -1,12 +1,14 @@
 import { buildAssessmentSynthesis } from './assessmentTrend.js'
+import { buildWordHistory } from './wordLearningEvidence.js'
+import { assessReliability } from './assessmentReliability.js'
 
-export const ASSESSMENT_BASELINE_VERSION = 'assessment-history-v2'
+export const ASSESSMENT_BASELINE_VERSION = 'assessment-history-v3'
 const labels = { foundation: '高频基础', standard: '常规难度', challenge: '更有挑战' }
 const percent = (correct, total) => total ? Math.round(correct / total * 100) : null
 const keyOf = q => JSON.stringify([q.spelling.toLowerCase(), q.options[q.correctIndex]])
 const dateOf = value => new Date(value).toISOString()
 
-export function buildAssessmentBaseline({ session, history, learning = {}, totals = {} }) {
+export function buildAssessmentBaseline({ session, history, learning = {}, totals = {}, wordEvidence = [] }) {
   const state = session.state, result = state.result
   const sameBook = history.filter(row => Number(row.state.bookId) === Number(state.bookId))
   const comparable = sameBook.filter(row => row.state.methodVersion === state.methodVersion &&
@@ -76,6 +78,17 @@ export function buildAssessmentBaseline({ session, history, learning = {}, total
   const collocations = learning.collocations || { total: 0, correct: 0, unknown: 0 }
   const recall = learning.recall || { total: 0, independent: 0, hinted: 0, weak: 0 }
   const synthesis = buildAssessmentSynthesis({ session, history: used, learning: { study, collocations, recall } })
+  const wordHistory = buildWordHistory(session, used, wordEvidence)
+  const reliability = assessReliability(session, used, wordHistory)
+  synthesis.detail += ' ' + reliability.text
+  synthesis.evidenceIds.push('reliability')
+  facts.push({ id: 'reliability', label: '学习改善的依据', sessionIds: [], text: reliability.text })
+  for (const word of wordHistory.words.slice(0, 5)) {
+    facts.push({ id: `word-${word.wordId}`, label: `${word.spelling}的跨练习记录`, sessionIds: [],
+      text: word.senses.map(sense => `${word.spelling}（${sense.sense}）：${sense.label}。` +
+        sense.channels.map(channel => `${channel.label} ${channel.correct}/${channel.total} 次答出${channel.hinted ? `，${channel.hinted} 次借助提示` : ''}`).join('；')).join(' ') +
+        (word.unscoped.length ? ` 另有${word.unscoped.map(c => `${c.label} ${c.correct}/${c.total}`).join('、')}记录未确认义项，单独保留。` : '') })
+  }
   for (const trend of synthesis.trends) facts.push({ id: `trend-${trend.level}`, label: `${labels[trend.level]}多次趋势`,
     sessionIds: trend.points.map(point => point.sessionId), text: trend.text })
   facts.push({ id: 'synthesis', label: '综合学习建议',
@@ -108,5 +121,6 @@ export function buildAssessmentBaseline({ session, history, learning = {}, total
     comparisons, history: { usedTests: used.length, window: 20, ...totals,
       tests: used.map(row => ({ sessionId: Number(row.id), takenAt: dateOf(row.completed_at), form: row.state.form })) },
     weakWords, repeatedWeakWords, improvedWords, historyRetest,
-    learning: { days: 30, study, collocations, recall }, synthesis, facts, recommendations, limitations }
+    learning: { days: 30, study, collocations, recall }, wordEvidence, wordHistory, reliability, synthesis, facts, recommendations,
+    limitations: [...limitations, ...reliability.warnings, wordHistory.scope] }
 }

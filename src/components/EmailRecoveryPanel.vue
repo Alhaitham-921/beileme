@@ -19,7 +19,7 @@ async function act(confirm=false){
   <p>邮箱：{{ auth.user?.email || '未绑定邮箱' }}</p>
   <p v-if="auth.user?.emailVerified">已验证。忘记密码时，可在登录页使用邮件重置码找回。</p>
   <template v-else-if="auth.user?.email">
-   <p>请先验证注册邮箱归你所有。忘记密码后，只有已验证的邮箱才能找回。</p>
+   <p>旧账号可以继续登录和学习，记录会保留。可在这里自愿补验证邮箱，启用邮件找回密码；仅填写邮箱格式不能证明归属。</p>
    <form @submit.prevent="act(false)">
     <label class="field"><span>当前登录密码</span><input class="input" v-model="password" type="password" autocomplete="current-password" required maxlength="128" /></label>
     <button class="btn btn-secondary" :disabled="busy">发送邮箱验证邮件</button>

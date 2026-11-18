@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { http } from '../api/client.js'
@@ -26,9 +26,32 @@ async function recover(reset=false){
  }catch(e){formError.value=e.message}finally{recoveryBusy.value=false}
 }
 
-const form = ref({ account: '', email: '', password: '', confirm: '', nickname: '' })
+const form = ref({ account: '', email: '', emailCode: '', password: '', confirm: '', nickname: '' })
 const formError = ref('')
 const submitting = ref(false)
+const sendingCode = ref(false)
+const codeNotice = ref('')
+const codeAvailableAt = ref(0)
+const clock = ref(Date.now())
+const resendSeconds = computed(() => Math.max(0, Math.ceil((codeAvailableAt.value - clock.value) / 1000)))
+const codeTimer = setInterval(() => { clock.value = Date.now() }, 1000)
+onBeforeUnmount(() => clearInterval(codeTimer))
+watch(() => form.value.email, () => { form.value.emailCode = ''; codeNotice.value = '' })
+async function sendRegistrationCode() {
+  if (sendingCode.value || resendSeconds.value) return
+  const email = form.value.email.trim()
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { formError.value = '请先填写可接收邮件的邮箱'; return }
+  sendingCode.value = true
+  formError.value = ''
+  codeNotice.value = ''
+  try {
+    const result = await http.post('/auth/registration-code', { auth: false, timeoutMs: 60000, body: { email } })
+    clock.value = Date.now()
+    codeAvailableAt.value = clock.value + result.retryAfterSeconds * 1000
+    if (form.value.email.trim() === email) codeNotice.value = result.message
+  } catch (error) { formError.value = error.message }
+  finally { sendingCode.value = false }
+}
 
 const isRegister = computed(() => mode.value === 'register')
 const submitLabel = computed(() => (isRegister.value ? '注册并开始' : '登录'))
@@ -46,6 +69,7 @@ function validate() {
   if (isRegister.value) {
     if (!email.trim()) return '请填写邮箱'
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return '邮箱格式看起来不太对'
+    if (!/^\d{6}$/.test(form.value.emailCode.trim())) return '请输入邮件中的6位验证码'
     if (password.length < 8) return '密码至少 8 位'
     if (!/[a-zA-Z]/.test(password) || !/\d/.test(password)) return '密码需要同时包含字母和数字'
     if (password !== confirm) return '两次输入的密码不一致'
@@ -72,6 +96,7 @@ async function submit() {
     if (isRegister.value) {
       await auth.register({
         email: form.value.email.trim(),
+        emailCode: form.value.emailCode.trim(),
         password: form.value.password,
         nickname: form.value.nickname.trim(),
       })
@@ -121,9 +146,24 @@ async function submit() {
               v-model="form.email"
               type="email"
               autocomplete="email"
-              placeholder="例如：123456789@qq.com"
+              placeholder="QQ、163、Outlook、学校邮箱等"
               class="input"
+              maxlength="190"
+              :disabled="sendingCode || submitting"
             />
+          </label>
+
+          <label class="field">
+            <span class="field-label">邮箱验证码</span>
+            <div class="email-code-row">
+              <input v-model="form.emailCode" class="input" inputmode="numeric" autocomplete="one-time-code"
+                placeholder="6位数字" maxlength="6" :disabled="submitting" />
+              <button class="btn btn-secondary" type="button" :disabled="sendingCode || submitting || resendSeconds > 0" @click="sendRegistrationCode">
+                {{ sendingCode ? '发送中…' : resendSeconds ? `${resendSeconds}秒后重发` : '获取验证码' }}
+              </button>
+            </div>
+            <span v-if="codeNotice" class="field-label" role="status">{{ codeNotice }}</span>
+            <span class="field-label">先验证邮箱归属再创建新账号。已有账号直接登录，学习记录保留。</span>
           </label>
 
           <label class="field">
@@ -277,6 +317,9 @@ async function submit() {
   display: grid;
   gap: 16px;
 }
+.email-code-row { display: flex; gap: 8px; }
+.email-code-row .input { min-width: 0; flex: 1; }
+.email-code-row .btn { flex-shrink: 0; white-space: nowrap; }
 
 .recovery-action {
   display: flex;
