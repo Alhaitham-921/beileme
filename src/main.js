@@ -1,11 +1,13 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
+import LoadingState from './components/LoadingState.vue'
 import router from './router'
 import { useAuthStore } from './stores/auth'
 import { onAuthExpired } from './api/client.js'
 import logoUrl from './assets/logo.png'
 import './styles/main.css'
+import './styles/motion.css'
 import { initializeTheme } from './stores/theme'
 initializeTheme()
 
@@ -17,6 +19,7 @@ favicon.href = logoUrl
 document.head.appendChild(favicon)
 
 const app = createApp(App)
+app.component('LoadingState', LoadingState)
 const pinia = createPinia()
 app.use(pinia)
 

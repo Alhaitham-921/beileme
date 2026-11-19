@@ -16,10 +16,22 @@ import { resolveWordbookForGoal, listWordbooks } from '../services/wordService.j
 import { getOrCreateDailyPlan } from '../services/planService.js'
 import { queryOne } from '../db/pool.js'
 import { START_LEVELS } from '../services/placementService.js'
+import { saveAvatar, removeAvatar, readAvatar } from '../services/avatarService.js'
+import { consumeWindow } from '../services/platform/rateLimit.js'
 
 const router = Router()
 
 router.use(requireAuth)
+router.put('/avatar', validate({ body: z.object({ image: z.string().min(1).max(700000) }) }), asyncHandler(async (req, res) => {
+  await consumeWindow(`avatar-upload:${req.user.id}`, 30, 3600)
+  return ok(res, await saveAvatar(req.user.id, req.valid.body.image))
+}))
+router.delete('/avatar', asyncHandler(async (req, res) => ok(res, await removeAvatar(req.user.id))))
+router.get('/avatars/:id/:revision', validate({ params: z.object({ id: z.coerce.number().int().positive(), revision: z.string().regex(/^[a-f0-9]{32}$/) }) }), asyncHandler(async (req, res) => {
+  const image = await readAvatar(req.valid.params.id, req.valid.params.revision)
+  res.set({ 'Content-Type': 'image/webp', 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' })
+  res.send(image)
+}))
 
 const profileSchema = z.object({
   goal: z.enum(GOALS).optional(),

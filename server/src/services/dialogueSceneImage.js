@@ -62,7 +62,8 @@ export async function startSceneHint(userId,id,{regenerate=false}={}) {
     const [[usage]] = await conn.execute(`SELECT SUM(IF(attempt_day=?,daily_attempts,0)) attempts,SUM(lease_until>UTC_TIMESTAMP(3)) pending FROM (
       SELECT attempt_day,daily_attempts,lease_until FROM word_memory_images WHERE user_id=? UNION ALL
       SELECT attempt_day,daily_attempts,lease_until FROM image_recall_example_replacements WHERE user_id=? UNION ALL
-      SELECT attempt_day,daily_attempts,lease_until FROM dialogue_scene_images WHERE user_id=?) q`,[day,userId,userId,userId])
+      SELECT attempt_day,daily_attempts,lease_until FROM dialogue_scene_images WHERE user_id=? UNION ALL
+      SELECT attempt_day,daily_attempts,lease_until FROM dialogue_illustrations WHERE user_id=?) q`,[day,userId,userId,userId,userId])
     if (Number(usage.pending)) throw quotaExceeded('已有一张图正在生成，请稍后再试。')
     if (Number(usage.attempts)>=config.wordImages.dailyQuota) throw quotaExceeded('今日图片生成次数已用完，可以继续对话。')
     await conn.execute('INSERT IGNORE INTO dialogue_daily_usage(user_id,usage_date) VALUES(?,?)',[userId,day])

@@ -28,7 +28,7 @@ const date = value => new Date(value).toLocaleString('zh-CN')
         <p v-for="channel in word.unscoped" :key="channel.source">{{ channel.label }}：{{ channel.correct }}/{{ channel.total }} 次答出。单独保留，不算到上面的具体义项。</p>
       </div>
       <p v-if="word.otherSenses.length" class="muted">其他义项另记：{{ word.otherSenses.join('、') }}。</p>
-      <router-link :to="{ path: '/collocations', query: { wordId: word.wordId } }">练这个词的搭配</router-link>
+      <router-link :to="{ path: '/notebooks/collocations', query: { wordId: word.wordId } }">练这个词的搭配</router-link>
     </details>
   </section>
 </template>

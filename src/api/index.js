@@ -4,12 +4,17 @@
  */
 import http from './client.js'
 export const practice = {
+  illustrationSettings: () => http.get('/practice/illustration-settings'),
+  saveIllustrationSettings: (autoImages) => http.put('/practice/illustration-settings', { body: { autoImages } }),
+  illustrations: (query, options = {}) => http.get('/practice/illustrations', { query, ...options }),
+  retryIllustration: (id, sceneId) => id ? http.post(`/practice/illustrations/${id}/retry`) : http.post('/practice/illustrations', { body: { sceneId } }),
   list: () => http.get('/practice'),
   generateScene: (body, options = {}) => http.post('/practice/scenes/generate', { body, timeoutMs: 150000, ...options }),
   saveScene: (body) => http.post('/practice/scenes/save', { body }),
   repeatSession: (id, body = {}) => http.post(`/practice/sessions/${encodeURIComponent(id)}/repeat`, { body, timeoutMs: 150000 }),
   submit: (body) => http.post('/practice', { body }),
   startSession: (body) => http.post('/practice/sessions', { body, timeoutMs: 150000 }),
+  startImageSession: (body) => http.post('/practice/image-sessions', { body, timeoutMs: 150000 }),
   getSession: (id) => http.get(`/practice/sessions/${encodeURIComponent(id)}`, { timeoutMs: 15000 }),
   prepare: (id, body) => http.post(`/practice/sessions/${id}/preparation`, {body}),
   begin: (id, body) => http.post(`/practice/sessions/${id}/begin`, {body}),

@@ -38,10 +38,10 @@ onMounted(load)
 <template>
   <section class="card speech-settings" aria-label="共享语音服务">
     <h2>语音输入</h2>
-    <p v-if="loading" role="status">正在读取语音服务…</p>
+    <p v-if="loading"><LoadingState>正在读取语音服务…</LoadingState></p>
     <template v-else>
       <p>{{ configured ? '管理员已开启共享语音识别，你可以直接录音转文字，无需个人 API Key。' : '共享语音识别尚未就绪，请联系管理员配置或开启。' }}</p>
-      <router-link to="/speech" class="btn btn-primary">测试语音识别</router-link>
+      <router-link to="/practice" class="btn btn-primary">在情境对话中使用语音</router-link>
       <form v-if="canManage" class="admin-form" @submit.prevent="submit(false)">
         <h3>管理员配置</h3>
         <p>服务：硅基流动 · FunAudioLLM/SenseVoiceSmall。密钥加密保存在服务器，不向用户返回。</p>

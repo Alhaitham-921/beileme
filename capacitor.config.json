@@ -10,7 +10,8 @@
   },
   "plugins": {
     "SystemBars": {
-      "insetsHandling": "native",
+      "insetsHandling": "css",
+      "initialViewportFitValueHint": "cover",
       "style": "DARK"
     }
   }

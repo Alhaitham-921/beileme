@@ -313,7 +313,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="image-recall" aria-labelledby="image-recall-title">
-    <router-link class="text-button" to="/review">返回今日回顾</router-link>
+    <router-link class="text-button" to="/review">返回温故知新</router-link>
     <header class="recall-heading">
       <h1 id="image-recall-title" class="section-title">看图回忆</h1>
       <p class="section-sub">{{ source === 'spatial' || round?.options.length === 4 ? '看红球相对盒子的位置，从四张对照图中选择。' : '从九张图中选出能表示这个单词的所有图片。' }}</p>
@@ -364,7 +364,7 @@ onBeforeUnmount(() => {
         <div class="round-controls">
           <p v-if="revealed" role="status">{{ results[index] ? '全部选对了。' : '带 ✓ 的图是正确选项。' }}</p>
           <p v-else-if="failed" role="status">有图片没有加载成功。 <button class="text-button" @click="prepare(round)">重试图片</button></p>
-          <p v-else-if="!ready" role="status">正在加载本题图片…</p>
+          <p v-else-if="!ready"><LoadingState>正在加载本题图片…</LoadingState></p>
           <p v-else role="status">已选 {{ selected.length }} 张</p>
           <button v-if="!revealed" class="text-button skip" :disabled="saving || starting" @click="advance">跳过</button>
           <button v-if="!revealed" class="btn btn-primary" :disabled="!ready || !selected.length || saving || starting" @click="submit">{{ saving ? '正在保存…' : '确认选择' }}</button>

@@ -16,8 +16,9 @@ import { emptyUsage, addUsage, usageReport } from '../services/ai/usage.js'
 import { todayKey } from '../utils/time.js'
 import { parseJsonResponse } from '../services/ai/promptTemplates.js'
 import { resolveWordbookForUser } from '../services/wordService.js'
+import { imagePreferences, saveImagePreferences, listIllustrations, readIllustration, retryIllustration } from '../services/dialogueIllustrationService.js'
 import { listDialogues, startDialogue, getDialogue, addDialogueTurn, requestDialogueHelp, finishDialogue,
-  generateScenario, saveScenario, repeatDialogue, gradeShortPractice } from '../services/dialogueService.js'
+  generateScenario, saveScenario, repeatDialogue, gradeShortPractice, startImageDialogue } from '../services/dialogueService.js'
 import { answerPreparation, beginConversation, switchDialogueActor, consolidateDialogue } from '../services/dialogueJourneyService.js'
 import { sceneHintStatus, startSceneHint, sceneHintBytes } from '../services/dialogueSceneImage.js'
 
@@ -45,6 +46,25 @@ const difficulty = z.enum(['beginner', 'intermediate', 'advanced'])
 const strictness = z.enum(['lenient', 'standard', 'strict'])
 const mode = z.enum(['free', 'task'])
 const maxTurns = z.union([z.literal(8), z.literal(16), z.literal(24)])
+router.get('/illustration-settings', asyncHandler(async (req,res) => ok(res,await imagePreferences(req.user.id))))
+router.put('/illustration-settings', validate({body:z.object({autoImages:z.boolean()})}),
+  asyncHandler(async (req,res) => ok(res,await saveImagePreferences(req.user.id,req.valid.body.autoImages))))
+router.get('/illustrations', validate({query:z.object({sceneId:sceneId.optional(),sessionId:z.coerce.number().int().positive().optional()}).refine(v=>v.sceneId||v.sessionId)}),
+  asyncHandler(async (req,res) => ok(res,await listIllustrations(req.user.id,req.valid.query))))
+router.post('/illustrations',validate({body:z.object({sceneId})}),
+  asyncHandler(async (req,res) => ok(res,await retryIllustration(req.user.id,req.valid.body))))
+router.post('/illustrations/:id/retry',validate({params:sessionId}),
+  asyncHandler(async (req,res) => ok(res,await retryIllustration(req.user.id,{id:req.valid.params.id}))))
+router.get('/illustrations/:id/:revision',validate({params:sessionId.extend({revision:z.string().regex(/^[a-f0-9]{64}$/)})}),
+  asyncHandler(async (req,res) => {
+    const image = await readIllustration(req.user.id,req.valid.params.id,req.valid.params.revision)
+    res.set({'Content-Type':'image/webp','Cache-Control':'private, max-age=31536000, immutable','Vary':'Authorization'}).send(image)
+  }))
+router.post('/image-sessions', validate({ body: z.object({
+  wordId: z.number().int().positive(), sense: z.string().trim().min(1).max(500),
+  imagePath: z.string().max(300).regex(/^\/words\/[1-9]\d*\/memory-image\/[a-f0-9]{64}\/[a-f0-9]{64}$/),
+  difficulty: difficulty.default('beginner'),
+}) }), asyncHandler(async (req, res) => ok(res, await startImageDialogue(req.user.id, req.valid.body), 201)))
 router.post('/scenes/generate', validate({ body: z.object({
   followupId: z.number().int().positive().optional(),
   wordIds: z.array(z.number().int().positive()).min(1).max(5).optional(),

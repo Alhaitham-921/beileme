@@ -95,7 +95,7 @@ onUnmounted(() => { alive=false; version++; clearTimeout(timer) })
 </script>
 <template>
   <div class="notebooks-page">
-    <header class="page-heading"><div><h1 class="section-title">单词本与错题本</h1><p class="section-sub">收藏词和历史错词，选好后一起复习。</p></div><router-link to="/study" class="text-button">去背单词</router-link></header>
+    <header class="page-heading"><div><h1 class="section-title">单词本与错题本</h1><p class="section-sub">收藏词和历史错词，选好后一起复习。</p></div><router-link to="/" class="text-button">去今日学习</router-link></header>
     <section v-if="previousBatch" class="card resume-review" aria-label="继续上次选词复习">
       <p>上次所选 {{ previousBatch.totalCount }} 词，已完成 {{ previousBatch.completedCount }} 词。</p>
       <button class="btn btn-ghost" :disabled="starting" @click="startReview(previousBatch.id)">继续上次复习</button>
@@ -112,7 +112,7 @@ onUnmounted(() => { alive=false; version++; clearTimeout(timer) })
         <div class="notebook-title"><h2>{{title}}</h2><span>共 {{total}} 个单词</span></div>
         <p v-if="source==='mistakes'" class="list-hint">收录单词或搭配曾答错、未答出的词，答对后仍保留，方便随时回顾。</p>
         <router-link v-if="source==='mistakes'" to="/recall" class="btn btn-primary">错词专项与隔天复测</router-link>
-        <router-link to="/collocations" class="btn btn-ghost">搭配错题与到期复习</router-link>
+        <router-link v-if="source==='mistakes'" to="/notebooks/collocations" class="btn btn-ghost">搭配错题与到期复习</router-link>
         <p v-if="error" class="book-error" role="alert">{{error}} <button type="button" class="text-button" @click="refresh">重试</button></p>
         <div class="list-controls"><label class="search-label">查找单词<input v-model="search" type="search" maxlength="100" placeholder="搜索英文或中文"></label><fieldset><legend>回顾模式</legend><button v-for="option in [{value:'none',label:'中英对照'},{value:'zh',label:'遮住中文'},{value:'en',label:'遮住英文'}]" :key="option.value" type="button" :class="{chosen:mask===option.value}" :aria-pressed="mask===option.value" @click="changeMask(option.value)">{{option.label}}</button></fieldset></div>
         <div class="selection-tools" aria-label="批量选择复习词">
@@ -128,7 +128,7 @@ onUnmounted(() => { alive=false; version++; clearTimeout(timer) })
         </div>
         <p class="list-hint">切换单词本、错题本或翻页会保留选择；全选包含当前列表所有页，每组复习十词，可继续下一组。</p>
         <p v-if="mask!=='none'" class="list-hint">先回想，再点击遮罩查看答案。</p>
-        <p v-if="loading" role="status" class="empty-book">正在打开单词列表…</p>
+        <p v-if="loading" class="empty-book"><LoadingState>正在打开单词列表…</LoadingState></p>
         <div v-else-if="!items.length&&!error" class="empty-book"><h3>{{search?'没有找到匹配单词':source==='mistakes'?'还没有历史错词':'这里还没有收藏词'}}</h3><p>{{source==='mistakes'?'之后答错的单词会自动收进来。':'在背词或错词旁点击收藏，即可收进单词本。'}}</p></div>
         <div v-else-if="items.length" class="word-table-wrap">
           <table class="word-table"><thead><tr><th scope="col">选择</th><th scope="col">英文</th><th scope="col">中文释义</th><th scope="col">收藏管理</th></tr></thead><tbody>
@@ -139,7 +139,7 @@ onUnmounted(() => { alive=false; version++; clearTimeout(timer) })
               <td class="meaning-cell"><button v-if="mask==='zh'" type="button" :class="['answer',{covered:hidden(word.id,'zh')}]" :aria-label="hidden(word.id,'zh')?'查看中文答案':'重新遮住中文答案'" @click="reveal(word.id)">{{hidden(word.id,'zh')?'点击查看中文':word.definitions.join('；')}}</button><span v-else>{{word.definitions.join('；')}}</span></td>
               <td class="favorite-cell">
                 <FavoriteWord :word-id="word.id" :initial-saved="word.saved" @change="changed" />
-                <router-link :to="{path:'/collocations',query:{wordId:word.id}}" class="text-button">练搭配<span v-if="word.collocationWrongTimes"> · 搭配曾错 {{word.collocationWrongTimes}} 次</span></router-link>
+                <router-link :to="{path:'/notebooks/collocations',query:{wordId:word.id}}" class="text-button">练搭配<span v-if="word.collocationWrongTimes"> · 搭配曾错 {{word.collocationWrongTimes}} 次</span></router-link>
                 <router-link v-if="word.imageWrongTimes" :to="{name:'image-recall',query:{source:'mistakes'}}" class="text-button">看图曾错或跳过 {{word.imageWrongTimes}} 次 · 去复习</router-link>
                 <button v-if="source==='mistakes' && !hidden(word.id,mask)" type="button" class="text-button"
                   :aria-expanded="openMemoryWord===word.id" @click="openMemoryWord=openMemoryWord===word.id ? null : word.id">

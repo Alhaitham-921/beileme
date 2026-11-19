@@ -85,7 +85,7 @@ onMounted(load)
           <button v-if="state.lastCompleted" class="text-button" :disabled="busy" @click="viewLast">查看上次练习结果</button>
         </div>
       </template>
-      <p v-else-if="busy">正在读取练习进度…</p>
+      <p v-else-if="busy"><LoadingState>正在读取练习进度…</LoadingState></p>
       <button v-else class="btn btn-secondary" @click="load">重新读取</button>
     </section>
     <section v-else-if="feedback" class="card recall-card" aria-live="polite">
@@ -96,7 +96,7 @@ onMounted(load)
       <p v-if="feedback.example" lang="en" class="recall-context">{{ feedback.example }}</p>
       <p v-if="feedback.translation">{{ feedback.translation }}</p>
       <p v-if="feedback.collocation"><strong lang="en">{{ feedback.collocation.phrase }}</strong> · {{ feedback.collocation.translation }}</p>
-      <router-link :to="{path:'/collocations',query:{wordId:feedback.wordId}}" class="text-button">复习这个词的搭配</router-link>
+      <router-link :to="{path:'/notebooks/collocations',query:{wordId:feedback.wordId}}" class="text-button">复习这个词的搭配</router-link>
       <p v-if="feedback.dialogue">对话「{{ feedback.dialogue.sourceTitle }}」· {{ feedback.dialogue.reason }}。本次填词 · {{ labels[feedback.result] }}。</p>
       <p v-if="feedback.previous">上次 {{ labels[feedback.previous] }} · 本次 {{ labels[feedback.result] }}</p>
       <p v-if="feedback.nextDate" class="muted">复测日期 · {{ feedback.nextDate }}</p>

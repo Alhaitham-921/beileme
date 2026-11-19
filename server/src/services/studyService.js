@@ -157,7 +157,7 @@ export async function createSession(userId, { kind = 'daily', studyMode = 'revie
   const cap=taskCap(budgetMinutes,workload?.secondsPerWord)
   const groupCap = studyMode === 'review-only' || kind === 'extra' ? Math.min(cap, EXTRA_SESSION_SIZE) : cap
   const scheduleCutoff = new Date()
-  const scheduled = await listScheduledStudyWords(userId, scheduleCutoff, groupCap)
+  const scheduled = await listScheduledStudyWords(userId, scheduleCutoff, groupCap, studyMode)
   const scheduledIds = new Set(scheduled.map(row => Number(row.id)))
   const excludeScheduled = (rows, limit) => rows.filter(row => !scheduledIds.has(Number(row.id))).slice(0, limit)
   for (const row of scheduled) {

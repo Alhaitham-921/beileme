@@ -23,7 +23,7 @@ const { source, search, page, total, totalPages, list, chosen, error, loading, l
       </li>
     </ul>
     <p v-if="error" role="alert">{{ error }} <button type="button" class="text-button" @click="load">重试加载</button></p>
-    <p v-else-if="loading">正在加载单词…</p>
+    <p v-else-if="loading"><LoadingState>正在加载单词…</LoadingState></p>
     <p v-else-if="!list.length">{{ search.trim() ? '没有匹配的单词，试试其他关键词。' : source==='mistakes' ? '错词本暂无记录，可以切换今日错词或收藏单词本。' : '当前来源暂无单词，可以切换其他来源。' }}</p>
     <div class="word-options">
       <label v-for="w in list" :key="w.id">

@@ -58,7 +58,7 @@ onBeforeUnmount(() => { controller.abort(); emit('active', false) })
 
 <template>
   <div class="collocation-practice" :aria-busy="busy">
-    <p v-if="busy && !status && !active" class="practice-note" role="status">正在读取搭配学习记录…</p>
+    <p v-if="busy && !status && !active" class="practice-note"><LoadingState>正在读取搭配学习记录…</LoadingState></p>
     <p v-if="error" class="practice-error" role="alert">{{ error }}
       <button v-if="pending" type="button" class="text-button" :disabled="busy" @click="save">重试保存</button>
       <button v-else-if="!status" type="button" class="text-button" :disabled="busy" @click="load">重新读取</button>

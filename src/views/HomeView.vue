@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { formatDate } from '../utils/dates'
+import { http } from '../api/client.js'
 
 const app = useAppStore()
 const auth = useAuthStore()
@@ -35,8 +36,29 @@ async function chooseAdjustment(reason) {
   }
 }
 
-function start() {
-  router.push('/study')
+const starting = ref(false), studyNotice = ref(''), pendingReviews = ref(0), skipReviewDialog = ref(null)
+async function start(mode) {
+  if (starting.value) return
+  starting.value = true; studyNotice.value = ''
+  try {
+    const workload = await http.get('/study/workload')
+    pendingReviews.value = workload.dueCount
+    app.plan = workload.plan
+    if (mode === 'review-only' && !pendingReviews.value) {
+      studyNotice.value = '当前没有需要复习的旧词，可以开始学习新词。'
+      return
+    }
+    if (mode === 'new-only' && pendingReviews.value > 0) {
+      skipReviewDialog.value.showModal()
+      return
+    }
+    await enterStudy(mode)
+  } catch (error) { studyNotice.value = error.message }
+  finally { starting.value = false }
+}
+async function enterStudy(mode) {
+  skipReviewDialog.value?.close()
+  await router.push({ path: '/study', query: { mode } })
 }
 
 function reload() {
@@ -57,7 +79,7 @@ function reload() {
 
     <!-- 首次渲染时 plan 还是 null，统一走加载态，避免闪出全 0 的假数据 -->
     <div v-if="!app.plan && !app.error" class="card skeleton">
-      <p class="muted">正在加载今日任务…</p>
+      <LoadingState skeleton>正在加载今日任务…</LoadingState>
     </div>
 
     <!-- 加载失败 -->
@@ -124,12 +146,11 @@ function reload() {
           </div>
 
           <div class="todo-actions">
-            <button class="btn btn-primary btn-lg start-btn" @click="start">
-              {{ app.allDoneToday ? '再学一组' : '开始今日学习' }}
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
-            </button>
+            <button class="btn btn-primary btn-lg start-btn" :disabled="starting" :aria-busy="starting" @click="start('review-only')">复习旧词</button>
+            <button class="btn btn-ghost btn-lg start-btn" :disabled="starting" @click="start('new-only')">学习新词</button>
             <p class="action-note">{{ app.allDoneToday ? '今日计划已完成，继续保持好奇。' : '专注当下，按自己的节奏前进。' }}</p>
           </div>
+          <p v-if="studyNotice" class="study-notice" role="status">{{ studyNotice }}</p>
         </div>
 
         <div class="hero-art" aria-hidden="true">
@@ -162,7 +183,7 @@ function reload() {
         <div class="home-links">
           <router-link to="/review" class="link-card">
             <svg class="link-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 10a8 8 0 1 1 1 7M4 4v6h6m2-3v5l3 2" /></svg>
-            <h3>今日回顾</h3><p>回看错词，让记忆更牢固</p><span class="arrow" aria-hidden="true">↗</span>
+            <h3>温故知新</h3><p>回顾错词、阅读与看图回忆</p><span class="arrow" aria-hidden="true">↗</span>
           </router-link>
           <router-link to="/practice" class="link-card">
             <svg class="link-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M21 11a8 8 0 0 1-8 8H9l-6 3V8a6 6 0 0 1 6-6h4a8 8 0 0 1 8 9Z" /><path d="M7 9h10M7 13h6" /></svg>
@@ -175,11 +196,20 @@ function reload() {
         </div>
       </section>
     </template>
+    <dialog ref="skipReviewDialog" class="study-confirm" aria-labelledby="skip-review-title">
+      <h2 id="skip-review-title">还有 {{ pendingReviews }} 个旧词待复习</h2>
+      <p>先巩固旧词有助于记住它们。现在要直接学习新词吗？复习任务会保留。</p>
+      <div class="confirm-actions"><button class="btn btn-primary" @click="enterStudy('review-only')">先复习旧词</button><button class="btn btn-ghost" @click="enterStudy('new-only')">仍然学习新词</button><button class="btn btn-quiet" @click="skipReviewDialog.close()">取消</button></div>
+    </dialog>
   </div>
 </template>
 
 <style scoped>
 .home { padding-bottom: 16px; }
+.study-notice { color: var(--accent-deep); font-size: 13px; line-height: 1.8; }
+.study-confirm { max-width: min(440px, calc(100vw - 32px)); padding: 26px; border: 1px solid var(--line); border-radius: 20px; color: var(--ink); background: var(--bg-card); box-shadow: var(--shadow); }
+.study-confirm::backdrop { background: rgba(4,10,18,.7); }
+.study-confirm h2 { font-size: 21px; margin-top: 0; }.study-confirm p { font-size: 14px; line-height: 1.8; color: var(--ink-soft); }.confirm-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .welcome { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 34px; }
 .hello { display: flex; align-items: center; gap: 9px; color: var(--ink-soft); font-size: 11px; letter-spacing: 1.3px; margin: 0 0 12px; }
 .hello-mark { width: 15px; height: 1px; background: var(--accent); }

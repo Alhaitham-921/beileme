@@ -18,6 +18,10 @@ import { buildScenarioMessages, validateScenario } from './scenarioEngine.js'
 import { journeyScene, hotelChangeScene, initJourney, applyGoalEvidence, challengeIdentity, challengeOutcome,
   questionFeedback, consolidationQuestions, presentJourney } from './dialogueJourney.js'
 import { currentActor, assertRevision, assertConversation, saveChallenge } from './dialogueJourneyService.js'
+import { getWordMemoryImage } from './wordMemoryImageService.js'
+import { buildImageScenarioMessages, validateImageScenario, copiedImageHelp } from './imageDialogueEngine.js'
+import { illustrationContext, queueOpeningIllustration, queueTurnIllustration } from './dialogueIllustrationService.js'
+import { visualUpdate } from './dialogueIllustrationEngine.js'
 
 const reportJobs = new Map()
 const MAX_CALLS = 200
@@ -74,6 +78,7 @@ export async function generateScenario(userId, { description, difficulty = 'begi
   const saved = await execute(`INSERT INTO dialogue_scenes (user_id,source,difficulty,scene,generation_usage)
     VALUES (?,'custom',?,?,?)`, [userId, difficulty, JSON.stringify({ ...value, description, ...(followup?{followupId:followup.id}: {}) }), JSON.stringify(usage)])
   const scene = await savedSceneFor(userId, `custom-${saved.insertId}`)
+  await queueOpeningIllustration(userId, scene)
   return { scene, usage }
 }
 
@@ -137,7 +142,34 @@ export async function startDialogue(userId, { sceneId, strictness = 'standard', 
     if (!(await challengeProgress(userId)).hotelChangeUnlocked) throw badRequest('先完成一次酒店任务，即可解锁改期支线；基础情境始终可用')
     scene = hotelChangeScene(scene)
   }
+  if (scene.memoryImage) { mode = 'task'; maxTurns = 3 }
   return createDialogue(userId, scene, { sceneId, strictness, difficulty, variant: scene.variant, mode, maxTurns, prepareWords })
+}
+
+export async function startImageDialogue(userId, { wordId, sense, imagePath, difficulty = 'beginner' }) {
+  const card = await getWordMemoryImage(userId, wordId, sense)
+  if (card.selected?.sense !== sense || !card.imagePath) throw notFound('这条词义还没有记忆图，请先生成图片。')
+  if (card.imagePath !== imagePath) throw conflict('记忆图已更新，请返回重新打开这张图。')
+  const word = await getWordById(wordId)
+  if (!/^[a-z]+(?:['-][a-z]+)*$/i.test(word.spelling)) throw badRequest('这张图暂不支持单词口语练习。')
+  await configuredProvider(userId)
+  const limits = await resolveLimits(userId)
+  if (!limits.unlimited) {
+    const count = await queryOne('SELECT COUNT(*) n FROM dialogue_sessions WHERE user_id=? AND created_at>=?', [userId, businessDayStartUtc(todayKey())])
+    if (Number(count.n) >= MAX_SESSIONS) throw quotaExceeded('今日已开始 10 轮情境对话，可以继续未完成的对话或查看小结')
+  }
+  const image = { wordId, word: word.spelling, sense, imagePath, explanation: card.explanation }
+  const cached = await queryOne(`SELECT * FROM dialogue_scenes WHERE user_id=? AND difficulty=?
+    AND JSON_UNQUOTE(JSON_EXTRACT(scene, '$.memoryImage.imagePath'))=? ORDER BY id DESC LIMIT 1`, [userId, difficulty, imagePath])
+  let scene = cached && savedSceneFromRow(cached)
+  if (!scene) {
+    const { value, usage } = await generateValidated(userId, {}, buildImageScenarioMessages(image, difficulty),
+      raw => validateImageScenario(raw, image, difficulty), true)
+    const saved = await execute(`INSERT INTO dialogue_scenes (user_id,source,difficulty,scene,generation_usage)
+      VALUES (?,'custom',?,?,?)`, [userId, difficulty, JSON.stringify(value), JSON.stringify(usage)])
+    scene = await savedSceneFor(userId, `custom-${saved.insertId}`)
+  }
+  return createDialogue(userId, scene, { sceneId: scene.id, strictness: 'standard', difficulty, mode: 'task', maxTurns: 3 })
 }
 
 export async function repeatDialogue(userId, id, options = {}) {
@@ -146,7 +178,7 @@ export async function repeatDialogue(userId, id, options = {}) {
   const scene = withDifficulty(structuredClone(previous.scene), difficulty)
   return createDialogue(userId, scene, { sceneId: previous.sceneId, difficulty, variant: previous.variant,
     strictness: options.strictness || previous.strictness || 'standard',
-    mode: options.mode || previous.mode || 'task', maxTurns: options.maxTurns || previous.maxTurns || 8, prepareWords: options.prepareWords ?? false })
+    mode: scene.memoryImage ? 'task' : options.mode || previous.mode || 'task', maxTurns: scene.memoryImage ? 3 : options.maxTurns || previous.maxTurns || 8, prepareWords: options.prepareWords ?? false })
 }
 
 async function createDialogue(userId, scene, { sceneId, strictness, difficulty, variant, mode, maxTurns, prepareWords }) {
@@ -164,6 +196,7 @@ async function createDialogue(userId, scene, { sceneId, strictness, difficulty, 
     const [saved] = await conn.execute('INSERT INTO dialogue_sessions (user_id, scene, state, created_at, updated_at) VALUES (?, ?, ?, UTC_TIMESTAMP(), UTC_TIMESTAMP())', [userId, sceneId, JSON.stringify(state)])
     return Number(saved.insertId)
   })
+  await queueOpeningIllustration(userId, scene)
   return getDialogue(userId, id)
 }
 
@@ -281,12 +314,18 @@ export async function addDialogueTurn(userId, id, { text, expectedTurn, expected
     assertRevision(session, expectedRevision)
     if (actorId && actorId !== session.journey?.activeActorId) throw conflict('交谈对象已切换，请刷新后再发送')
     if (session.turnCount >= session.maxTurns) throw conflict('已达到本轮上限，请结束并查看小结')
-    const { value: turn, usage } = await generateValidated(userId, session, buildTurnMessages(session, text), raw => recoverTurn(raw, text, session.scene))
-    const helpLevel = Math.max(session.help?.level || 0, turn.mixedLanguage ? 3 : 0)
+    try { session.illustrationContext = await illustrationContext(userId, session.scene, id) }
+    catch { session.illustrationContext = { enabled: false } }
+    const { value: turn, usage } = await generateValidated(userId, session, buildTurnMessages(session, text), raw => ({
+      ...recoverTurn(raw, text, session.scene), visualUpdate: visualUpdate(raw?.visualUpdate),
+    }))
+    const copiedHelp = copiedImageHelp(session, text)
+    if (copiedHelp) session.helpEvents.push({ ...copiedHelp, source: 'memory_image', turn: session.turnCount })
+    const helpLevel = Math.max(session.help?.level || 0, turn.mixedLanguage ? 3 : 0, copiedHelp?.level || 0)
     const assistanceWords = session.help?.example
       ? session.scene.targets.filter(t => containsWord(session.help.example, t.word)).map(t => t.word)
       : [session.help?.word || turn.helpWord].filter(Boolean)
-    session.targetUsage = updateTargetUsage(session.targetUsage, { ...turn, assistanceWords }, text, helpLevel)
+    session.targetUsage = updateTargetUsage(session.targetUsage, { ...turn, assistanceWords: [...new Set([...assistanceWords, ...(copiedHelp?.words || [])])] }, text, helpLevel)
     const actor = currentActor(session)
     session.messages.push({ role: 'user', recipientId: actor?.id, recipientName: actor?.name, text, corrections: turn.corrections, helpLevel, usedTargets: turn.usedTargets, mixedLanguage: turn.mixedLanguage })
     applyGoalEvidence(session, turn, text, helpLevel)
@@ -304,8 +343,9 @@ export async function addDialogueTurn(userId, id, { text, expectedTurn, expected
         ? { ...t, helpLevel: Math.max(t.helpLevel || 0, 3), weak: true, status: t.status === 'unused' ? 'weak' : t.status, tags: [...new Set([...(t.tags || []), 'chinese_help'])] } : t)
     }
     const goalsComplete = session.journey?.goals?.every(goal => goal.completed)
-    const done = session.turnCount >= session.maxTurns || (session.mode !== 'free' && (goalsComplete || (session.turnCount >= 6 && turn.taskComplete)))
+    const done = session.turnCount >= session.maxTurns || (!session.scene.memoryImage && session.mode !== 'free' && (goalsComplete || (session.turnCount >= 6 && turn.taskComplete)))
     await saveClaimed(session, token, done ? 'analyzing' : 'active')
+    await queueTurnIllustration(userId, session, turn.visualUpdate)
     if (done) scheduleReport(userId, id)
     return getDialogue(userId, id)
   } finally { await release(id, token) }

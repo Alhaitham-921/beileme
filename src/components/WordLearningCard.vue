@@ -164,7 +164,7 @@ onBeforeUnmount(() => { alive = false; controller.abort(); aiController?.abort()
     <header class="usage-header"><div><span class="usage-eyebrow">学会认，也学会用</span><h2>单词用法</h2></div><span class="usage-spelling">{{ word.spelling }}</span></header>
     <section class="usage-section">
       <h3>例句</h3>
-      <p v-if="loading && !examples.length" class="usage-hint" role="status">正在查找免费例句…</p>
+      <p v-if="loading && !examples.length" class="usage-hint"><LoadingState>正在查找免费例句…</LoadingState></p>
       <div v-for="(example,index) in examples" :key="index" class="usage-example">
         <p class="english" lang="en"><template v-for="(part,i) in segments(example.text)" :key="i"><mark v-if="part.highlight">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></p>
         <p class="translation" lang="zh-CN">{{ example.translation || '暂无中文译文' }}<small v-if="example.translationSource === 'ai'"> · AI 译文</small></p>

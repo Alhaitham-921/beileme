@@ -85,7 +85,7 @@ async function schedule(mode) {
         <TimeWheel v-model="minutes" :count="60" label="分钟" />
       </div>
       <p class="muted time-hint">{{ task.wordId ? '到时间后，新开的单词学习组会优先带上这个词。' : '到时间后，可在这里完成短句练习。' }}</p>
-      <button class="btn btn-primary" type="submit" :disabled="busy">{{ busy ? '正在保存…' : '确认安排' }}</button>
+      <button class="btn btn-primary" type="submit" :aria-busy="Boolean(busy)" :disabled="busy">{{ busy ? '正在保存…' : '确认安排' }}</button>
     </form>
 
     <p v-if="error" class="schedule-error" role="alert">{{ error }}</p>

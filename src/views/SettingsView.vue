@@ -4,6 +4,9 @@ import { useAiStore } from '../stores/ai'
 import EmailRecoveryPanel from '../components/EmailRecoveryPanel.vue'
 import ThemePicker from '../components/ThemePicker.vue'
 import SpeechSettingsPanel from '../components/SpeechSettingsPanel.vue'
+import ScenarioImageSettings from '../components/ScenarioImageSettings.vue'
+import NavigationSettings from '../components/NavigationSettings.vue'
+import AvatarSettings from '../components/AvatarSettings.vue'
 import { readAutoPronounce, saveAutoPronounce } from '../utils/wordAudio.js'
 
 const ai = useAiStore()
@@ -288,12 +291,15 @@ const typeLabels = { dialogue: '情境对话（含复盘与重试）',
     </div>
     <EmailRecoveryPanel v-if="settingsSection === 'account'" />
     <button class="btn btn-ghost" @click="settingsSection = 'account'">账号安全 · 邮箱验证</button>
+    <AvatarSettings v-if="settingsSection === 'appearance'" />
     <ThemePicker v-show="settingsSection === 'appearance'" />
     <section v-if="settingsSection === 'appearance'" class="card word-audio-settings" aria-label="背词设置">
       <label><input v-model="autoPronounce" type="checkbox" /> 单词自动发音</label>
       <p class="muted">背单词时自动播放新出现的单词。此设置保存在当前设备。</p>
     </section>
     <SpeechSettingsPanel v-if="settingsSection === 'speech'" />
+    <ScenarioImageSettings v-if="settingsSection === 'appearance'" />
+    <NavigationSettings v-if="settingsSection === 'appearance'" />
     <section v-show="settingsSection === 'ai'" aria-label="AI 服务设置">
     <p class="section-sub">不配置也能用：错因分析与易混词对比完全免费</p>
 

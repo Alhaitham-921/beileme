@@ -99,14 +99,16 @@ onBeforeUnmount(() => {
       <img v-if="imageUrl && !imageError" :src="imageUrl" :alt="`${word.spelling}（${card.selected.sense}）的 AI 记忆插图`" width="640" height="640"
         decoding="async" @error="imageError = true">
       <p v-else-if="imageError" role="status">图片没有加载成功。<button type="button" class="text-button" @click="imageRetry++">重新加载图片</button></p>
-      <p v-else role="status">正在加载图片…</p>
+      <p v-else><LoadingState>正在加载图片…</LoadingState></p>
       <figcaption>
         <span lang="en">{{ word.spelling }}</span> · {{ card.selected.sense }} · AI 生成
         <p v-if="card.explanation" class="memory-explanation"><strong>这样记</strong> {{ card.explanation }}</p>
       </figcaption>
     </figure>
-    <p v-if="!error && card?.selected?.status === 'pending'" role="status">正在设计场景和生成插图，可以继续学习。</p>
-    <p v-else-if="!error && !card && busy" role="status">正在查找记忆图…</p>
+    <router-link v-if="card?.imagePath && /^[a-z]+(?:['-][a-z]+)*$/i.test(word.spelling)" class="btn btn-quiet memory-practice-link"
+      :to="{ name: 'image-practice', query: { word: word.id, sense: card.selected.sense } }">用这张图练口语 · 三轮</router-link>
+    <p v-if="!error && card?.selected?.status === 'pending'"><LoadingState>正在设计场景和生成插图，可以继续学习。</LoadingState></p>
+    <p v-else-if="!error && !card && busy"><LoadingState>正在查找记忆图…</LoadingState></p>
     <p v-else-if="!error && generationError" role="status">{{ generationError }}</p>
     <p v-else-if="!error && !card?.imagePath && canGenerate && card && !card.enabled">记忆图生成服务尚未启用。</p>
     <p v-else-if="!error && !card?.imagePath && canGenerate && card?.selected">文字 AI 先设计场景，再生成插图，分别按服务商计费。</p>

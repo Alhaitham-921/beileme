@@ -61,9 +61,8 @@ async function logout() {
       </nav>
     </header>
 
-    <div v-if="loading && !loaded" class="card loading-card" role="status">
-      <span class="loading-mark" aria-hidden="true"></span>
-      <p class="muted">正在整理你的学习足迹…</p>
+    <div v-if="loading && !loaded" class="card loading-card">
+      <LoadingState skeleton>正在整理你的学习足迹…</LoadingState>
     </div>
     <div v-else-if="loadError && !loaded" class="card error-card" role="alert">
       <p class="error-title">学习数据暂时没有加载完成</p>
