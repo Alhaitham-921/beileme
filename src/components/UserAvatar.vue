@@ -2,7 +2,8 @@
 import { ref, watch } from 'vue'
 import { http } from '../api/client.js'
 import { useAuthStore } from '../stores/auth.js'
-const props = defineProps({ src: String, label: { type: String, default: '学习者' } })
+import NameAvatar from './NameAvatar.vue'
+const props = defineProps({ src: String, label: { type: String, default: '学习者' }, size: { type: Number, default: 38 } })
 const auth = useAuthStore(), image = ref('')
 watch([() => props.src, () => auth.user?.id], async ([src], _, onCleanup) => {
   const controller = new AbortController()
@@ -17,7 +18,7 @@ watch([() => props.src, () => auth.user?.id], async ([src], _, onCleanup) => {
   } catch { /* Keep the initial when offline or the avatar has been replaced. */ }
 }, { immediate: true })
 </script>
-<template><span class="user-avatar"><img v-if="image" :src="image" :alt="`${label}的头像`" loading="lazy" @error="image=''" /><span v-else role="img" :aria-label="`${label}的默认头像`">{{label.slice(0,1)}}</span></span></template>
+<template><span class="user-avatar" :style="{width:size+'px',height:size+'px'}"><img v-if="image" :src="image" :alt="`${label}的头像`" loading="lazy" @error="image=''" /><NameAvatar v-else :name="label" :size="size" /></span></template>
 <style scoped>
 .user-avatar{display:inline-grid;place-items:center;flex:none;width:38px;height:38px;overflow:hidden;border-radius:50%;background:var(--accent-soft);color:var(--accent-deep);font-size:14px}.user-avatar img{width:100%;height:100%;object-fit:cover;display:block}
 </style>

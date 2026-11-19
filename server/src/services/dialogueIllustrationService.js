@@ -15,7 +15,7 @@ const keyFor = (sceneId, sessionId, turn) => createHash('sha256').update(JSON.st
 
 export async function imagePreferences(userId) {
   const row = await queryOne('SELECT auto_images FROM dialogue_image_preferences WHERE user_id=?', [userId])
-  return { autoImages: row ? Boolean(row.auto_images) : true, available: illustrationsAvailable() }
+  return { autoImages: row ? Number(row.auto_images) === 1 : false, available: illustrationsAvailable() }
 }
 export async function saveImagePreferences(userId, autoImages) {
   await execute('INSERT INTO dialogue_image_preferences (user_id,auto_images) VALUES (?,?) ON DUPLICATE KEY UPDATE auto_images=VALUES(auto_images)', [userId, Number(autoImages)])
@@ -87,8 +87,9 @@ async function reservePanel(userId, scene, sessionId, turn, panel, { retry = fal
     const [[usage]] = await conn.execute(`SELECT SUM(IF(attempt_day=?,daily_attempts,0)) attempts, SUM(lease_until>UTC_TIMESTAMP(3)) pending FROM (
       SELECT attempt_day,daily_attempts,lease_until FROM word_memory_images WHERE user_id=? UNION ALL
       SELECT attempt_day,daily_attempts,lease_until FROM image_recall_example_replacements WHERE user_id=? UNION ALL
-      SELECT attempt_day,daily_attempts,lease_until FROM dialogue_illustrations WHERE user_id=?
-    ) image_usage`, [day,userId,userId,userId])
+      SELECT attempt_day,daily_attempts,lease_until FROM dialogue_illustrations WHERE user_id=? UNION ALL
+      SELECT attempt_day,daily_attempts,lease_until FROM dialogue_scene_images WHERE user_id=?
+    ) image_usage`, [day,userId,userId,userId,userId])
     if (Number(usage.attempts) >= config.wordImages.dailyQuota) throw quotaExceeded('今天的图片生成次数已用完，仍可继续对话。')
     if (sessionId) {
       const [[pending]] = await conn.execute('SELECT COUNT(*) n FROM dialogue_illustrations WHERE user_id=? AND session_id=? AND lease_until>UTC_TIMESTAMP(3)', [userId,sessionId])

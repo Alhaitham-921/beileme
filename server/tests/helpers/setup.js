@@ -19,6 +19,8 @@ if (!TEST_DB.endsWith('_test')) {
 }
 
 config.db.database = TEST_DB
+// node --test does not set NODE_ENV; activate test-only routes only in this guarded harness.
+config.isTest = true
 // 测试环境一律切断真实 AI 调用，保证结果确定且不产生费用
 config.ai.apiKey = ''
 // Automatic scene pictures must never reach a paid provider in unrelated tests.

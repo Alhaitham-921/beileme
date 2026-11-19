@@ -37,6 +37,7 @@ async function waitImages(client,owner,query){for(let n=0;n<100;n++){const respo
 
 test('opening image is nonblocking and private; scene changes append frames and settings stop future generation',async t=>{
   const {server,client,owner,other,images,texts,imageStarted,imageGate}=await prepared(t,{hold:true})
+  await client.put('/api/v1/practice/illustration-settings',{token:owner.token,body:{autoImages:true}})
   const created=await generate(client,owner)
   assert.equal(created.status,201,JSON.stringify(created.raw));const sceneId=created.data.scene.id
   await imageStarted.promise
@@ -56,7 +57,7 @@ test('opening image is nonblocking and private; scene changes append frames and 
   assert.match(images[1].prompt,/same hotel guest/)
   assert.equal((await client.get('/api/v1/practice/illustrations?sessionId='+id,{token:other.token})).status,404)
   const off=await client.put('/api/v1/practice/illustration-settings',{token:owner.token,body:{autoImages:false}});assert.equal(off.data.autoImages,false)
-  assert.equal((await client.get('/api/v1/practice/illustration-settings',{token:other.token})).data.autoImages,true)
+  assert.equal((await client.get('/api/v1/practice/illustration-settings',{token:other.token})).data.autoImages,false)
   for(let n=2;n<4;n++){const r=await client.post(`/api/v1/practice/sessions/${id}/turns`,{token:owner.token,body:{text:'Thank you.',expectedTurn:n}});assert.equal(r.status,200,JSON.stringify(r.raw))}
   assert.equal(images.length,2);assert.doesNotMatch(texts.at(-1).messages[0].content,/本轮已开启漫画式/)
   assert.equal((await client.get('/api/v1/practice/illustrations?sessionId='+id,{token:owner.token})).data.items.length,2)
@@ -66,6 +67,7 @@ test('opening image is nonblocking and private; scene changes append frames and 
 
 test('picture quota is shared with memory images and does not block scene creation',async t=>{
   const {client,owner,images}=await prepared(t)
+  await client.put('/api/v1/practice/illustration-settings',{token:owner.token,body:{autoImages:true}})
   config.wordImages.dailyQuota=1
   const created=await generate(client,owner);assert.equal(created.status,201,JSON.stringify(created.raw))
   await waitImages(client,owner,{sceneId:created.data.scene.id})
@@ -96,6 +98,16 @@ test('expired background jobs stay failed on reads and concurrent retries genera
   assert.ok(requests.every(r=>r.status===200))
   await imageStarted.promise;assert.equal(images.length,1);imageGate.resolve()
   assert.equal((await waitImages(client,owner,{sceneId:created.data.scene.id})).items[0].status,'ready')
+})
+
+test('new accounts do not generate paid scene pictures without opting in',async t=>{
+  const {client,owner,images}=await prepared(t)
+  assert.equal((await client.get('/api/v1/practice/illustration-settings',{token:owner.token})).data.autoImages,false)
+  const created=await generate(client,owner)
+  assert.equal(created.status,201,JSON.stringify(created.raw))
+  const frames=await client.get('/api/v1/practice/illustrations?sceneId='+created.data.scene.id,{token:owner.token})
+  assert.deepEqual(frames.data.items,[])
+  assert.equal(images.length,0)
 })
 
 test('automatic image settings validate booleans and persist per account',async()=>{

@@ -19,7 +19,7 @@ function fixture(t, overrides = {}) {
   Object.assign(registrationVerification, service)
   config.auth.requireRegistrationEmailVerification = true
   t.after(() => { Object.assign(registrationVerification, originals); config.auth.requireRegistrationEmailVerification = false })
-  const email = `signup-${process.pid}-${++sequence}@example.com`
+  const email = `signup-${process.pid}-${++sequence}@qq.com`
   const register = (emailCode, extra = {}) => client.post('/api/v1/auth/register', { body: { email, emailCode, password: 'Passw0rd123', ...extra } })
   return { service, mails, email, register, advance: ms => { clock += ms } }
 }
@@ -121,17 +121,32 @@ test('old unverified accounts keep their ID, password, profile and learning data
   assert.deepEqual(await queryOne('SELECT COUNT(*) n FROM user_word_progress WHERE user_id=?', [old.userId]), progressBefore)
 })
 
-test('QQ, 163, Outlook, Gmail and school domains use the same ownership verification without a provider allowlist', async t => {
+test('new registration only supports exact QQ domain, rejects other providers and spoofed domains before sending', async t => {
   const f = fixture(t)
-  for (const domain of ['qq.com', '163.com', 'outlook.com', 'gmail.com', 'student.example.edu.cn']) {
+  for (const domain of ['163.com', 'outlook.com', 'gmail.com', 'student.example.edu.cn', 'qq.com.evil.test', 'mail.qq.com', 'foxmail.com']) {
     const email = `signup-provider-${process.pid}@${domain}`
     const sent = await client.post('/api/v1/auth/registration-code', { body: { email } })
-    assert.equal(sent.status, 202)
-    assert.equal(f.mails.at(-1).to, email)
-    const result = await f.register(f.mails.at(-1).code, { email })
-    assert.equal(result.status, 201)
-    assert.equal(result.data.user.emailVerified, true)
+    assert.equal(sent.status, 400)
+    assert.match(sent.error.message, /QQ/)
+    assert.equal((await f.register('123456', { email })).status, 400)
+    assert.equal(await queryOne('SELECT id FROM users WHERE email=?', [email]), null)
+    assert.equal(await queryOne('SELECT email FROM registration_email_codes WHERE email=?', [email]), null)
   }
+  assert.equal(f.mails.length, 0)
+  let createCalled = false
+  await assert.rejects(f.service.registerVerified('stale@example.com', '123456', () => { createCalled = true }, 'stale-code'), { status: 400 })
+  assert.equal(createCalled, false)
+})
+
+test('existing phone accounts still log in with original password under QQ-only registration', async t => {
+  const old = await createOnboardedUser(client)
+  const phone = '+8613900' + String(old.userId).padStart(6, '0')
+  await execute('UPDATE users SET email=NULL,phone=? WHERE id=?', [phone, old.userId])
+  fixture(t)
+  const logged = await client.post('/api/v1/auth/login', { body: { account: phone, password: old.password } })
+  assert.equal(logged.status, 200)
+  assert.equal(logged.data.user.id, old.userId)
+  assert.equal((await client.get('/api/v1/auth/me', { token: old.token })).status, 200)
 })
 
 test('database reset rejects real database names before opening a connection', async () => {

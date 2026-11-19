@@ -65,3 +65,19 @@ test('copying an older reference remains assisted for its actual words only', ()
   assert.deepEqual(copiedReferenceHelp(data,'Let us walk along the river bank.'),{level:4,words:['bank']})
   assert.equal(copiedReferenceHelp(data,'I enjoy tea with my friends.'),null)
 })
+
+test('references follow the current actor and retain shared facts and speaker identities', () => {
+  const data=session()
+  data.scene.userRole='办理入住的旅客'
+  data.scene.actors=[{id:'frontdesk',name:'前台',role:'前台'},{id:'manager',name:'值班经理',role:'值班经理',responsibility:'协商改期费用'}]
+  data.scene.sharedFacts=['房间尚未确认可改期']
+  data.journey={activeActorId:'manager'}
+  data.messages.push({role:'assistant',actorId:'manager',actorName:'值班经理',text:'Which date would you prefer?'})
+  data.helpEvents=[{turn:2,actorId:'frontdesk',example:'An old front desk reply.'},{turn:2,actorId:'manager',example:'A current reply.'}]
+  const input=JSON.parse(buildHelpMessages(data,{level:3,useMemoryWord:false})[1].content)
+  assert.equal(input.activeActorId,'manager');assert.equal(input.scene.partnerRole,'值班经理')
+  assert.equal(input.scene.learnerRole,'办理入住的旅客')
+  assert.deepEqual(input.scene.sharedFacts,['房间尚未确认可改期'])
+  assert.equal(input.transcript.at(-1).actorId,'manager')
+  assert.deepEqual(input.previousSuggestions,[{example:'A current reply.'}])
+})

@@ -3,6 +3,7 @@ import { execute, queryOne, withTransaction } from '../db/pool.js'
 import { config } from '../config.js'
 import { ApiError, badRequest, conflict } from '../utils/errors.js'
 import { mailTransport, sendRecoveryMail } from './recoveryMail.js'
+import { assertRegistrationEmail } from '../utils/registrationEmail.js'
 
 const normalize = email => String(email || '').trim().toLowerCase()
 const digest = value => crypto.createHash('sha256').update(value).digest('hex')
@@ -20,13 +21,14 @@ export function createRegistrationVerification({ sendMail = sendRecoveryMail, en
 
   async function requestCode(email, ip) {
     email = normalize(email)
+    if (await queryOne('SELECT id FROM users WHERE email=?', [email])) {
+      throw conflict('该邮箱已注册，请直接登录。原账号及学习记录会保留。')
+    }
+    assertRegistrationEmail(email)
     ensureMail()
     await limit('signup-ip:' + ip, 20, 3600)
     await limit('signup-email:' + email, 1, 60)
     await limit('signup-hour:' + email, 5, 3600)
-    if (await queryOne('SELECT id FROM users WHERE email=?', [email])) {
-      throw conflict('该邮箱已注册，请直接登录。原账号及学习记录会保留。')
-    }
     await limit('mail-global', 100, 86400)
     await execute('DELETE FROM email_recovery_limits WHERE bucket < ?', [Math.floor(now() / 1000) - 86400])
     await execute('DELETE FROM registration_email_codes WHERE expires_at < ?', [new Date(now() - 86400000)])
@@ -59,6 +61,7 @@ export function createRegistrationVerification({ sendMail = sendRecoveryMail, en
   // Code consumption and account creation commit together. Failed guesses must also commit.
   async function registerVerified(email, code, createUser, ip) {
     email = normalize(email)
+    assertRegistrationEmail(email)
     await limit('signup-confirm-ip:' + ip, 40, 900)
     if (!/^\d{6}$/.test(String(code || ''))) throw invalidCode()
     const result = await withTransaction(async conn => {

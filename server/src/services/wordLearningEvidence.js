@@ -50,7 +50,7 @@ export async function loadWordEvidence(userId, bookId, wordIds, since, until) {
   return events.sort((a, b) => a.at.localeCompare(b.at))
 }
 
-const names = { assessment: '自测辨义', study: '日常辨义', collocation: '搭配填空', recall: '独立回忆', image: '看图辨义', dialogue: '情境使用' }
+const names = { assessment: '自测辨义', study: '日常辨义', collocation: '搭配填空', recall: '独立回忆', image: '看图辨义', dialogue: '情境使用', dialogue_quiz: '情境小结巩固' }
 function channels(events) {
   return Object.entries(names).flatMap(([source, label]) => {
     const rows = events.filter(row => row.source === source)

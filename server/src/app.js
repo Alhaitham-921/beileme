@@ -2,12 +2,13 @@ import express from 'express'
 import cors from 'cors'
 import { config } from './config.js'
 import apiRoutes from './routes/index.js'
+import archivedIeltsRoutes from './routes/ielts.js'
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js'
 
 /**
  * 构建 Express 应用。测试直接调用本函数拿到 app，无需监听端口。
  */
-export function createApp() {
+export function createApp({ includeArchivedIELTS = false } = {}) {
   const app = express()
 
   app.disable('x-powered-by')
@@ -48,6 +49,8 @@ export function createApp() {
     })
   }
 
+  // Retained only for isolated historical regression tests; never mounted by the product.
+  if (config.isTest && includeArchivedIELTS) app.use('/api/v1/ielts', archivedIeltsRoutes)
   app.use('/api/v1', apiRoutes)
 
   // 根路径给一个可读的服务标识，便于确认端口起对了

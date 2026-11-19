@@ -64,3 +64,32 @@ test('contextual references support optional memory words, preserve turns and re
   assert.equal(olderCopy.status,200,JSON.stringify(olderCopy.raw))
   assert.equal(olderCopy.data.targetUsage.find(item=>item.word==='bank').status,'assisted')
 })
+
+test('actor switches guard stale references and preparation cannot call the reference model', async t => {
+  const {baseUrl}=await getTestServer(),client=createClient(baseUrl),owner=await createOnboardedUser(client)
+  const key=config.ai.apiKey;config.ai.apiKey='actor-help-test-only';t.after(()=>{config.ai.apiKey=key})
+  const realFetch=globalThis.fetch;let calls=0,request
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    if(!String(url).endsWith('/chat/completions'))return realFetch(url,options)
+    calls++;request=JSON.parse(JSON.parse(options.body).messages[1].content)
+    return Response.json({choices:[{message:{content:JSON.stringify({hint:'向当前经理说明改期意向',example:'Could you help me discuss a date change?',translation:'您能帮我商量一下改期吗？'})},finish_reason:'stop'}],usage:{prompt_tokens:20,completion_tokens:30}})
+  })
+  const started=await client.post('/api/v1/practice/sessions',{token:owner.token,body:{sceneId:'hotel'}})
+  assert.equal(started.status,201)
+  const base=`/api/v1/practice/sessions/${started.data.id}`
+  const switched=await client.post(`${base}/actor`,{token:owner.token,body:{actorId:'manager',expectedRevision:started.data.journey.revision,expectedTurn:0}})
+  assert.equal(switched.status,200,JSON.stringify(switched.raw))
+  const body={level:3,useMemoryWord:false,expectedTurn:0,actorId:'manager',expectedRevision:switched.data.journey.revision}
+  assert.equal((await client.post(`${base}/help`,{token:owner.token,body:{...body,expectedRevision:0}})).status,409)
+  assert.equal((await client.post(`${base}/help`,{token:owner.token,body:{...body,actorId:'frontdesk'}})).status,409)
+  assert.equal(calls,0)
+  const helped=await client.post(`${base}/help`,{token:owner.token,body})
+  assert.equal(helped.status,200,JSON.stringify(helped.raw))
+  assert.equal(helped.data.help.actorId,'manager')
+  assert.equal(request.activeActorId,'manager');assert.equal(request.scene.partnerRole,'值班经理')
+  assert.equal(request.transcript.at(-1).actorId,'manager')
+  assert.equal(helped.data.turnCount,0)
+  const preparation=await client.post('/api/v1/practice/sessions',{token:owner.token,body:{sceneId:'hotel',prepareWords:true}})
+  const noHelp=await client.post(`/api/v1/practice/sessions/${preparation.data.id}/help`,{token:owner.token,body:{level:3,useMemoryWord:false,expectedTurn:0}})
+  assert.equal(noHelp.status,409);assert.equal(calls,1)
+})

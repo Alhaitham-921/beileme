@@ -11,6 +11,7 @@ import {
 import { conflict, unauthorized, badRequest, ERROR_CODES } from '../utils/errors.js'
 import { ensureProfile } from './profileService.js'
 import { registrationVerification } from './registrationVerification.js'
+import { assertRegistrationEmail } from '../utils/registrationEmail.js'
 import { avatarUrl } from './avatarService.js'
 
 /** 口令强度下限，注册与改密共用 */
@@ -88,6 +89,7 @@ export async function register({ email, phone, password, nickname = '', emailCod
     const exists = await queryOne('SELECT id FROM users WHERE phone = ?', [normalizedPhone])
     if (exists) throw conflict('该手机号已注册')
   }
+  if (config.auth.requireRegistrationEmailVerification) assertRegistrationEmail(normalizedEmail)
 
   const passwordHash = await hashPassword(password)
   let userId
