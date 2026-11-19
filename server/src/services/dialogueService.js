@@ -13,7 +13,8 @@ import { emptyUsage, addUsage, usageReport } from './ai/usage.js'
 import { parseJsonResponse } from './ai/promptTemplates.js'
 import { reviewItem, computeMemoryStrength } from './srs.js'
 import { DIALOGUE_SCENES, sceneFor, recoverTurn, validateReport, buildTurnMessages,
-  buildReportMessages, buildValidationRetryMessages, updateTargetUsage, buildHelp, buildEvidence, containsWord } from './dialogueEngine.js'
+  buildReportMessages, buildValidationRetryMessages, updateTargetUsage, buildEvidence, containsWord } from './dialogueEngine.js'
+import { buildHelpMessages, validateDialogueHelp, buildHelpRetryMessages, copiedReferenceHelp } from './dialogueHelpEngine.js'
 import { buildScenarioMessages, validateScenario } from './scenarioEngine.js'
 import { getWordMemoryImage } from './wordMemoryImageService.js'
 import { buildImageScenarioMessages, validateImageScenario, copiedImageHelp } from './imageDialogueEngine.js'
@@ -204,7 +205,7 @@ async function saveClaimed(session, token, status = 'active') {
   if (!saved.affectedRows) throw conflict('对话已更新，请重新加载')
 }
 
-async function generateValidated(userId, session, messages, validator, report = false, failureHint) {
+async function generateValidated(userId, session, messages, validator, report = false, failureHint, generation = {}) {
   const provider = await configuredProvider(userId)
   const limits = await resolveLimits(userId)
   const total = emptyUsage()
@@ -219,7 +220,7 @@ async function generateValidated(userId, session, messages, validator, report = 
     let received
     const before = { ...total }
     try {
-      const result = await chat({ ...provider, messages: requestMessages, maxTokens, temperature: 0.3, jsonMode, disableThinking: !limits.allowThinking })
+      const result = await chat({ ...provider, messages: requestMessages, maxTokens, temperature: generation.temperature ?? 0.3, jsonMode, disableThinking: !limits.allowThinking })
       received = result.usage
       addUsage(total, received, result.model)
       if (result.finishReason === 'length') throw Object.assign(new Error('模型输出达到上限，回复被截断'), { kind: 'truncated' })
@@ -242,7 +243,7 @@ async function generateValidated(userId, session, messages, validator, report = 
         const hint = failureHint || (session.id ? '对话和输入已保留' : '场景尚未生成，你可以保留需求再试一次')
         throw new ApiError(error.status === 429 ? 429 : 503, 'PRACTICE_AI_FAILED', `${label}，请重试；${hint}`, { reason: error.kind || 'validation_failed', usage })
       }
-      if (!error.kind) requestMessages = buildValidationRetryMessages(messages, error)
+      if (!error.kind) requestMessages = (generation.retryMessages || buildValidationRetryMessages)(messages, error)
       total.retried = true
       total.retryReason = diagnostics.emptyContent ? 'empty_content' : error.kind || 'validation_failed'
       if (maxTokens != null) maxTokens = Math.min(maxTokens * 2, 32000)
@@ -297,7 +298,7 @@ export async function addDialogueTurn(userId, id, { text, expectedTurn }) {
     const { value: turn, usage } = await generateValidated(userId, session, buildTurnMessages(session, text), raw => ({
       ...recoverTurn(raw, text, session.scene), visualUpdate: visualUpdate(raw?.visualUpdate),
     }))
-    const copiedHelp = copiedImageHelp(session, text)
+    const copiedHelp = copiedReferenceHelp(session, text) || copiedImageHelp(session, text)
     const helpLevel = Math.max(session.help?.level || 0, turn.mixedLanguage ? 3 : 0, copiedHelp?.level || 0)
     const assistanceWords = session.help?.example
       ? session.scene.targets.filter(t => containsWord(session.help.example, t.word)).map(t => t.word)
@@ -329,14 +330,12 @@ export async function requestDialogueHelp(userId, id, options) {
   try {
     const maxHelp = Math.max(MAX_HELP, (session.maxTurns || 8) * 2)
     if (session.helpEvents.length >= maxHelp) throw badRequest(`本轮帮助已达 ${maxHelp} 次，可以复述已有示范或结束练习`)
-    if (options.word && !session.scene.words.includes(options.word)) throw badRequest('请选择本轮目标词')
-    let help = buildHelp(session, options)
-    if (options.level === 3 && options.text?.trim()) {
-      const { value: turn } = await generateValidated(userId, session, buildTurnMessages(session, options.text), raw => validateTurn(raw, options.text, session.scene))
-      const example = turn.helpEnglish || turn.reply
-      help = { ...help, word: turn.helpWord || session.scene.targets.find(t => containsWord(example, t.word))?.word || null,
-        example, translation: options.text }
-    }
+    const request = { ...options, word: options.word?.trim().toLowerCase() }
+    if (request.useMemoryWord !== false && request.word && !session.scene.targets.some(target => target.word === request.word)) throw badRequest('请选择本轮记忆词')
+    const { value, usage } = await generateValidated(userId, session, buildHelpMessages(session, request),
+      raw => validateDialogueHelp(raw, session, request), false, '已有对话、输入和参考均已保留',
+      { retryMessages: buildHelpRetryMessages, temperature: 0.55 })
+    const help = { ...value, usage }
     session.help = help
     session.helpEvents.push({ ...help, turn: session.turnCount })
     session.targetUsage = session.targetUsage.map(t => t.word === help.word ? { ...t, helpLevel: Math.max(t.helpLevel || 0, help.level), status: t.status === 'unused' ? 'weak' : t.status } : t)

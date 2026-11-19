@@ -34,8 +34,10 @@ test('multi-turn dialogue records assistance, sense evidence and idempotent SRS 
     aiCalls++
     const body = JSON.parse(options.body)
     const isReport = body.messages[0].content.includes('复盘教练')
+    const isHelp = body.messages[0].content.includes('接话辅导员')
     const content = mode === 'invalid' ? { reply: 'invalid' } : isReport
       ? { summary: '你完成了河岸对话，bank 需要进一步练习。', corrections: [], weakWords: ['bank'], reinforcement: [{ word: 'bank', prompt: '我想沿河岸散步。', answer: 'I would like to walk along the river bank.', explanation: 'bank 在这里表示河岸。' }], grammarWeaknesses: [] }
+      : isHelp ? { hint:'回应是否想坐下，再说想在河岸边休息。',example:'I would love to sit by the river bank for a while.',translation:'我想在河岸边坐一会儿。' }
       : { reply: 'Yes, there is a path along the river bank nearby. Would you like to sit here?', translation: '附近有沿河岸的小路。你想坐这里吗？', mixedLanguage: false, corrections: [], usedTargets: [{ word: 'bank', sense: '河岸', correct: true }, { word: 'nearby', sense: '在附近', correct: true }], taskComplete: false }
     if (mode === 'badEvidence') content.corrections = [{ type: 'grammar', original: 'invented sentence', replacement: 'fixed sentence', explanation: 'unsupported' }]
     return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) }, finish_reason: 'stop' }], usage: { prompt_tokens: 40, completion_tokens: 100 } }), { status: 200 })
@@ -50,7 +52,7 @@ test('multi-turn dialogue records assistance, sense evidence and idempotent SRS 
     const help = await client.post(`${base}/help`, { token: user.token, body: { level: 4, word: 'bank', expectedTurn: 0 } })
     assert.equal(help.status, 200, JSON.stringify(help.raw))
     assert.equal(help.data.help.level, 4)
-    assert.equal(aiCalls, 0)
+    assert.equal(aiCalls, 1)
     const turn = await client.post(`${base}/turns`, { token: user.token, body: { text: 'Is there a path along the river bank nearby?', expectedTurn: 0 } })
     assert.equal(turn.status, 200, JSON.stringify(turn.raw))
     assert.equal(turn.data.turnCount, 1)

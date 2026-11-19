@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { DIALOGUE_SCENES, sceneFor, difficultyFor, recoverTurn, validateTurn, validateReport, updateTargetUsage, buildHelp, buildEvidence, buildTurnMessages, buildValidationRetryMessages, buildReportMessages, containsWord } from '../src/services/dialogueEngine.js'
+import { DIALOGUE_SCENES, sceneFor, difficultyFor, recoverTurn, validateTurn, validateReport, updateTargetUsage, buildEvidence, buildTurnMessages, buildValidationRetryMessages, buildReportMessages, containsWord } from '../src/services/dialogueEngine.js'
 
 const scene = sceneFor('bank', 'beginner')
 const fresh = () => scene.targets.map(t => ({ word: t.word, sense: t.sense, status: 'unused', helpLevel: 0 }))
@@ -113,12 +113,6 @@ test('unattempted words yield no evidence, explicit help weighs more with strong
   assert.equal(level2.status, 'weak')
   assert.ok(level4.weight > level2.weight)
   assert.deepEqual(buildEvidence(session(), report({ weakWords: ['sit'] })), [])
-})
-
-test('help is limited to current scene words and grows from keyword to full example', () => {
-  assert.equal(buildHelp(session(), { level: 2, word: 'bank' }).hint, 'river bank')
-  assert.equal(buildHelp(session(), { level: 4, word: 'bank' }).example, 'Is there a path along the river bank nearby?')
-  assert.throws(() => buildHelp(session(), { level: 4, word: 'menu' }), /目标词/)
 })
 
 test('report rejects unseen weak words and fabricated original sentences', () => {

@@ -21,6 +21,7 @@ function provider(t,{failReport=false}={}){
   calls++;const body=JSON.parse(options.body),isReport=body.messages[0].content.includes('复盘教练')
   let value
   if(isReport){reports++;value=failReport?{}:{summary:'你完成了河岸交流，可以继续练习过去时。',corrections:[],weakWords:[],reinforcement:[],grammarWeaknesses:[{type:'tense',description:'注意过去时',count:2}]}}
+  else if(body.messages[0].content.includes('接话辅导员'))value={hint:'先说想散步，再询问河边的路线。',example:'Could we take a short walk along the river bank?',translation:'我们可以沿河岸走一小段吗？'}
   else {
    const text=JSON.parse(body.messages.at(-1).content).currentUserText
    const correction=text==='Yesterday I go to the river bank.'?{type:'grammar',original:'go',replacement:'went',explanation:'使用过去时',grammarTag:'tense'}
@@ -51,7 +52,7 @@ test('operator restores a capped failed report from saved response exactly once 
  const server=await getTestServer(),client=createClient(server.baseUrl),user=await createOnboardedUser(client),other=await createOnboardedUser(client),p=provider(t,{failReport:true})
  const created=await client.post('/api/v1/practice/sessions',{token:user.token,body:{sceneId:'bank'}})
  const id=created.data.id,base='/api/v1/practice/sessions/'+id
- await client.post(base+'/help',{token:user.token,body:{level:4,word:'bank',expectedTurn:0}})
+ assert.equal((await client.post(base+'/help',{token:user.token,body:{level:4,word:'bank',expectedTurn:0}})).status,200)
  assert.equal((await client.post(base+'/turns',{token:user.token,body:{text:'Is there a path along the river bank nearby?',expectedTurn:0}})).status,200)
  await client.post(base+'/finish',{token:user.token});const failed=await waitReport(client,user,id);assert.equal(failed.status,'report_failed')
  await execute("UPDATE dialogue_sessions SET state=JSON_SET(state,'$.reportAttempts',3) WHERE id=?",[id])

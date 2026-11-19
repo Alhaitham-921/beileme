@@ -127,7 +127,9 @@ test('free dialogue continues beyond eight turns and repeats the saved scenario 
   const { baseUrl } = await getTestServer(), client = createClient(baseUrl)
   const user = await createOnboardedUser(client), other = await createOnboardedUser(client)
   let generating = true
-  await withMockAi(body => generating ? generatedScene() : body.messages[0].content.includes('复盘教练') ? report : {
+  await withMockAi(body => generating ? generatedScene() : body.messages[0].content.includes('复盘教练') ? report : body.messages[0].content.includes('接话辅导员') ? {
+    hint:'结合前台最新的问题，说出自己的入住需求。',example:JSON.parse(body.messages[1].content).target.word==='quiet'?'A quiet room would make my stay more comfortable.':'I have a reservation for tonight. Could you check it, please?',translation:'请帮我确认入住需求。',
+  } : {
     reply: 'Your reservation is confirmed. What else would make your stay comfortable?', translation: '您的预订已确认。还有什么能让您住得更舒适？',
     mixedLanguage: false, corrections: [], usedTargets: [{ word: 'reservation', sense: '预订', correct: true }], taskComplete: true,
   }, async calls => {

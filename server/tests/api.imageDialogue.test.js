@@ -35,6 +35,8 @@ test('private memory images start reusable three-turn practice with exact sense 
         task: '聊聊记忆图中的情境。', goals: ['说明自己的想法', '回应伙伴的提问'],
         targets: [{ word: word.spelling.toLowerCase(), sense, phrase: 'the bank', example: 'I am at the bank.' }],
         opening: 'Hello! How can I help you?', openingTranslation: '你好，有什么能帮你？', example: 'I am at the bank.' }
+    } else if (messages[0].content.includes('接话辅导员')) {
+      content = { hint:'回应伙伴的询问，再说明想了解这个地方。',example:'I would like to learn more about this bank.',translation:'我想再了解一下这里。' }
     } else if (messages[0].content.includes('复盘教练')) {
       content = { summary: '你完成了看图三轮练习。', corrections: [], weakWords: [], reinforcement: [], grammarWeaknesses: [] }
     } else {
@@ -58,7 +60,7 @@ test('private memory images start reusable three-turn practice with exact sense 
   const help = await client.post(`/api/v1/practice/sessions/${session.id}/help`, { token: owner.token, body: { level: 4, word: 'bank', expectedTurn: 0 } })
   assert.equal(help.status, 200, JSON.stringify(help.raw))
   for (let i = 0; i < 3; i++) {
-    const turn = await client.post(`/api/v1/practice/sessions/${session.id}/turns`, { token: owner.token, body: { text: 'I am at the bank.', expectedTurn: i } })
+    const turn = await client.post(`/api/v1/practice/sessions/${session.id}/turns`, { token: owner.token, body: { text: help.data.help.example, expectedTurn: i } })
     assert.equal(turn.status, 200, JSON.stringify(turn.raw))
     assert.equal(turn.data.turnCount, i + 1)
     if (i < 2) assert.equal(turn.data.status, 'active')

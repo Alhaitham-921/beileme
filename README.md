@@ -150,6 +150,8 @@ npm run start:all
 
 新版导航、首页学习入口、累计/每日学习排行榜和自定义头像，见[学习排行与导航说明](docs/leaderboards-and-navigation.md)。情境自动配图与关闭方法，见[情境连环画说明](docs/dialogue-illustrations.md)。
 
+情境对话支持按最新聊天生成[接话参考](docs/dialogue-context-help.md)，可选择暂时不用记忆词，或在当前话题中自然带入指定词。
+
 答对或答错后统一显示例句、短语搭配、形近/近义词。默认自动朗读，支持关闭与手动重播。免费资料优先，缺少时可手动 AI 补充；详情见 [资料与费用说明](docs/word-learning-cards.md)。
 
 ### 情境对话小结修复（2026-11-04）

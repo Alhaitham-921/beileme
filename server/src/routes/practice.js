@@ -85,6 +85,7 @@ router.post('/sessions/:id/turns', validate({ params: sessionId, body: z.object(
 }) }), asyncHandler(async (req, res) => ok(res, await addDialogueTurn(req.user.id, req.valid.params.id, req.valid.body))))
 router.post('/sessions/:id/help', validate({ params: sessionId, body: z.object({
   level: z.union([z.literal(2), z.literal(3), z.literal(4)]), word: z.string().max(64).optional(),
+  useMemoryWord: z.boolean().optional(),
   text: z.string().trim().max(2000).optional(), expectedTurn: z.number().int().min(0).max(23),
 }) }), asyncHandler(async (req, res) => ok(res, await requestDialogueHelp(req.user.id, req.valid.params.id, req.valid.body))))
 router.post('/sessions/:id/finish', validate({ params: sessionId }), asyncHandler(async (req, res) => ok(res, await finishDialogue(req.user.id, req.valid.params.id))))

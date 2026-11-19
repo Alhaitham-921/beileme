@@ -320,17 +320,6 @@ export function updateTargetUsage(current = {}, turn, text, helpLevel = 0) {
   return Array.isArray(current) ? entries : Object.fromEntries(entries.map(item => [item.word, item]))
 }
 
-export function buildHelp(session, { level = 2, word, text = '' } = {}) {
-  const scene = session.scene
-  const usages = new Map(usageEntries(session.targetUsage).map(item => [item.word, item]))
-  const selected = scene.targets.find(t => t.word === word) || (!word && scene.targets.find(t => !usages.get(t.word)?.independent && usages.get(t.word)?.status !== 'independent')) || (!word && scene.targets[0])
-  if (!selected) throw new Error('只能为本轮目标词提供帮助')
-  const strength = Math.min(4, Math.max(1, Math.round(Number(level) || 2)))
-  const example = selected.example || scene.example
-  const hint = strength === 1 ? '慢慢来，先想一想你想表达什么。' : strength === 2 ? selected.phrase : strength === 3 ? '可以先用中文表达，我会帮你转成英文，再试着说一遍。' : example
-  return { level: strength, word: selected.word, hint, example: strength === 4 ? example : '', translation: selected.sense, text }
-}
-
 export function buildEvidence(session, report = {}) {
   const entries = new Map(usageEntries(session.targetUsage).map(item => [item.word, { ...item, independent: item.independent || item.status === 'independent', assisted: item.assisted || item.status === 'assisted', weak: item.weak || item.status === 'weak', tags: [...(item.tags || [])] }]))
   const texts = userMessages(session).map(messageText)
