@@ -18,6 +18,8 @@ import { parseJsonResponse } from '../services/ai/promptTemplates.js'
 import { resolveWordbookForUser } from '../services/wordService.js'
 import { listDialogues, startDialogue, getDialogue, addDialogueTurn, requestDialogueHelp, finishDialogue,
   generateScenario, saveScenario, repeatDialogue, gradeShortPractice } from '../services/dialogueService.js'
+import { answerPreparation, beginConversation, switchDialogueActor, consolidateDialogue } from '../services/dialogueJourneyService.js'
+import { sceneHintStatus, startSceneHint, sceneHintBytes } from '../services/dialogueSceneImage.js'
 
 const router = Router()
 router.use(requireAuth)
@@ -55,19 +57,38 @@ router.post('/sessions', validate({ body: z.object({
   sceneId, strictness: strictness.default('standard'), difficulty: difficulty.default('beginner'),
   variant: z.enum(['river', 'finance']).optional(),
   mode: mode.default('task'), maxTurns: maxTurns.default(8),
+  prepareWords: z.boolean().default(false), challenge: z.enum(['standard','change_dates']).default('standard'),
 }) }), asyncHandler(async (req, res) => ok(res, await startDialogue(req.user.id, req.valid.body), 201)))
 router.get('/sessions/:id', validate({ params: sessionId }), asyncHandler(async (req, res) => ok(res, await getDialogue(req.user.id, req.valid.params.id))))
+router.get('/sessions/:id/scene-image',validate({params:sessionId}),asyncHandler(async(req,res)=>ok(res,await sceneHintStatus(req.user.id,req.valid.params.id))))
+router.post('/sessions/:id/scene-image',validate({params:sessionId,body:z.object({regenerate:z.boolean().default(false)}).strict()}),asyncHandler(async(req,res)=>ok(res,await startSceneHint(req.user.id,req.valid.params.id,req.valid.body))))
+router.get('/sessions/:id/scene-image/:revision',validate({params:sessionId.extend({revision:z.string().regex(/^[0-9a-f]{32}$/)})}),asyncHandler(async(req,res)=>{
+  const bytes=await sceneHintBytes(req.user.id,req.valid.params.id,req.valid.params.revision)
+  res.set('Cache-Control','private, max-age=3600').vary('Authorization').type('image/webp').send(bytes)
+}))
 router.post('/sessions/:id/repeat', validate({ params: sessionId, body: z.object({
   strictness: strictness.optional(), difficulty: difficulty.optional(), mode: mode.optional(), maxTurns: maxTurns.optional(),
+  prepareWords: z.boolean().optional(),
 }).default({}) }), asyncHandler(async (req, res) => ok(res, await repeatDialogue(req.user.id, req.valid.params.id, req.valid.body), 201)))
 router.post('/sessions/:id/turns', validate({ params: sessionId, body: z.object({
   text: z.string().trim().min(1).max(2000), expectedTurn: z.number().int().min(0).max(23),
+  expectedRevision: z.number().int().min(0).optional(), actorId: z.string().max(32).optional(),
 }) }), asyncHandler(async (req, res) => ok(res, await addDialogueTurn(req.user.id, req.valid.params.id, req.valid.body))))
 router.post('/sessions/:id/help', validate({ params: sessionId, body: z.object({
   level: z.union([z.literal(2), z.literal(3), z.literal(4)]), word: z.string().max(64).optional(),
   text: z.string().trim().max(2000).optional(), expectedTurn: z.number().int().min(0).max(23),
 }) }), asyncHandler(async (req, res) => ok(res, await requestDialogueHelp(req.user.id, req.valid.params.id, req.valid.body))))
 router.post('/sessions/:id/finish', validate({ params: sessionId }), asyncHandler(async (req, res) => ok(res, await finishDialogue(req.user.id, req.valid.params.id))))
+const revision = z.number().int().min(0)
+router.post('/sessions/:id/preparation', validate({ params: sessionId, body: z.object({ questionId: z.string().max(40), selectedIndex: z.number().int().min(0).max(3).optional(), skipped:z.boolean().optional(), expectedRevision: revision }).strict() }),
+  asyncHandler(async (req,res) => ok(res, await answerPreparation(req.user.id,req.valid.params.id,req.valid.body))))
+router.post('/sessions/:id/begin', validate({ params: sessionId, body: z.object({ skip: z.boolean().default(false), expectedRevision: revision }).strict() }),
+  asyncHandler(async (req,res) => ok(res, await beginConversation(req.user.id,req.valid.params.id,req.valid.body))))
+router.post('/sessions/:id/actor', validate({ params: sessionId, body: z.object({ actorId: z.string().min(1).max(32), expectedTurn: z.number().int().min(0).max(23), expectedRevision: revision }).strict() }),
+  asyncHandler(async (req,res) => ok(res, await switchDialogueActor(req.user.id,req.valid.params.id,req.valid.body))))
+router.post('/sessions/:id/consolidation', validate({ params: sessionId, body: z.object({ action: z.enum(['answer','hint','reset']).default('answer'),
+  questionId: z.string().max(40).optional(), answer: z.string().trim().max(200).optional(), selectedIndex: z.number().int().min(0).max(3).optional(), skipped: z.boolean().optional(), expectedRevision: revision }).strict() }),
+  asyncHandler(async (req,res) => ok(res, await consolidateDialogue(req.user.id,req.valid.params.id,req.valid.body))))
 router.post('/sessions/:id/retry-report', validate({ params: sessionId }), asyncHandler(async (req, res) => ok(res, await finishDialogue(req.user.id, req.valid.params.id, true))))
 router.post('/', validate({ body: z.object({ scene: z.enum(['library', 'hotel', 'ielts']), answer: z.string().trim().min(2).max(2000) }) }), asyncHandler(async (req, res) => {
   const { scene: id, answer } = req.valid.body

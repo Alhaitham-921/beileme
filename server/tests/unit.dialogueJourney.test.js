@@ -1,0 +1,50 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { journeyScene, hotelChangeScene, initJourney, applyGoalEvidence, challengeOutcome, challengeIdentity, presentJourney } from '../src/services/dialogueJourney.js'
+import { sceneFor, buildTurnMessages } from '../src/services/dialogueEngine.js'
+import { validateSceneHint, SCENE_HINT_RULES } from '../src/services/dialogueSceneImage.js'
+
+function fixture() {
+  const scene = journeyScene(sceneFor('hotel','beginner'))
+  return { scene, journey:initJourney(scene), messages:[], turnCount:1, mode:'task', difficulty:'beginner', helpEvents:[], targetUsage:[{status:'independent'}] }
+}
+test('goal evidence ignores malformed, invented, Chinese and corrected claims; quotes keep speaker and turn', () => {
+  const s=fixture(), text='I have a reservation for tonight.'
+  applyGoalEvidence(s,{goalEvidence:[null,1,{goalId:'goal-1',completed:true,quote:'not in this message'},{goalId:'missing',completed:true,quote:text}]},text,0)
+  assert.ok(s.journey.goals.every(g=>!g.completed))
+  applyGoalEvidence(s,{goalEvidence:[{goalId:'goal-1',completed:true,quote:text}],handoff:{actorId:'invented',reason:'transfer'}},text+' 我想入住',0)
+  assert.ok(!s.journey.goals[0].completed);assert.equal(s.journey.handoff,null)
+  s.messages=[{role:'user',corrections:[{original:'reservation'}]}]
+  applyGoalEvidence(s,{goalEvidence:[{goalId:'goal-1',completed:true,quote:text}]},text,0)
+  assert.ok(!s.journey.goals[0].completed)
+  s.messages=[]
+  applyGoalEvidence(s,{goalEvidence:s.journey.goals.map(g=>({goalId:g.id,completed:true,quote:text})),handoff:{actorId:'manager',reason:'费用需要经理处理'}},text,0)
+  assert.equal(s.journey.goals[0].actorId,'frontdesk');assert.equal(s.journey.goals[0].turn,2)
+  assert.equal(s.journey.activeActorId,'frontdesk');assert.equal(s.journey.handoff.actorId,'manager')
+  assert.equal(challengeOutcome(s).independent,true)
+  s.helpEvents.push({level:2});assert.equal(challengeOutcome(s).independent,false)
+  s.mode='free';assert.equal(challengeOutcome(s).completed,false)
+})
+test('private answer keys are removed, old sessions survive, different task facts have distinct contexts',()=>{
+  const s=fixture();s._consolidation={run:1,answers:[],questions:[{id:'q',answer:'reservation',correctIndex:0}]}
+  const result=presentJourney(s)
+  assert.equal(result.journey.preparationQuestions,undefined)
+  assert.ok(result.journey.preparation.questions.every(q=>q.correctIndex===undefined&&q.answer===undefined))
+  assert.equal(result._consolidation,undefined);assert.equal(result.consolidation.questions[0].answer,undefined)
+  assert.equal(s._consolidation.questions[0].answer,'reservation')
+  assert.deepEqual(presentJourney({id:1,messages:[]}),{id:1,messages:[]})
+  const changed=structuredClone(s);changed.scene=journeyScene(hotelChangeScene(s.scene))
+  assert.equal(challengeIdentity(s).family,challengeIdentity(changed).family)
+  assert.notEqual(challengeIdentity(s).context,challengeIdentity(changed).context)
+  const prompt=buildTurnMessages(changed,'Can you change the date?')[0].content
+  assert.match(prompt,/前台不能直接批准/);assert.match(prompt,/用户确认后才切换/);assert.match(prompt,/不强制凑轮数/)
+})
+test('scene hint plans require exact senses and disclose indirect visual limitations',()=>{
+  const scene={targets:[{word:'reservation',sense:'预订'}]}
+  const raw={scene:'One guest gestures toward a key held by a hotel receptionist.',cues:[{word:'reservation',sense:'预订',kind:'context',visual:'A guest presents a blank booking card.'}],limitations:'预订是抽象概念，画面仅提示酒店预订情境。'}
+  assert.equal(validateSceneHint(raw,scene).cues.length,1)
+  assert.throws(()=>validateSceneHint({...raw,cues:[{...raw.cues[0],sense:'保留地'}]},scene))
+  assert.throws(()=>validateSceneHint({...raw,limitations:''},scene))
+  assert.throws(()=>validateSceneHint({...raw,cues:[...raw.cues,...raw.cues]},scene))
+  assert.match(SCENE_HINT_RULES,/最多2个人、5件/);assert.match(SCENE_HINT_RULES,/最终费用/);assert.match(SCENE_HINT_RULES,/禁止绘制可读文字/)
+})

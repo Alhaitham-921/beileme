@@ -192,9 +192,9 @@ async function downloadSiliconFlowImage(value, signal) {
   return image
 }
 
-async function generateImage(scene, timings) {
+async function generateImage(scene, timings, style = ILLUSTRATION_STYLE) {
   const { baseUrl, apiKey, model, siliconFlow } = config.wordImages
-  const prompt = `Depict this exact scene, keeping the described action, objects and positions: ${scene}\n${ILLUSTRATION_STYLE}`
+  const prompt = `Depict this exact scene, keeping the described action, objects and positions: ${scene}\n${style}`
   const body = siliconFlow
     ? { model, prompt, image_size: '1024x1024', ...(model === 'Kwai-Kolors/Kolors'
       ? { negative_prompt: NEGATIVE_PROMPT, num_inference_steps: 20, guidance_scale: 7.5 } : {}) }
@@ -233,6 +233,10 @@ async function generateImage(scene, timings) {
   if (normalized.length > MAX_IMAGE_BYTES || !isWebp(normalized)) throw new Error('Invalid WebP image')
   timings.normalizeMs = Math.round(performance.now() - decodedAt)
   return normalized
+}
+
+export async function generateSceneHintImage(scene) {
+  return generateImage(scene, {}, 'Create one square, clear, flat illustrated scene for an adult language learner. Use a quiet neutral background and two or three muted accent colors. Show at most two people and five essential objects. Preserve the specified location, viewpoint, object counts, actions and spatial relations. Use no writing, letters, numbers, labels, captions, speech bubbles, logos, watermarks or decorative clutter. Do not depict a successfully resolved outcome or reveal a complete spoken answer. No collage or unrelated objects.')
 }
 
 async function finishGeneration(target, word, sense, token, provider, sceneOptions) {
@@ -299,7 +303,9 @@ async function reserveGeneration(userId, target, word, sense, provider, options)
         SELECT attempt_day, daily_attempts, lease_until FROM word_memory_images WHERE user_id=?
         UNION ALL
         SELECT attempt_day, daily_attempts, lease_until FROM image_recall_example_replacements WHERE user_id=?
-      ) attempts`, [day, userId, userId])
+        UNION ALL
+        SELECT attempt_day, daily_attempts, lease_until FROM dialogue_scene_images WHERE user_id=?
+      ) attempts`, [day, userId, userId, userId])
     if (Number(usage.pending)) throw quotaExceeded('另一张记忆图正在生成，稍后可以再试。')
     if (Number(usage.attempts) >= config.wordImages.dailyQuota) throw quotaExceeded('今天的记忆图生成次数已用完。')
 

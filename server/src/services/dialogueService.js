@@ -15,6 +15,9 @@ import { reviewItem, computeMemoryStrength } from './srs.js'
 import { DIALOGUE_SCENES, sceneFor, recoverTurn, validateReport, buildTurnMessages,
   buildReportMessages, buildValidationRetryMessages, updateTargetUsage, buildHelp, buildEvidence, containsWord } from './dialogueEngine.js'
 import { buildScenarioMessages, validateScenario } from './scenarioEngine.js'
+import { journeyScene, hotelChangeScene, initJourney, applyGoalEvidence, challengeIdentity, challengeOutcome,
+  questionFeedback, consolidationQuestions, presentJourney } from './dialogueJourney.js'
+import { currentActor, assertRevision, assertConversation, saveChallenge } from './dialogueJourneyService.js'
 
 const reportJobs = new Map()
 const MAX_CALLS = 200
@@ -109,7 +112,16 @@ export async function listDialogues(userId) {
   return { scenes: DIALOGUE_SCENES, recommendations: scores.slice(0, 3),
     recommendedDifficulty: masteredBand ? (masteredBand >= 4 ? 'advanced' : masteredBand >= 3 ? 'intermediate' : 'beginner')
       : level >= 6000 ? 'advanced' : level >= 3000 ? 'intermediate' : 'beginner',
-    sessions: rows.map(fromRow), savedScenes: savedScenes.map(savedSceneFromRow) }
+    sessions: rows.map(row => presentJourney(fromRow(row))), savedScenes: savedScenes.map(savedSceneFromRow),
+    challengeProgress: await challengeProgress(userId) }
+}
+
+async function challengeProgress(userId) {
+  const rows = await query(`SELECT family,challenge_key,MAX(completed) completed,MAX(independent) independent,
+    MAX(transfer) transfer,COUNT(*) attempts FROM dialogue_challenge_results WHERE user_id=? GROUP BY family,challenge_key`, [userId])
+  return { items: rows.map(row => ({ family: row.family, key: row.challenge_key, completed: Number(row.completed) === 1,
+    independent: Number(row.independent) === 1, transfer: Number(row.transfer) === 1, attempts: Number(row.attempts) })),
+    hotelChangeUnlocked: rows.some(row => row.family === 'hotel' && Number(row.completed) === 1) }
 }
 
 async function configuredProvider(userId) {
@@ -118,9 +130,14 @@ async function configuredProvider(userId) {
   return provider
 }
 
-export async function startDialogue(userId, { sceneId, strictness = 'standard', difficulty = 'beginner', variant, mode = 'task', maxTurns = 8 }) {
-  const scene = await resolveScene(userId, sceneId, difficulty, variant)
-  return createDialogue(userId, scene, { sceneId, strictness, difficulty, variant: scene.variant, mode, maxTurns })
+export async function startDialogue(userId, { sceneId, strictness = 'standard', difficulty = 'beginner', variant, mode = 'task', maxTurns = 8, prepareWords = false, challenge = 'standard' }) {
+  let scene = await resolveScene(userId, sceneId, difficulty, variant)
+  if (challenge === 'change_dates') {
+    if ((scene.sourceSceneId || scene.id) !== 'hotel') throw badRequest('改期挑战适用于酒店情境')
+    if (!(await challengeProgress(userId)).hotelChangeUnlocked) throw badRequest('先完成一次酒店任务，即可解锁改期支线；基础情境始终可用')
+    scene = hotelChangeScene(scene)
+  }
+  return createDialogue(userId, scene, { sceneId, strictness, difficulty, variant: scene.variant, mode, maxTurns, prepareWords })
 }
 
 export async function repeatDialogue(userId, id, options = {}) {
@@ -129,14 +146,16 @@ export async function repeatDialogue(userId, id, options = {}) {
   const scene = withDifficulty(structuredClone(previous.scene), difficulty)
   return createDialogue(userId, scene, { sceneId: previous.sceneId, difficulty, variant: previous.variant,
     strictness: options.strictness || previous.strictness || 'standard',
-    mode: options.mode || previous.mode || 'task', maxTurns: options.maxTurns || previous.maxTurns || 8 })
+    mode: options.mode || previous.mode || 'task', maxTurns: options.maxTurns || previous.maxTurns || 8, prepareWords: options.prepareWords ?? false })
 }
 
-async function createDialogue(userId, scene, { sceneId, strictness, difficulty, variant, mode, maxTurns }) {
-  await configuredProvider(userId)
+async function createDialogue(userId, scene, { sceneId, strictness, difficulty, variant, mode, maxTurns, prepareWords }) {
+  if (!prepareWords) await configuredProvider(userId)
+  scene = journeyScene(scene, variant)
   const limits = await resolveLimits(userId)
   const state = { sceneId, scene: { ...scene, maxTurns }, strictness, difficulty, variant: variant || null, mode, maxTurns, turnCount: 0,
-    messages: [{ role: 'assistant', text: scene.opening, translation: difficulty === 'beginner' ? (scene.openingTranslation || scene.task) : '' }],
+    messages: prepareWords ? [] : [{ role: 'assistant', actorId: scene.actors[0].id, actorName: scene.actors[0].name, text: scene.opening, translation: difficulty === 'beginner' ? (scene.openingTranslation || scene.task) : '' }],
+    journey: initJourney(scene, prepareWords),
     targetUsage: scene.targets.map(t => ({ ...t, status: 'unused', helpLevel: 0 })), help: null, helpEvents: [], report: null, reportAttempts: 0 }
   const id = await withTransaction(async conn => {
     await conn.execute('SELECT id FROM users WHERE id = ? FOR UPDATE', [userId])
@@ -255,9 +274,12 @@ export async function gradeShortPractice(userId, id, answer) {
   return { feedback: value, usage }
 }
 
-export async function addDialogueTurn(userId, id, { text, expectedTurn }) {
+export async function addDialogueTurn(userId, id, { text, expectedTurn, expectedRevision, actorId }) {
   const { token, session } = await claim(userId, id, expectedTurn)
   try {
+    assertConversation(session)
+    assertRevision(session, expectedRevision)
+    if (actorId && actorId !== session.journey?.activeActorId) throw conflict('交谈对象已切换，请刷新后再发送')
     if (session.turnCount >= session.maxTurns) throw conflict('已达到本轮上限，请结束并查看小结')
     const { value: turn, usage } = await generateValidated(userId, session, buildTurnMessages(session, text), raw => recoverTurn(raw, text, session.scene))
     const helpLevel = Math.max(session.help?.level || 0, turn.mixedLanguage ? 3 : 0)
@@ -265,8 +287,11 @@ export async function addDialogueTurn(userId, id, { text, expectedTurn }) {
       ? session.scene.targets.filter(t => containsWord(session.help.example, t.word)).map(t => t.word)
       : [session.help?.word || turn.helpWord].filter(Boolean)
     session.targetUsage = updateTargetUsage(session.targetUsage, { ...turn, assistanceWords }, text, helpLevel)
-    session.messages.push({ role: 'user', text, corrections: turn.corrections, helpLevel, usedTargets: turn.usedTargets, mixedLanguage: turn.mixedLanguage })
-    session.messages.push({ role: 'assistant', text: turn.reply, translation: turn.translation || '', corrections: [], usage })
+    const actor = currentActor(session)
+    session.messages.push({ role: 'user', recipientId: actor?.id, recipientName: actor?.name, text, corrections: turn.corrections, helpLevel, usedTargets: turn.usedTargets, mixedLanguage: turn.mixedLanguage })
+    applyGoalEvidence(session, turn, text, helpLevel)
+    session.messages.push({ role: 'assistant', actorId: actor?.id, actorName: actor?.name, text: turn.reply, translation: turn.translation || '', corrections: [], usage })
+    if (session.journey) session.journey.revision++
     session.turnCount += 1
     // Chinese assistance is explicitly a demonstration awaiting a separate user turn.
     session.help = turn.mixedLanguage && turn.helpEnglish
@@ -278,7 +303,8 @@ export async function addDialogueTurn(userId, id, { text, expectedTurn }) {
       session.targetUsage = session.targetUsage.map(t => t.word === session.help.word
         ? { ...t, helpLevel: Math.max(t.helpLevel || 0, 3), weak: true, status: t.status === 'unused' ? 'weak' : t.status, tags: [...new Set([...(t.tags || []), 'chinese_help'])] } : t)
     }
-    const done = session.turnCount >= session.maxTurns || (session.mode !== 'free' && session.turnCount >= 6 && turn.taskComplete)
+    const goalsComplete = session.journey?.goals?.every(goal => goal.completed)
+    const done = session.turnCount >= session.maxTurns || (session.mode !== 'free' && (goalsComplete || (session.turnCount >= 6 && turn.taskComplete)))
     await saveClaimed(session, token, done ? 'analyzing' : 'active')
     if (done) scheduleReport(userId, id)
     return getDialogue(userId, id)
@@ -288,12 +314,13 @@ export async function addDialogueTurn(userId, id, { text, expectedTurn }) {
 export async function requestDialogueHelp(userId, id, options) {
   const { token, session } = await claim(userId, id, options.expectedTurn)
   try {
+    assertConversation(session)
     const maxHelp = Math.max(MAX_HELP, (session.maxTurns || 8) * 2)
     if (session.helpEvents.length >= maxHelp) throw badRequest(`本轮帮助已达 ${maxHelp} 次，可以复述已有示范或结束练习`)
     if (options.word && !session.scene.words.includes(options.word)) throw badRequest('请选择本轮目标词')
     let help = buildHelp(session, options)
     if (options.level === 3 && options.text?.trim()) {
-      const { value: turn } = await generateValidated(userId, session, buildTurnMessages(session, options.text), raw => validateTurn(raw, options.text, session.scene))
+      const { value: turn } = await generateValidated(userId, session, buildTurnMessages(session, options.text), raw => recoverTurn(raw, options.text, session.scene))
       const example = turn.helpEnglish || turn.reply
       help = { ...help, word: turn.helpWord || session.scene.targets.find(t => containsWord(example, t.word))?.word || null,
         example, translation: options.text }
@@ -329,7 +356,7 @@ export async function getDialogue(userId, id) {
   const row = await rowFor(userId, id), session = fromRow(row)
   // Resume after a process restart; a live worker retains its lease until it commits.
   if (session.status === 'analyzing' && (!row.lease_until || new Date(row.lease_until).getTime() <= Date.now())) scheduleReport(userId, id)
-  return session
+  return presentJourney(session)
 }
 
 async function generateReport(userId, id) {
@@ -434,6 +461,13 @@ async function finalizeReport(userId, session, report, evidence, token) {
     }
     session.report = { ...report, usage: session.lastUsage, targetUsage: session.targetUsage, reviewWords, strengthenedWords,
       unmatchedWords: candidates.filter(w => !words.some(m => m.spelling_norm === w)), evidence }
+    if (session.journey) {
+      session.journey.phase = 'summary'
+      session.journey.wordbookId = Number(book.id)
+      session.journey.revision++
+      session._consolidation = { run: 1, questions: consolidationQuestions(session.scene), answers: [], hints: [] }
+      session.report.challenge = await saveChallenge(conn, userId, session)
+    }
     await saveFollowups(conn,userId,session,session.report)
     session.reportError = null
     await conn.execute(`UPDATE dialogue_sessions SET state=?,status='finished',operation_token=NULL,lease_until=NULL,updated_at=UTC_TIMESTAMP() WHERE id=? AND operation_token=?`, [JSON.stringify(session), session.id, token])

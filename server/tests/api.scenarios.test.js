@@ -2,7 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { getTestServer, createClient, createOnboardedUser } from './helpers/setup.js'
 import { config } from '../src/config.js'
-import { queryOne } from '../src/db/pool.js'
+import { queryOne, execute } from '../src/db/pool.js'
+import { scenarioRequestDescription } from '../../src/utils/scenarioRequest.js'
 
 const description = '我想练习去酒店办理入住，并向前台说明我的预订和房间要求。'
 const generatedScene = () => ({
@@ -198,4 +199,26 @@ test('selected word IDs become mandatory scene targets', async () => {
   assert.equal(response.status, 201, JSON.stringify(response.raw))
   assert.deepEqual(response.data.scene.words, [word.spelling.toLowerCase()])
  })
+})
+
+test('an old mistake outside today review can be searched, selected and generated with the default word brief',async()=>{
+  const client=createClient((await getTestServer()).baseUrl),user=await createOnboardedUser(client),other=await createOnboardedUser(client)
+  const word=(await client.get('/api/v1/words/books/fixture-demo/words?size=1')).data.items[0]
+  await execute(`INSERT INTO user_word_progress(user_id,word_id,wordbook_id,first_learned_at,last_review_at,times_seen,times_wrong)
+    VALUES(?,?,?,'2020-01-01','2020-01-01',2,1)`,[user.userId,word.id,word.wordbookId])
+  const today=await client.get('/api/v1/study/review/today',{token:user.token})
+  assert.ok(!today.data.wrongWords.some(w=>w.wordId===word.id))
+  const found=await client.get('/api/v1/words/collections?source=mistakes&q='+encodeURIComponent(word.spelling),{token:user.token})
+  assert.ok(found.data.items.some(w=>w.id===word.id))
+  const another=await client.get('/api/v1/words/collections?source=mistakes',{token:other.token})
+  assert.ok(!another.data.items.some(w=>w.id===word.id))
+  await withMockAi(body=>{
+    assert.deepEqual(JSON.parse(body.messages[1].content).targetWords,[word.spelling.toLowerCase()])
+    return {...generatedScene(),targets:[{word:word.spelling,sense:word.definitions[0],phrase:`the ${word.spelling}`,example:`I said ${word.spelling}.`}]}
+  },async calls=>{
+    const brief=scenarioRequestDescription('',[word.id])
+    const response=await client.post('/api/v1/practice/scenes/generate',{token:user.token,body:{...brief,wordIds:[word.id]}})
+    assert.equal(response.status,201,JSON.stringify(response.raw));assert.equal(calls.length,1)
+    assert.deepEqual(response.data.scene.words,[word.spelling.toLowerCase()])
+  })
 })

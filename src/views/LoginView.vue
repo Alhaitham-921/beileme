@@ -40,7 +40,7 @@ watch(() => form.value.email, () => { form.value.emailCode = ''; codeNotice.valu
 async function sendRegistrationCode() {
   if (sendingCode.value || resendSeconds.value) return
   const email = form.value.email.trim()
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { formError.value = '请先填写可接收邮件的邮箱'; return }
+  if (!/^[^\s@]+@qq\.com$/i.test(email)) { formError.value = '新注册仅支持 QQ 邮箱，请填写 @qq.com 邮箱'; return }
   sendingCode.value = true
   formError.value = ''
   codeNotice.value = ''
@@ -67,8 +67,7 @@ function validate() {
   const { account, email, password, confirm } = form.value
 
   if (isRegister.value) {
-    if (!email.trim()) return '请填写邮箱'
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return '邮箱格式看起来不太对'
+    if (!/^[^\s@]+@qq\.com$/i.test(email.trim())) return '新注册仅支持 QQ 邮箱，请填写 @qq.com 邮箱'
     if (!/^\d{6}$/.test(form.value.emailCode.trim())) return '请输入邮件中的6位验证码'
     if (password.length < 8) return '密码至少 8 位'
     if (!/[a-zA-Z]/.test(password) || !/\d/.test(password)) return '密码需要同时包含字母和数字'
@@ -76,7 +75,7 @@ function validate() {
     return ''
   }
 
-  if (!account.trim()) return '请填写邮箱'
+  if (!account.trim()) return '请填写 QQ 邮箱或原账号'
   if (!password) return '请填写密码'
   return ''
 }
@@ -141,12 +140,12 @@ async function submit() {
       <form v-if="mode !== 'recover'" class="form" @submit.prevent="submit">
         <template v-if="isRegister">
           <label class="field">
-            <span class="field-label">邮箱</span>
+            <span class="field-label">QQ 邮箱</span>
             <input
               v-model="form.email"
               type="email"
               autocomplete="email"
-              placeholder="QQ、163、Outlook、学校邮箱等"
+              placeholder="请输入你的 QQ 邮箱（@qq.com）"
               class="input"
               maxlength="190"
               :disabled="sendingCode || submitting"
@@ -163,7 +162,7 @@ async function submit() {
               </button>
             </div>
             <span v-if="codeNotice" class="field-label" role="status">{{ codeNotice }}</span>
-            <span class="field-label">先验证邮箱归属再创建新账号。已有账号直接登录，学习记录保留。</span>
+            <span class="field-label">新注册仅支持 QQ 邮箱。已有账号可直接登录，学习记录保留。</span>
           </label>
 
           <label class="field">
@@ -196,12 +195,12 @@ async function submit() {
 
         <template v-else>
           <label class="field">
-            <span class="field-label">邮箱</span>
+            <span class="field-label">QQ 邮箱或原账号</span>
             <input
               v-model="form.account"
               type="text"
               autocomplete="username"
-              placeholder="注册时使用的邮箱"
+              placeholder="QQ 邮箱；老用户填写原邮箱或手机号"
               class="input"
             />
           </label>
@@ -216,6 +215,7 @@ async function submit() {
               class="input"
             />
           </label>
+          <p class="muted">已有账号继续使用原账号和密码登录，无需重新注册。</p>
         </template>
 
         <p v-if="formError || auth.error" class="form-error">{{ formError || auth.error }}</p>

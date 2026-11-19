@@ -1,7 +1,9 @@
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
-import { getTestServer,createClient,createOnboardedUser } from './helpers/setup.js'
+import { getTestServer as getBaseTestServer,createClient,createOnboardedUser } from './helpers/setup.js'
+import { createApp } from '../src/app.js'
+import { once } from 'node:events'
 import { execute,queryOne,query } from '../src/db/pool.js'
 import { config } from '../src/config.js'
 import { seedPapers } from '../data/ielts/catalog.js'
@@ -10,6 +12,22 @@ import { resolveProvider } from '../src/services/ai/apiKeyService.js'
 import { processOneJob,startJobWorker } from '../src/services/ielts/jobs.js'
 
 const key=()=>crypto.randomUUID()
+let archivedServer
+async function getTestServer() {
+  await getBaseTestServer()
+  if (!archivedServer) {
+    archivedServer = createApp({ includeArchivedIELTS: true }).listen(0, '127.0.0.1')
+    await once(archivedServer, 'listening')
+  }
+  return { baseUrl: `http://127.0.0.1:${archivedServer.address().port}` }
+}
+after(async () => { if (archivedServer) await new Promise(resolve => archivedServer.close(resolve)) })
+test('withdrawn IELTS module has no product API and leaves old accounts and data available', async () => {
+  const client = createClient((await getBaseTestServer()).baseUrl)
+  const user = await createOnboardedUser(client)
+  assert.equal((await client.get('/api/v1/ielts/overview', {token:user.token})).status,404)
+  assert.equal((await client.get('/api/v1/auth/me', {token:user.token})).status,200)
+})
 async function fixture(skill='reading',status='published'){
   const client=createClient((await getTestServer()).baseUrl),user=await createOnboardedUser(client),other=await createOnboardedUser(client)
   const paper=structuredClone(seedPapers.find(p=>p.skill===skill))
