@@ -4,6 +4,10 @@
  */
 import http from './client.js'
 export const practice = {
+  illustrationSettings: () => http.get('/practice/illustration-settings'),
+  saveIllustrationSettings: (autoImages) => http.put('/practice/illustration-settings', { body: { autoImages } }),
+  illustrations: (query, options = {}) => http.get('/practice/illustrations', { query, ...options }),
+  retryIllustration: (id, sceneId) => id ? http.post(`/practice/illustrations/${id}/retry`) : http.post('/practice/illustrations', { body: { sceneId } }),
   list: () => http.get('/practice'),
   generateScene: (body, options = {}) => http.post('/practice/scenes/generate', { body, timeoutMs: 150000, ...options }),
   saveScene: (body) => http.post('/practice/scenes/save', { body }),

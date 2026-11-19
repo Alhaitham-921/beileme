@@ -21,13 +21,20 @@ if (!TEST_DB.endsWith('_test')) {
 config.db.database = TEST_DB
 // 测试环境一律切断真实 AI 调用，保证结果确定且不产生费用
 config.ai.apiKey = ''
+// Automatic scene pictures must never reach a paid provider in unrelated tests.
+config.wordImages.apiKey = ''
 // Older API fixtures model retained, unverified accounts. Dedicated registration tests enable the real gate.
 config.auth.requireRegistrationEmailVerification = false
 
 const { resetDatabase, runMigrations } = await import('../../src/db/migrate.js')
 const { seed } = await import('../../src/db/seed.js')
 const { createApp } = await import('../../src/app.js')
-const { closePool } = await import('../../src/db/pool.js')
+const { pool, closePool } = await import('../../src/db/pool.js')
+// A test that imports a service before this module can otherwise capture the
+// development database in mysql2's pool before the test configuration is set.
+if (pool.pool.config.connectionConfig.database !== TEST_DB) {
+  throw new Error('Test pool was created before test configuration; import helpers/setup.js before server services. No test queries were run.')
+}
 
 const silentLogger = { log() {}, warn() {}, error() {} }
 

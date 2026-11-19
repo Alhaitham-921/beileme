@@ -12,6 +12,7 @@ import { useAppStore } from '../stores/app'
 import { usePracticeSpeech } from '../composables/usePracticeSpeech'
 import PracticeText from '../components/PracticeText.vue'
 import PracticeImage from '../components/PracticeImage.vue'
+import ScenarioComic from '../components/ScenarioComic.vue'
 import { practiceDay, selectPracticeResume } from '../utils/practiceResume.js'
 import { exportPracticeReport } from '../utils/practiceReportExport.js'
 import { Capacitor } from '@capacitor/core'
@@ -383,6 +384,7 @@ onUnmounted(() => { disposed = true; sceneRun++; sceneController?.abort(); clear
       <section v-if="scene" class="card setup" aria-labelledby="task-title">
         <div class="section-heading"><div><span class="eyebrow">{{ libraryTab === 'create' ? '02 / 你的专属场景' : '场景预览' }}</span><h2 id="task-title">{{ selectedScene.title }}</h2></div><button class="text-button" :disabled="working || sceneIsSaved" @click="saveScene">{{ sceneIsSaved ? '✓ 已保存到我的场景' : '＋ 保存这个场景' }}</button></div>
         <PracticeImage v-if="selectedScene.memoryImage" :image="selectedScene.memoryImage" />
+        <ScenarioComic v-else-if="sceneId.startsWith('custom-')" :scene-id="sceneId" />
         <fieldset v-if="sceneId === 'bank'" class="variant-options"><legend>bank · 这次练哪一种用法？</legend><label><input v-model="variant" type="radio" value="river"> 河岸 · 公园散步</label><label><input v-model="variant" type="radio" value="finance"> 银行 · 办理业务</label></fieldset>
         <p class="task-description">{{ selectedScene.task }}</p><div class="role-pair"><span v-if="selectedScene.userRole"><small>你的身份</small>{{ selectedScene.userRole }}</span><span><small>AI 扮演</small>{{ selectedScene.role }}</span><span v-if="selectedScene.location"><small>地点</small>{{ selectedScene.location }}</span></div>
         <ul v-if="selectedScene.goals?.length" class="scene-goals"><li v-for="goal in selectedScene.goals" :key="goal">{{ goal }}</li></ul>
@@ -404,6 +406,7 @@ onUnmounted(() => { disposed = true; sceneRun++; sceneController?.abort(); clear
         <div class="scene-meta"><span>{{ usedCount }} / {{ targets.length }} 个词已用出 · {{ session.mode === 'free' ? '自由交流' : '任务练习' }} · {{ difficultyLabels[session.difficulty] }} · {{ strictnessLabels[session.strictness] }}纠错</span><label><input v-model="showTranslations" type="checkbox"> 中文提示</label></div>
         <div class="scene-actions"><button class="text-button" :disabled="working || sceneIsSaved" @click="saveScene">{{ sceneIsSaved ? '✓ 场景已收藏' : '＋ 保存场景与词汇' }}</button><button class="text-button" :disabled="working" @click="backToScenes">{{ active ? '稍后继续，返回场景' : '返回场景库' }} →</button></div>
       </header>
+      <ScenarioComic v-if="session.sceneId?.startsWith('custom-') && !currentScene?.memoryImage" :scene-id="session.sceneId" :session-id="session.id" :turn="session.turnCount" />
       <div class="conversation" role="log" aria-label="对话记录" aria-live="polite" aria-relevant="additions"><article v-for="(message, index) in session.messages || []" :key="message.id || `${session.id}-${index}`" :class="['message', message.role === 'user' ? 'from-user' : 'from-ai']"><div class="message-meta"><span>{{ message.role === 'user' ? '你' : currentScene?.role || 'AI' }}</span><button v-if="message.role !== 'user'" class="read-button" type="button" :disabled="isRecording || isTranscribing" :aria-label="`朗读第 ${index + 1} 条回复`" @click="read(message.text)">{{ isSpeaking ? '■ 停止' : '◖ 朗读' }}</button><span v-if="message.helpLevel >= 3" class="muted">跟读提示</span></div><div class="bubble"><PracticeText :text="message.text" :targets="targets" :corrections="message.role === 'user' ? message.corrections || [] : []" /><p v-if="showTranslations && message.translation" class="translation">{{ message.translation }}</p></div><AiUsage :usage="message.usage" label="本条回复消耗" /></article><div v-if="busy" class="thinking"><LoadingState>{{ active ? 'AI 正在组织回复…' : '正在保存练习…' }}</LoadingState></div><div ref="conversationEnd"></div></div>
       <div v-if="active" class="composer">
         <p v-if="error" role="alert" class="error-banner">{{ error }} <button type="button" class="text-button" :disabled="working || !draft.trim()" @click="send">重试发送</button> <button type="button" class="text-button" :disabled="working" @click="refreshCurrent">恢复最新进度</button></p>

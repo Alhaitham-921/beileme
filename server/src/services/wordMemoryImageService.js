@@ -22,9 +22,9 @@ const PNG_SIGNATURE = Buffer.from('89504e470d0a1a0a', 'hex')
 const JPEG_SIGNATURE = Buffer.from('ffd8ff', 'hex')
 const ILLUSTRATION_STYLE = [
   'Create a square, minimalist flat vector-style illustration for an English vocabulary flashcard series.',
-  'Use a solid warm greige background (#E9E1D7). Fill most of the square with the key action or object, leaving a small margin.',
-  'Use muted Morandi colors: choose two or three accents from sage green (#A5AD99), dusty rose (#C5A5A2), muted blue (#8F9EAB), and soft terracotta (#BF9D88).',
-  'Use warm charcoal (#514B47) outlines thick enough to read at thumbnail size, and flat fills. Give the key clue the strongest contrast.',
+  'Fill most of the square with the key action or object, leaving a small margin and a clean simple background.',
+  'Use natural, restrained low-to-moderate saturation colors chosen to suit the scene, with no fixed palette.',
+  'Use clean deliberate outlines readable at thumbnail size, smooth refined shapes and balanced soft contrast. Avoid rough sketchy marks or noisy texture. Give the key clue the strongest contrast.',
   'Show one focal object or one everyday action with at most two people and two essential props. Make the action and direction obvious through posture and placement.',
   'Use a single scene, suitable for students. Keep the artwork free of letters, numbers, captions, logos, gradients, textures and decorative borders.',
 ].join(' ')
@@ -192,9 +192,9 @@ async function downloadSiliconFlowImage(value, signal) {
   return image
 }
 
-async function generateImage(scene, timings) {
+export async function generateImage(scene, timings = {}, style = ILLUSTRATION_STYLE) {
   const { baseUrl, apiKey, model, siliconFlow } = config.wordImages
-  const prompt = `Depict this exact scene, keeping the described action, objects and positions: ${scene}\n${ILLUSTRATION_STYLE}`
+  const prompt = `Depict this exact scene, keeping the described action, objects and positions: ${scene}\n${style}`
   const body = siliconFlow
     ? { model, prompt, image_size: '1024x1024', ...(model === 'Kwai-Kolors/Kolors'
       ? { negative_prompt: NEGATIVE_PROMPT, num_inference_steps: 20, guidance_scale: 7.5 } : {}) }
@@ -299,7 +299,9 @@ async function reserveGeneration(userId, target, word, sense, provider, options)
         SELECT attempt_day, daily_attempts, lease_until FROM word_memory_images WHERE user_id=?
         UNION ALL
         SELECT attempt_day, daily_attempts, lease_until FROM image_recall_example_replacements WHERE user_id=?
-      ) attempts`, [day, userId, userId])
+        UNION ALL
+        SELECT attempt_day, daily_attempts, lease_until FROM dialogue_illustrations WHERE user_id=?
+      ) attempts`, [day, userId, userId, userId])
     if (Number(usage.pending)) throw quotaExceeded('另一张记忆图正在生成，稍后可以再试。')
     if (Number(usage.attempts) >= config.wordImages.dailyQuota) throw quotaExceeded('今天的记忆图生成次数已用完。')
 

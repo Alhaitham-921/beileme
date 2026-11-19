@@ -20,7 +20,7 @@ export default defineConfig({
       // 后端目录一旦有文件写入，监听器会去 watch 写入过程中的临时文件，
       // 在 Windows 上会因文件被占用抛出 EBUSY 并直接让 dev server 崩溃。
       // 同理也排除编辑器/工具写入时产生的 .tmpdir 目录。
-      ignored: ['**/server/**', '**/dist/**', '**/.npm-cache/**', '**/*.tmpdir/**'],
+      ignored: ['**/server/**', '**/dist/**', '**/android/**', '**/.android-cache/**', '**/.npm-cache/**', '**/*.tmpdir/**'],
     },
   },
 })

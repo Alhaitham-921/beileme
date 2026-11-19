@@ -4,13 +4,15 @@ param(
     [string]$SdkPath,
     [string]$JdkPath,
     [string]$CachePath,
-    [string]$Serial
+    [string]$Serial,
+    [switch]$Preview
 )
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $configPath = Join-Path $projectRoot '.android.local.json'
 $apkPath = Join-Path $projectRoot 'output/android/beileme-debug.apk'
+if ($Preview) { $apkPath = Join-Path $projectRoot 'output/android/beileme-preview.apk' }
 $backendHealth = 'http://127.0.0.1:3002/api/v1/health'
 
 function Invoke-Tool([string]$File, [string[]]$Arguments) {
@@ -186,7 +188,9 @@ try {
             Configure-Cors
             Invoke-Tool $npm @('run', 'android:sync')
             Push-Location (Join-Path $projectRoot 'android')
-            try { Invoke-Tool '.\gradlew.bat' @('assembleDebug', '--no-daemon', '--console', 'plain', '--project-cache-dir', $projectCacheDir) }
+            $gradleArguments = @('assembleDebug', '--no-daemon', '--console', 'plain', '--project-cache-dir', $projectCacheDir)
+            if ($Preview) { $gradleArguments += '-PbeilemePreview=true' }
+            try { Invoke-Tool '.\gradlew.bat' $gradleArguments }
             finally { Pop-Location }
             $builtApk = Join-Path $projectRoot 'android/app/build/outputs/apk/debug/app-debug.apk'
             if (-not (Test-Path -LiteralPath $builtApk)) { throw 'Gradle finished but the expected debug APK was not found.' }
@@ -204,7 +208,8 @@ try {
             $target = Get-DeviceSerial
             Connect-Device $target
             Invoke-Tool $adb @('-s', $target, 'install', '-r', $apkPath)
-            Invoke-Tool $adb @('-s', $target, 'shell', 'am', 'start', '-n', 'com.beileme.app/.MainActivity')
+            $applicationId = if ($Preview) { 'com.beileme.app.preview' } else { 'com.beileme.app' }
+            Invoke-Tool $adb @('-s', $target, 'shell', 'am', 'start', '-n', "$applicationId/com.beileme.app.MainActivity")
             Write-Host 'Beileme was installed and launched. Grant microphone permission when you choose to record.'
         }
     }

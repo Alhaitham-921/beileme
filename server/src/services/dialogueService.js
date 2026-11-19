@@ -17,6 +17,8 @@ import { DIALOGUE_SCENES, sceneFor, recoverTurn, validateReport, buildTurnMessag
 import { buildScenarioMessages, validateScenario } from './scenarioEngine.js'
 import { getWordMemoryImage } from './wordMemoryImageService.js'
 import { buildImageScenarioMessages, validateImageScenario, copiedImageHelp } from './imageDialogueEngine.js'
+import { illustrationContext, queueOpeningIllustration, queueTurnIllustration } from './dialogueIllustrationService.js'
+import { visualUpdate } from './dialogueIllustrationEngine.js'
 
 const reportJobs = new Map()
 const MAX_CALLS = 200
@@ -73,6 +75,7 @@ export async function generateScenario(userId, { description, difficulty = 'begi
   const saved = await execute(`INSERT INTO dialogue_scenes (user_id,source,difficulty,scene,generation_usage)
     VALUES (?,'custom',?,?,?)`, [userId, difficulty, JSON.stringify({ ...value, description, ...(followup?{followupId:followup.id}: {}) }), JSON.stringify(usage)])
   const scene = await savedSceneFor(userId, `custom-${saved.insertId}`)
+  await queueOpeningIllustration(userId, scene)
   return { scene, usage }
 }
 
@@ -174,6 +177,7 @@ async function createDialogue(userId, scene, { sceneId, strictness, difficulty, 
     const [saved] = await conn.execute('INSERT INTO dialogue_sessions (user_id, scene, state, created_at, updated_at) VALUES (?, ?, ?, UTC_TIMESTAMP(), UTC_TIMESTAMP())', [userId, sceneId, JSON.stringify(state)])
     return Number(saved.insertId)
   })
+  await queueOpeningIllustration(userId, scene)
   return getDialogue(userId, id)
 }
 
@@ -288,7 +292,11 @@ export async function addDialogueTurn(userId, id, { text, expectedTurn }) {
   const { token, session } = await claim(userId, id, expectedTurn)
   try {
     if (session.turnCount >= session.maxTurns) throw conflict('已达到本轮上限，请结束并查看小结')
-    const { value: turn, usage } = await generateValidated(userId, session, buildTurnMessages(session, text), raw => recoverTurn(raw, text, session.scene))
+    try { session.illustrationContext = await illustrationContext(userId, session.scene, id) }
+    catch { session.illustrationContext = { enabled: false } }
+    const { value: turn, usage } = await generateValidated(userId, session, buildTurnMessages(session, text), raw => ({
+      ...recoverTurn(raw, text, session.scene), visualUpdate: visualUpdate(raw?.visualUpdate),
+    }))
     const copiedHelp = copiedImageHelp(session, text)
     const helpLevel = Math.max(session.help?.level || 0, turn.mixedLanguage ? 3 : 0, copiedHelp?.level || 0)
     const assistanceWords = session.help?.example
@@ -310,6 +318,7 @@ export async function addDialogueTurn(userId, id, { text, expectedTurn }) {
     }
     const done = session.turnCount >= session.maxTurns || (session.mode !== 'free' && session.turnCount >= 6 && turn.taskComplete)
     await saveClaimed(session, token, done ? 'analyzing' : 'active')
+    await queueTurnIllustration(userId, session, turn.visualUpdate)
     if (done) scheduleReport(userId, id)
     return getDialogue(userId, id)
   } finally { await release(id, token) }

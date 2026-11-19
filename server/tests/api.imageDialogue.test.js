@@ -1,3 +1,4 @@
+import { getTestServer, createClient, createOnboardedUser } from './helpers/setup.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
@@ -5,7 +6,6 @@ import { config } from '../src/config.js'
 import { queryOne, execute } from '../src/db/pool.js'
 import { getWordById } from '../src/services/wordService.js'
 import { getWordMemoryImage } from '../src/services/wordMemoryImageService.js'
-import { getTestServer, createClient, createOnboardedUser } from './helpers/setup.js'
 
 test('private memory images start reusable three-turn practice with exact sense and durable history', async t => {
   const { baseUrl } = await getTestServer(), client = createClient(baseUrl)

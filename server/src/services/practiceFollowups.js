@@ -114,7 +114,7 @@ export async function scheduleFollowup(userId, id, { mode, scheduledAt }) {
   return { scheduleMode: mode, scheduledAt: time, due: mode === 'next', remainingDueCount: await countDueWords(userId) }
 }
 
-export async function listScheduledStudyWords(userId, now, limit) {
+export async function listScheduledStudyWords(userId, now, limit, studyMode = 'review-first') {
   return query(`SELECT w.*, p.word_id AS learned_word_id
     FROM (
       SELECT word_id, MIN(scheduled_at) AS first_due
@@ -124,6 +124,7 @@ export async function listScheduledStudyWords(userId, now, limit) {
     ) scheduled
     JOIN words w ON w.id=scheduled.word_id
     LEFT JOIN user_word_progress p ON p.user_id=? AND p.word_id=w.id
+    ${studyMode === 'new-only' ? 'WHERE p.word_id IS NULL' : ''}
     ORDER BY scheduled.first_due, w.id LIMIT ?`, [userId, now, userId, limit])
 }
 

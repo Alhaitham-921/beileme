@@ -11,6 +11,7 @@ import {
 import { conflict, unauthorized, badRequest, ERROR_CODES } from '../utils/errors.js'
 import { ensureProfile } from './profileService.js'
 import { registrationVerification } from './registrationVerification.js'
+import { avatarUrl } from './avatarService.js'
 
 /** 口令强度下限，注册与改密共用 */
 export const MIN_PASSWORD_LENGTH = 8
@@ -23,6 +24,7 @@ export function publicUser(row) {
     emailVerified: Boolean(row.email_verified_at),
     phone: row.phone || null,
     nickname: row.nickname || '',
+    avatarUrl: avatarUrl(row.id, row.avatar_revision),
     createdAt: row.created_at,
     lastLoginAt: row.last_login_at || null,
   }

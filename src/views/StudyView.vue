@@ -1,7 +1,6 @@
 <script setup>
 import WordLearningCard from '../components/WordLearningCard.vue'
 import { readAutoPronounce, wordAudioIdentity } from '../utils/wordAudio.js'
-import StudyTaskChooser from '../components/StudyTaskChooser.vue'
 import PracticeFollowups from '../components/PracticeFollowups.vue'
 import { http } from '../api/client.js'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -10,7 +9,7 @@ import { studySwipeDirection } from '../utils/studySwipe.js'
 import FavoriteWord from '../components/FavoriteWord.vue'
 import MorphologyCard from '../components/MorphologyCard.vue'
 import { Capacitor } from '@capacitor/core'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import { useAiStore } from '../stores/ai'
 import { nativeSpeech } from '../utils/speechSynthesis.js'
@@ -18,10 +17,10 @@ import { nativeSpeech } from '../utils/speechSynthesis.js'
 const app = useAppStore()
 const ai = useAiStore()
 const router = useRouter()
+const route = useRoute()
 const isAndroid = Capacitor.getPlatform() === 'android'
 
 const booting = ref(true)
-const choosingMode = ref(false)
 const studyMode = ref('review-only')
 const uncertain = ref(false)
 const paused=ref(null),preparingWordAudio=ref(false)
@@ -79,7 +78,6 @@ const nextLabel = computed(() => app.isLastItem ? (app.allAnswered ? '查看结�
 const status = computed(() => {
   if (booting.value) return 'loading'
   if (bootError.value) return 'error'
-  if (choosingMode.value) return 'setup'
   if (paused.value) return 'paused'
   if (app.sessionSummary) return 'finished'
   if (!app.items.length) return 'empty'
@@ -115,13 +113,20 @@ async function boot() {
   bootError.value = ''
 
   try {
-    if (app.sessionSummary) choosingMode.value = true
-    // 刷新页面后优先恢复进行中的会话，没有才选择学习内容
-    if (!app.items.length || !app.session) {
-      const restored = await app.restoreSession()
-      if (!restored) choosingMode.value = true
+    const requested = ['review-only', 'new-only'].includes(route.query.mode) ? route.query.mode : null
+    if (!app.sessionSummary && (!app.items.length || !app.session)) await app.restoreSession()
+    const active = app.session?.status === 'active' && app.items.length && !app.sessionSummary
+    if (active && (!requested || requested === app.session.studyOptions?.studyMode)) {
+      studyMode.value = app.session.studyOptions?.studyMode || 'review-first'
+    } else {
+      const workload = await http.get('/study/workload')
+      studyMode.value = requested || (workload.dueCount > 0 ? 'review-only' : 'new-only')
+      await app.startSession(studyMode.value === 'new-only' && workload.newRemaining === 0 ? 'extra' : 'daily', studyMode.value)
+      if (!requested && studyMode.value === 'review-only' && !app.items.length) {
+        studyMode.value = 'new-only'
+        await app.startSession('daily', 'new-only')
+      }
     }
-    studyMode.value=app.session?.studyOptions?.studyMode || studyMode.value
     cardShownAt.value = Date.now()
   } catch (error) {
     bootError.value = error.message
@@ -257,7 +262,12 @@ async function advance() {
   try {
     if (app.isLastItem) {
       if (app.allAnswered) {
+        const wasReview = reviewOnly.value && !selectedReview.value
         await app.finishSession()
+        if (wasReview && app.sessionSummary?.remainingDueCount === 0 && app.plan?.newDone < app.plan?.newTarget) {
+          await beginMode('new-only')
+          navigationNotice.value = '旧词已复习完成，接着学习今天的新词。'
+        }
         return
       }
       const remaining = app.firstUnansweredIndex
@@ -330,8 +340,8 @@ async function startExtra() {
     continueRequested.value = false
     if (selectedReview.value) await app.continueCollectionReview()
     else {
-      studyMode.value = reviewOnly.value ? 'review-only' : 'new-only'
-      await app.startSession(reviewOnly.value ? 'daily' : 'extra', studyMode.value)
+      studyMode.value = reviewOnly.value && remainingDueCount.value !== 0 ? 'review-only' : 'new-only'
+      await app.startSession(studyMode.value === 'review-only' ? 'daily' : 'extra', studyMode.value)
     }
     cardShownAt.value = Date.now()
   } catch (error) {
@@ -427,10 +437,14 @@ async function makeErrorCards() {
 function cancelCards(){cardRun++;ai.cancelCards();generating.value=false;generateError.value='已取消等待。后台可能继续生成，再试时优先读取缓存。'}
 async function beginMode(mode, budgetMinutes = null) {
   studyMode.value = mode
-  choosingMode.value = false
   booting.value = true
   bootError.value = ''
-  try { paused.value=null; continueRequested.value=false; await app.startSession('daily', mode, budgetMinutes); cardShownAt.value = Date.now(); uncertain.value = false }
+  try {
+    paused.value=null; continueRequested.value=false
+    await app.startSession('daily', mode, budgetMinutes)
+    await router.replace({ path: '/study', query: { ...route.query, mode } })
+    cardShownAt.value = Date.now(); uncertain.value = false
+  }
   catch (error) { bootError.value = error.message }
   finally { booting.value = false }
 }
@@ -443,7 +457,7 @@ async function pauseLearning(){
     stopSpeaking()
   } catch (error) { navigationNotice.value = error.message }
 }
-function changeMode() { stopSpeaking(); choosingMode.value = true }
+function changeMode() { stopSpeaking(); router.push('/') }
 </script>
 
 <template>
@@ -458,10 +472,6 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
       <LoadingState skeleton>正在准备今天的单词…</LoadingState>
     </div>
 
-    <section v-else-if="status === 'setup'" class="card mode-card">
-      <StudyTaskChooser :disabled="booting" @start="beginMode" />
-      <button v-if="app.session && app.items.length && !app.sessionSummary" type="button" class="btn btn-quiet resume-button" @click="choosingMode = false">继续本组</button>
-    </section>
     <section v-else-if="status === 'paused'" class="card result-card"><h1>先学到这里，也有收获</h1><p>已保存 {{paused.savedCount}} / {{paused.session.plannedCount}} 个词，剩余 {{paused.remaining}} 个词仍保留。</p><div class="result-actions"><button class="btn btn-primary" @click="paused=null">继续本组</button><button class="btn btn-ghost" @click="router.push('/')">返回首页</button></div></section>
     <!-- 出错 -->
     <div v-else-if="status === 'error'" class="card result-card">
@@ -469,7 +479,7 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
       <p class="result-sub">{{ bootError }}</p>
       <div class="result-actions">
         <button class="btn btn-ghost" @click="boot">重试</button>
-        <button v-if="app.items.length && (app.sessionSummary || app.session?.status === 'active')" class="btn btn-ghost" @click="bootError = ''; choosingMode = false">返回本组</button>
+        <button v-if="app.items.length && (app.sessionSummary || app.session?.status === 'active')" class="btn btn-ghost" @click="bootError = ''">返回本组</button>
         <button class="btn btn-primary" @click="router.push('/')">返回首页</button>
       </div>
     </div>
@@ -477,7 +487,7 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
     <!-- 答题中 / 已作答 -->
     <template v-else-if="status === 'question' || status === 'answered'">
       <div v-if="!showAnswerCard" class="session-actions">
-        <button type="button" class="btn btn-quiet" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="changeMode">选择学习内容</button>
+        <button type="button" class="btn btn-quiet" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="changeMode">返回首页</button>
         <button type="button" class="btn btn-quiet" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="pauseLearning">先学到这里，保存进度</button>
       </div>
       <p v-if="selectedReview && !showAnswerCard" class="muted">所选词复习：共 {{app.reviewBatch.totalCount}} 词，剩余分组会保留，可随时暂停。</p>
@@ -699,8 +709,7 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
       <p v-if="selectedReview" class="result-sub" role="status">所选 {{app.reviewBatch.totalCount}} 词，已完成 {{app.reviewBatch.completedCount}} 词，剩余 {{app.reviewBatch.remainingCount}} 词。</p>
       <p v-else-if="reviewOnly && remainingDueCount !== null" class="result-sub" role="status">{{ remainingDueCount > 0 ? '还有 ' + remainingDueCount + ' 个待复习词，可以继续下一组。' : '当前待复习词已学完。' }}</p>
       <div class="result-actions">
-        <button class="btn btn-primary" :disabled="selectedReview ? !app.reviewBatch.hasMore : reviewOnly && remainingDueCount === 0" @click="startExtra">{{ selectedReview ? '继续复习所选词' : reviewOnly ? '继续复习下一组' : '再学一组新词' }}</button>
-        <button class="btn btn-ghost" @click="changeMode">选择学习内容</button>
+        <button class="btn btn-primary" :disabled="selectedReview && !app.reviewBatch.hasMore" @click="startExtra">{{ selectedReview ? '继续复习所选词' : reviewOnly && remainingDueCount !== 0 ? '继续复习下一组' : '再学一组新词' }}</button>
         <button class="btn btn-ghost" @click="router.push('/')">返回首页</button>
       </div>
     </div>
@@ -709,10 +718,9 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
     <div v-else class="card result-card">
       <span class="state-icon completed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="m8 12 3 3 5-6" /></svg></span>
       <h1 class="result-title">{{ reviewOnly ? '当前没有到期旧词' : '本组暂无新词' }}</h1>
-      <p class="result-sub">{{ reviewOnly ? '已学单词仍会按各自的复习时间再次安排。' : '可以继续加学新词，或返回选择复习旧词。' }}</p>
+      <p class="result-sub">{{ reviewOnly ? '已学单词仍会按各自的复习时间再次安排，可以接着学习新词。' : '今日新词计划可能已完成，可以加学一组或返回首页。' }}</p>
       <div class="result-actions">
-        <button v-if="!reviewOnly" class="btn btn-ghost" @click="startExtra">再学一组新词</button>
-        <button class="btn btn-primary" @click="changeMode">选择学习内容</button>
+        <button class="btn btn-primary" @click="reviewOnly ? beginMode('new-only') : startExtra()">{{reviewOnly ? '学习新词' : '加学一组新词'}}</button>
         <button class="btn btn-ghost" @click="router.push('/')">返回首页</button>
       </div>
     </div>
@@ -721,8 +729,6 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
 
 <style scoped>
 .study { max-width: 800px; margin: 0 auto; }
-.mode-card { padding: 32px 24px; text-align: center; }
-.resume-button { margin-top: 20px; }
 .android-study.study-answer .head-progress { margin-bottom:12px; }
 .android-study .word-card-answer { padding:14px; }
 .word-card-answer .word-row { margin-top:0; }

@@ -27,6 +27,7 @@ const routes = [
   { path: '/', name: 'home', component: () => import('../views/HomeView.vue') },
   { path: '/study', name: 'study', component: () => import('../views/StudyView.vue') },
   { path: '/dashboard', name: 'dashboard', component: () => import('../views/DashboardView.vue') },
+  { path: '/leaderboard', name: 'leaderboard', component: () => import('../views/LeaderboardView.vue'), meta: { title: '学习排行' } },
   // 今日回顾：错词重练 + 短文重复阅读
   { path: '/review', name: 'review', component: () => import('../views/ReviewView.vue') },
   // AI 巩固内容：短文 + 阅读理解题（目标词通过 ?words=1,2,3 带入，或 ?id= 打开历史短文）

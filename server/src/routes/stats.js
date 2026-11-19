@@ -13,10 +13,13 @@ import {
 } from '../services/statsService.js'
 import { listBadgeCatalog, listUserBadges } from '../services/badgeService.js'
 import { generateWeakSummary } from '../services/ai/contentService.js'
+import {getLeaderboard} from '../services/leaderboardService.js'
 
 const router = Router()
 
 router.use(requireAuth)
+router.get('/leaderboard',validate({query:z.object({period:z.enum(['total','daily']).default('total')})}),
+  asyncHandler(async(req,res)=>{res.set('Cache-Control','private, no-store');return ok(res,await getLeaderboard(req.user.id,req.valid.query))}))
 
 const daysQuery = z.object({
   days: z.coerce.number().int().min(1).max(365).optional(),
