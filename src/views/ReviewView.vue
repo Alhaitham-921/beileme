@@ -101,6 +101,7 @@ function generateArticleForToday() {
         短文回顾 <span v-if="articles.length" class="tab-count">{{ articles.length }}</span>
       </button>
       <router-link class="tab" :to="{ name: 'image-recall' }">看图回忆</router-link>
+      <router-link class="tab" :to="{ name: 'image-recall', query: { source: 'due' } }">到期看图复习</router-link>
     </div>
 
     <div v-if="loading && !review" class="card loading-card"><LoadingState skeleton>正在整理今天的学习记录…</LoadingState></div>

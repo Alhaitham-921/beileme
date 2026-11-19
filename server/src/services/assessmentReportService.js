@@ -14,6 +14,7 @@ import { emptyUsage, addUsage, usageReport } from './ai/usage.js'
 import { estimateTokens } from './ai/costEstimate.js'
 import { resolveLimits } from './ai/aiSettingsService.js'
 import { consumeWindow } from './platform/rateLimit.js'
+import { loadWordEvidence } from './wordLearningEvidence.js'
 
 const decode = row => ({ ...row, state: parseJson(row.state, {}) })
 const numberFields = row => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, Number(value || 0)]))
@@ -58,8 +59,10 @@ async function loadBaseline(userId, sessionId) {
       AND s.completed_at>=? AND s.completed_at<=?`, [userId, bookId, since, until]),
   ])
   const history = historyRows.map(decode).filter(item => item.state.result?.bands)
+  const wordIds = [...new Set((session.state.answers || []).map(answer => Number(answer.snapshot?.dictionaryWordId)).filter(Boolean))]
+  const wordEvidence = savedBaseline?.wordEvidence || await loadWordEvidence(userId, bookId, wordIds, since, until)
   const baseline = buildAssessmentBaseline({ session, history, totals: numberFields(totals),
-    learning: { study: numberFields(study), collocations: numberFields(collocations), recall: numberFields(recall) } })
+    wordEvidence, learning: { study: numberFields(study), collocations: numberFields(collocations), recall: numberFields(recall) } })
   await execute('INSERT IGNORE INTO assessment_reports (session_id,user_id,baseline) VALUES (?,?,?)',
     [sessionId, userId, JSON.stringify(baseline)])
   if (saved) await execute(`UPDATE assessment_reports SET baseline=?,generation_token=NULL,generation_started_at=NULL
@@ -102,6 +105,7 @@ export function makeAssessmentExplanationPrompt(baseline, maxInputTokens) {
   const make = () => JSON.stringify({ requiredConclusion, priorityActions, conclusions, actions,
     history: baseline.synthesis.daily.map(item => ({ date: item.day, form: item.form,
       scores: item.bands.map(band => [band.level, band.correct, band.tested]) })),
+    reliability: baseline.reliability,
     limitations: baseline.limitations.slice(0, 2) })
   let content = make()
   // Keep the comprehensive conclusion and all band trends; trim optional observations first.

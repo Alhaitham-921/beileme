@@ -21,6 +21,8 @@ if (!TEST_DB.endsWith('_test')) {
 config.db.database = TEST_DB
 // 测试环境一律切断真实 AI 调用，保证结果确定且不产生费用
 config.ai.apiKey = ''
+// Older API fixtures model retained, unverified accounts. Dedicated registration tests enable the real gate.
+config.auth.requireRegistrationEmailVerification = false
 
 const { resetDatabase, runMigrations } = await import('../../src/db/migrate.js')
 const { seed } = await import('../../src/db/seed.js')
@@ -31,7 +33,7 @@ const silentLogger = { log() {}, warn() {}, error() {} }
 
 /** 重建测试库结构并导入种子数据 */
 export async function setupTestDatabase() {
-  await resetDatabase(TEST_DB)
+  await resetDatabase(TEST_DB, { confirmDatabase: TEST_DB })
   await runMigrations({ database: TEST_DB, logger: silentLogger })
   await seed({ migrate: false, logger: silentLogger })
 }

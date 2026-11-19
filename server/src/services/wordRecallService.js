@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { query, queryOne, withTransaction } from '../db/pool.js'
 import { badRequest, conflict, notFound } from '../utils/errors.js'
+import { recordWordEvidence } from './wordLearningEvidence.js'
 import { parseJson } from '../utils/json.js'
 import { addDays, todayKey, toDateKey } from '../utils/time.js'
 import { mapWordRow } from './wordService.js'
@@ -85,6 +86,7 @@ function question(row) {
     cue: (example?.translation || meaning).replace(pattern, '___'),
     promptKey: example?.text.trim() || 'definition',
     changedContext: Boolean(example && (dialogue || (row.prompt_key && row.prompt_key !== 'definition'))),
+    evidenceSense: dialogue?.sense || (word.definitions.length === 1 ? word.definitions[0] : null),
     dialogueTaskId: row.dialogue_task_id ? Number(row.dialogue_task_id) : null,
     dialogue: dialogue ? { sourceTitle: dialogue.sourceTitle, reason: dialogue.reason, sense: dialogue.sense } : null,
     collocation: usage?.collocations[0] || null,
@@ -142,12 +144,13 @@ export async function startRecall(userId, mode) {
           LEFT JOIN (SELECT word_id, COUNT(*) AS times_wrong, MAX(created_at) AS last_wrong FROM (
             SELECT word_id,created_at FROM answer_logs WHERE user_id=? AND result=0
             UNION ALL SELECT word_id,created_at FROM assessment_answers WHERE user_id=? AND correct=0 AND word_id IS NOT NULL
+            UNION ALL SELECT word_id,occurred_at FROM word_learning_evidence WHERE user_id=? AND source='image' AND result IN ('incorrect','skipped')
           ) wrongs GROUP BY word_id) logs ON logs.word_id=w.id
           WHERE (COALESCE(p.times_wrong,0)>0 OR logs.times_wrong>0)
             AND (a.id IS NULL OR (a.next_check_on IS NULL AND a.answered_on<?))
           ORDER BY (p.next_review_at IS NOT NULL AND p.next_review_at<=UTC_TIMESTAMP()) DESC,
             a.answered_on ASC, GREATEST(COALESCE(p.times_wrong,0),COALESCE(logs.times_wrong,0)) DESC,
-            logs.last_wrong DESC, w.id LIMIT 5`, [userId, userId, userId, userId, day])
+            logs.last_wrong DESC, w.id LIMIT 5`, [userId, userId, userId, userId, userId, day])
     if (!rows.length) return null
     const state = { mode, items: rows.map(question), answers: [] }
     const [inserted] = await conn.execute('INSERT INTO word_recall_sessions (user_id,state) VALUES (?,?)', [userId, JSON.stringify(state)])
@@ -183,9 +186,11 @@ export function answerRecall(userId, id, wordId, input) {
     const result = correct ? (item.hinted ? 'hinted' : 'independent') : 'needs-practice'
     const day = todayKey()
     const nextDate = state.mode === 'retest' && result === 'independent' ? null : addDays(day, 1)
-    await conn.execute(`INSERT INTO word_recall_attempts
+    const [attempt] = await conn.execute(`INSERT INTO word_recall_attempts
       (user_id,word_id,session_id,mode,result,prompt_key,next_check_on,answered_on,dialogue_task_id) VALUES (?,?,?,?,?,?,?,?,?)`,
     [userId, wordId, id, state.mode, result, item.promptKey, nextDate, day, item.dialogueTaskId ?? null])
+    await recordWordEvidence(conn, { userId, wordId, sense: item.evidenceSense || item.dialogue?.sense || null,
+      source: 'recall', sourceKey: attempt.insertId, result, details: { mode: state.mode, changedContext: item.changedContext, prompt: item.promptKey } })
     if (item.dialogueTaskId) {
       await conn.execute('UPDATE dialogue_recall_tasks SET due_on=?, last_result=?, prompt_key=? WHERE id=? AND user_id=?',
         [nextDate, result, item.promptKey, item.dialogueTaskId, userId])

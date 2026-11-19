@@ -18,17 +18,16 @@ function shuffle(items, random) {
 }
 
 export function buildSpatialRecallRounds(random = Math.random) {
-  const distractors = IMAGE_RECALL_EXAMPLES.filter(option =>
-    !['between', 'narrow', 'bridge', 'anchor', 'light'].includes(option.spelling))
+  // Compare the same focal object and references. Generic scenes may also depict "in/on/under".
   return shuffle(SPATIAL_RECALL_EXAMPLES, random).map(target => ({
     spelling: target.spelling,
-    options: shuffle([...SPATIAL_RECALL_EXAMPLES, ...shuffle(distractors, random).slice(0, 5)], random)
+    options: shuffle(SPATIAL_RECALL_EXAMPLES, random)
       .map(option => ({ ...option, correct: option.key === target.key })),
   }))
 }
 
 export function buildImageRecallRounds(saved, random = Math.random, replacements = []) {
-  const personal = saved.map(item => ({ ...item, key: item.imagePath }))
+  const personal = saved.map(item => ({ ...item, key: item.imagePath || item.key }))
   const replacementsByKey = new Map(replacements.map(item => [item.exampleKey, item]))
   const examples = IMAGE_RECALL_EXAMPLES.map(item => {
     const replacement = replacementsByKey.get(item.key)

@@ -1,5 +1,6 @@
 ﻿import { query, queryOne, execute, withTransaction } from '../db/pool.js'
 import { parseJson, toJson, clamp } from '../utils/json.js'
+import { recordWordEvidence } from './wordLearningEvidence.js'
 import { todayKey, businessDayStartUtc } from '../utils/time.js'
 import { badRequest, conflict, notFound } from '../utils/errors.js'
 import { reviewBatchState } from './reviewBatchState.js'
@@ -442,7 +443,7 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
       )
     }
 
-    await conn.execute(
+    const [answerLog] = await conn.execute(
       `INSERT INTO answer_logs
          (user_id, word_id, session_id, result, hesitation_ms, quality, is_new_word,
           source, wrong_option, error_type, interval_before, interval_after)
@@ -452,6 +453,12 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
         source, wrongOption, analysis.type, Number(existing?.interval_days || 0), srs.intervalDays,
       ]
     )
+
+    if (['study','review'].includes(source)) await recordWordEvidence(conn, {
+      userId, wordId, sense: item.options.find(option => option.correct)?.text || null, source: 'study',
+      sourceKey: answerLog.insertId, result: payload.unknown ? 'unknown' : isCorrect ? 'correct' : 'incorrect',
+      details: { mode: source, recall }, at: now,
+    })
 
     if (analysis.type) {
       await conn.execute(

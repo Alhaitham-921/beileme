@@ -140,6 +140,7 @@ onUnmounted(() => { alive=false; version++; clearTimeout(timer) })
               <td class="favorite-cell">
                 <FavoriteWord :word-id="word.id" :initial-saved="word.saved" @change="changed" />
                 <router-link :to="{path:'/collocations',query:{wordId:word.id}}" class="text-button">练搭配<span v-if="word.collocationWrongTimes"> · 搭配曾错 {{word.collocationWrongTimes}} 次</span></router-link>
+                <router-link v-if="word.imageWrongTimes" :to="{name:'image-recall',query:{source:'mistakes'}}" class="text-button">看图曾错或跳过 {{word.imageWrongTimes}} 次 · 去复习</router-link>
                 <button v-if="source==='mistakes' && !hidden(word.id,mask)" type="button" class="text-button"
                   :aria-expanded="openMemoryWord===word.id" @click="openMemoryWord=openMemoryWord===word.id ? null : word.id">
                   {{ openMemoryWord===word.id ? '收起记忆图' : '查看记忆图' }}

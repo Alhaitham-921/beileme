@@ -20,7 +20,8 @@ test('方位介词题使用同组四张位置对照图，只有目标关系算�
   const words = ['between', 'in', 'on', 'under']
   assert.deepEqual(rounds.map(round => round.spelling).sort(), words)
   for (const round of rounds) {
-    assert.equal(new Set(round.options.map(option => option.key)).size, 9)
+    assert.equal(new Set(round.options.map(option => option.key)).size, 4)
+    assert.ok(round.options.every(option => option.key.startsWith('spatial-')))
     assert.ok(round.options.every(option => option.url.startsWith('data:image/svg+xml,')))
     assert.deepEqual(round.options.filter(option => option.key.startsWith('spatial-')).map(option => option.spelling).sort(), words)
     assert.equal(matchesImageRecall(round, [`spatial-${round.spelling}`]), true)

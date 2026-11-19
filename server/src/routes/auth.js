@@ -4,6 +4,7 @@ import { validate } from '../middleware/validate.js'
 import { requireAuth } from '../middleware/auth.js'
 import { asyncHandler, ok, created } from '../utils/http.js'
 import { getProfile } from '../services/profileService.js'
+import { registrationVerification } from '../services/registrationVerification.js'
 import {
   register,
   login,
@@ -23,7 +24,8 @@ const passwordSchema = z
 
 const registerSchema = z
   .object({
-    email: z.string().email('邮箱格式不正确').max(190).optional(),
+    email: z.string().trim().toLowerCase().email('邮箱格式不正确').max(190).optional(),
+    emailCode: z.string().trim().regex(/^\d{6}$/, '请输入6位邮件验证码').optional(),
     phone: z.string().regex(/^\+?\d{6,20}$/, '手机号格式不正确').optional(),
     password: passwordSchema,
     nickname: z.string().max(64).optional(),
@@ -56,11 +58,16 @@ function requestMeta(req) {
 }
 
 // POST /api/v1/auth/register
+router.post('/registration-code',
+  validate({ body: z.object({ email: z.string().trim().toLowerCase().email('邮箱格式不正确').max(190) }) }),
+  asyncHandler(async (req, res) => ok(res, await registrationVerification.requestCode(
+    req.valid.body.email, req.socket.remoteAddress || 'unknown'), 202)))
+
 router.post(
   '/register',
   validate({ body: registerSchema }),
   asyncHandler(async (req, res) => {
-    const result = await register({ ...req.valid.body, ...requestMeta(req) })
+    const result = await register({ ...req.valid.body, ...requestMeta(req), ip: req.socket.remoteAddress || 'unknown' })
     return created(res, { ...result, profile: await getProfile(result.user.id) })
   })
 )
