@@ -1,13 +1,13 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import MorphologyCard from '../components/MorphologyCard.vue'
 
 import FavoriteWord from '../components/FavoriteWord.vue'
 const app = useAppStore()
 const router = useRouter()
-const tab = ref('wrong')
+const tab = ref(useRoute().query.tab === 'articles' ? 'articles' : 'wrong')
 const selected = ref([])
 const starting = ref(false)
 const message = ref('')
@@ -76,14 +76,13 @@ function generateArticleForToday() {
     <header class="page-heading">
       <div>
         <p class="page-eyebrow">REFLECT &amp; REMEMBER</p>
-        <h1 class="section-title">今日回顾</h1>
-    <router-link to="/collocations" class="btn btn-ghost">搭配错题与到期复习</router-link>
+        <h1 class="section-title">温故知新</h1>
         <p class="section-sub">
           <template v-if="review">{{ review.date }} · 今天完成 {{ review.answered }} 次作答，{{ review.wrongCount }} 次需要再巩固</template>
           <template v-else>让学过的词，再熟悉一点。</template>
         </p>
       </div>
-      <router-link class="back-link" to="/study">继续背词 <span aria-hidden="true">↗</span></router-link>
+      <router-link class="back-link" to="/">返回今日 <span aria-hidden="true">↗</span></router-link>
     </header>
 
     <div v-if="loadError" class="card load-error" role="alert">
@@ -101,7 +100,7 @@ function generateArticleForToday() {
         短文回顾 <span v-if="articles.length" class="tab-count">{{ articles.length }}</span>
       </button>
       <router-link class="tab" :to="{ name: 'image-recall' }">看图回忆</router-link>
-      <router-link class="tab" :to="{ name: 'image-recall', query: { source: 'due' } }">到期看图复习</router-link>
+      <router-link class="tab" :to="{ name: 'article' }">阅读巩固</router-link>
     </div>
 
     <div v-if="loading && !review" class="card loading-card"><LoadingState skeleton>正在整理今天的学习记录…</LoadingState></div>
@@ -112,7 +111,7 @@ function generateArticleForToday() {
           <span class="empty-icon" aria-hidden="true"><svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="20" cy="20" r="14" /><path d="m13 20 5 5 10-11" /></svg></span>
           <p class="empty-title">今天还没有错词</p>
           <p class="empty-sub">在背词或错词列表点击收藏，即可加入单词本。</p>
-          <button class="btn btn-primary" @click="router.push('/study')">去背单词 <span aria-hidden="true">→</span></button>
+          <button class="btn btn-primary" @click="router.push('/')">去今日学习 <span aria-hidden="true">→</span></button>
         </div>
 
         <template v-else>
@@ -152,7 +151,7 @@ function generateArticleForToday() {
           <span class="empty-icon" aria-hidden="true"><svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M20 11c-5-4-11-4-16-2v23c6-2 11-1 16 3 5-4 10-5 16-3V9c-5-2-11-2-16 2Zm0 0v24" /></svg></span>
           <p class="empty-title">写下第一篇学习短文</p>
           <p class="empty-sub">背完一组词后，生成一篇含目标词的短文，让单词在语境里留下印象。</p>
-          <button class="btn btn-primary" @click="router.push('/article')">去生成一篇 <span aria-hidden="true">→</span></button>
+          <button class="btn btn-primary" @click="router.push({ name: 'article' })">去生成一篇 <span aria-hidden="true">→</span></button>
         </div>
 
         <div v-else class="card list-card">
@@ -174,7 +173,7 @@ function generateArticleForToday() {
 <style scoped>
 .back-link { flex: none; font-size: 12px; color: var(--ink-soft); padding: 8px 0; }
 .back-link span { margin-left: 10px; color: var(--accent-deep); }
-.tabs { display: inline-flex; gap: 4px; padding: 5px; margin-bottom: 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--color-surface); }
+.tabs { display: inline-flex; max-width: 100%; flex-wrap: wrap; gap: 4px; padding: 5px; margin-bottom: 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--color-surface); }
 .tab { min-width: 135px; min-height: 40px; border: 1px solid transparent; background: transparent; border-radius: 8px; padding: 9px 18px; font-size: 12px; color: var(--ink-soft); display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .tab:hover { color: var(--ink); }
 .tab.active { background: var(--accent-soft); color: var(--accent-deep); border-color: var(--line); }

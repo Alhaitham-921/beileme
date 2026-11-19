@@ -183,7 +183,7 @@ function reload() {
         <div class="home-links">
           <router-link to="/review" class="link-card">
             <svg class="link-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 10a8 8 0 1 1 1 7M4 4v6h6m2-3v5l3 2" /></svg>
-            <h3>今日回顾</h3><p>回看错词，让记忆更牢固</p><span class="arrow" aria-hidden="true">↗</span>
+            <h3>温故知新</h3><p>回顾错词、阅读与看图回忆</p><span class="arrow" aria-hidden="true">↗</span>
           </router-link>
           <router-link to="/practice" class="link-card">
             <svg class="link-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M21 11a8 8 0 0 1-8 8H9l-6 3V8a6 6 0 0 1 6-6h4a8 8 0 0 1 8 9Z" /><path d="M7 9h10M7 13h6" /></svg>

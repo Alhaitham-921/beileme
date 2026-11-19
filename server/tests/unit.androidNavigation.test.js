@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { fixedTabs, normalizeTabIds, tabMatches, drawerSwipe } from '../../src/utils/androidNavigation.js'
+import { fixedTabs, normalizeTabIds, tabMatches, drawerSwipe, navigationModules, mainNavigation } from '../../src/utils/androidNavigation.js'
 import { initializeNavigation, saveNavigation, selectedTabIds, androidTabs } from '../../src/stores/navigation.js'
 
 test('custom navigation rejects fixed slots, unknown modules and duplicate choices', () => {
@@ -48,4 +48,17 @@ test('drawer swipes reject vertical scrolling, wrong direction, small moves and 
   assert.equal(drawerSwipe({...gesture,endX:0}), false)
   assert.equal(drawerSwipe({...gesture,elapsedMs:1500}), false)
   assert.equal(drawerSwipe({...gesture,startX:170,endX:50,direction:'close'}), true)
+})
+
+test('removed and nested modules cannot stay in custom tabs; nested pages highlight their parent', () => {
+  const old = ['ielts', 'speech', 'collocations', 'article']
+  assert.deepEqual(normalizeTabIds(old), ['notebooks', 'practice', 'leaderboard', 'more'])
+  assert.deepEqual(normalizeTabIds(['ielts', 'settings', 'practice', 'notebooks']), ['leaderboard', 'settings', 'practice', 'notebooks'])
+  assert.ok(![...navigationModules, ...mainNavigation].some(module=>old.includes(module.id)))
+  const notebooks = navigationModules.find(module=>module.id==='notebooks')
+  const review = navigationModules.find(module=>module.id==='review')
+  assert.equal(tabMatches(notebooks, '/notebooks/collocations'), true)
+  assert.equal(tabMatches(review, '/review/article'), true)
+  assert.equal(tabMatches(review, '/review/images'), true)
+  assert.equal(tabMatches(notebooks, '/review/article'), false)
 })

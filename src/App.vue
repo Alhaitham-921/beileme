@@ -12,7 +12,7 @@ import EnvironmentBackground from './components/EnvironmentBackground.vue'
 import brandMark from './assets/brand-mark.svg'
 import ActivityIndicator from './components/ActivityIndicator.vue'
 import { androidTabs, initializeNavigation } from './stores/navigation.js'
-import { tabMatches, drawerSwipe } from './utils/androidNavigation.js'
+import { tabMatches, drawerSwipe, mainNavigation } from './utils/androidNavigation.js'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -22,22 +22,7 @@ const showChrome = computed(() => auth.isLoggedIn && !['login', 'onboarding'].in
 const menuOpen = ref(false)
 const menuButton = ref(null)
 const sidebar = ref(null)
-const links = [
-  { to: '/', icon: 'home', label: '今日', caption: 'TODAY' },
-  { to: '/lookup', icon: 'search', label: '查词' },
-  { to: '/review', icon: 'repeat', label: '温故知新' },
-  { to: '/notebooks', icon: 'book', label: '我的单词本' },
-  { to: '/practice', icon: 'chat', label: '情境练习' },
-  { to: '/roots', icon: 'layers', label: '词根词缀' },
-  { to: '/dashboard', icon: 'chart', label: '学习足迹' },
-  { to: '/leaderboard', icon: 'trophy', label: '学习排行' },
-  { to: '/ielts', icon: 'layers', label: '雅思专项' },
-  { to: '/collocations', icon: 'book', label: '搭配练习' },
-  { to: '/article', icon: 'book', label: '阅读巩固' },
-  { to: '/recall', icon: 'repeat', label: '错词专项' },
-  { to: '/review/images', icon: 'layers', label: '看图回忆' },
-  { to: '/speech', icon: 'microphone', label: '口语练习' },
-]
+const links = mainNavigation
 watch(() => auth.user?.id, initializeNavigation, { immediate: true })
 function isTabActive(tab) {
   return tabMatches(tab, route.path) || (tab.id === 'more' && !androidTabs.value.some(item => item.id !== 'more' && tabMatches(item, route.path)))
@@ -45,7 +30,7 @@ function isTabActive(tab) {
 watch(() => route.path, () => {
   if (isAndroid) window.scrollTo({ top: 0, behavior: 'instant' })
 }, { flush: 'post' })
-const pageLabel = computed(() => route.meta.title || [...links, { to: '/settings', label: '偏好设置' }, { to: '/article', label: '阅读巩固' }, { to: '/assessment', label: '学习起点' }, { to: '/recall', label: '错词专项' }].find(item => item.to === route.path)?.label || (route.path.startsWith('/ielts') ? '雅思专项' : '学习空间'))
+const pageLabel = computed(() => route.meta.title || [...links, { to: '/settings', label: '偏好设置' }, { to: '/assessment', label: '学习起点' }, { to: '/recall', label: '错词专项' }].find(item => item.to === route.path)?.label || '学习空间')
 const atHome = computed(() => route.path === '/')
 let navigationTouch = null
 function startNavigationSwipe(event) {
@@ -156,7 +141,7 @@ function focusMain() { document.getElementById('main-content')?.focus() }
         </div>
         <p class="navigation-caption">你的学习空间</p>
         <nav class="nav" aria-label="主要导航">
-          <router-link v-for="link in links" :key="link.to" :to="link.to" class="nav-link" exact-active-class="active" @click="closeMenu(false)"><AppIcon :name="link.icon" /><span>{{ link.label }}</span><small v-if="link.caption">{{ link.caption }}</small></router-link>
+          <router-link v-for="link in links" :key="link.to" :to="link.to" class="nav-link" :class="{active:tabMatches(link,route.path)}" @click="closeMenu(false)"><AppIcon :name="link.icon" /><span>{{ link.label }}</span><small v-if="link.caption">{{ link.caption }}</small></router-link>
         </nav>
         <div class="sidebar-bottom">
           <div class="sidebar-note"><span class="quiet-line"></span><p>慢慢来，<br />每一天都在靠近。</p><small>A LITTLE, EVERY DAY.</small></div>

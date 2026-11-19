@@ -113,7 +113,7 @@ async function review() {
           <li v-for="word in baseline.weakWords" :key="`${word.spelling}:${word.meaning}`">
             <strong lang="en">{{ word.spelling }}</strong> · {{ word.meaning }}
             <span class="muted">{{ word.unsure ? '不认识 / 不确定' : '答错' }}<template v-if="word.priorFailures"> · 此前 {{ word.priorFailures }} 次未答出</template></span>
-            <router-link v-if="word.wordId" :to="{ path: '/collocations', query: { wordId: word.wordId } }">练搭配</router-link>
+            <router-link v-if="word.wordId" :to="{ path: '/notebooks/collocations', query: { wordId: word.wordId } }">练搭配</router-link>
           </li>
         </ul>
       </details>

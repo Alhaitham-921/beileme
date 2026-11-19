@@ -2,25 +2,11 @@
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import AppIcon from '../components/AppIcon.vue'
+import { navigationModules } from '../utils/androidNavigation.js'
 
 const auth = useAuthStore()
 const router = useRouter()
-const links = [
-  { to: '/lookup', icon: 'search', label: '查词' },
-  { to: '/review', icon: 'repeat', label: '温故知新' },
-  { to: '/roots', icon: 'layers', label: '词根词缀' },
-  { to: '/dashboard', icon: 'chart', label: '学习足迹' },
-  { to: '/leaderboard', icon: 'trophy', label: '学习排行' },
-  { to: '/notebooks', icon: 'book', label: '我的单词本' },
-  { to: '/practice', icon: 'chat', label: '情境练习' },
-  { to: '/collocations', icon: 'book', label: '搭配练习' },
-  { to: '/article', icon: 'book', label: '阅读巩固' },
-  { to: '/recall', icon: 'repeat', label: '错词专项' },
-  { to: '/review/images', icon: 'layers', label: '看图回忆' },
-  { to: '/speech', icon: 'microphone', label: '口语练习' },
-  { to: '/ielts', icon: 'layers', label: '雅思专项' },
-  { to: '/settings', icon: 'settings', label: '偏好设置' },
-]
+const links = navigationModules.filter(module=>module.id!=='more')
 
 async function logout() {
   await auth.logout()

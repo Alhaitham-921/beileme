@@ -313,7 +313,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="image-recall" aria-labelledby="image-recall-title">
-    <router-link class="text-button" to="/review">返回今日回顾</router-link>
+    <router-link class="text-button" to="/review">返回温故知新</router-link>
     <header class="recall-heading">
       <h1 id="image-recall-title" class="section-title">看图回忆</h1>
       <p class="section-sub">{{ source === 'spatial' || round?.options.length === 4 ? '看红球相对盒子的位置，从四张对照图中选择。' : '从九张图中选出能表示这个单词的所有图片。' }}</p>
