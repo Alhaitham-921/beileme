@@ -15,6 +15,8 @@ import { reviewItem, computeMemoryStrength } from './srs.js'
 import { DIALOGUE_SCENES, sceneFor, recoverTurn, validateReport, buildTurnMessages,
   buildReportMessages, buildValidationRetryMessages, updateTargetUsage, buildHelp, buildEvidence, containsWord } from './dialogueEngine.js'
 import { buildScenarioMessages, validateScenario } from './scenarioEngine.js'
+import { getWordMemoryImage } from './wordMemoryImageService.js'
+import { buildImageScenarioMessages, validateImageScenario, copiedImageHelp } from './imageDialogueEngine.js'
 
 const reportJobs = new Map()
 const MAX_CALLS = 200
@@ -120,7 +122,34 @@ async function configuredProvider(userId) {
 
 export async function startDialogue(userId, { sceneId, strictness = 'standard', difficulty = 'beginner', variant, mode = 'task', maxTurns = 8 }) {
   const scene = await resolveScene(userId, sceneId, difficulty, variant)
+  if (scene.memoryImage) { mode = 'task'; maxTurns = 3 }
   return createDialogue(userId, scene, { sceneId, strictness, difficulty, variant: scene.variant, mode, maxTurns })
+}
+
+export async function startImageDialogue(userId, { wordId, sense, imagePath, difficulty = 'beginner' }) {
+  const card = await getWordMemoryImage(userId, wordId, sense)
+  if (card.selected?.sense !== sense || !card.imagePath) throw notFound('这条词义还没有记忆图，请先生成图片。')
+  if (card.imagePath !== imagePath) throw conflict('记忆图已更新，请返回重新打开这张图。')
+  const word = await getWordById(wordId)
+  if (!/^[a-z]+(?:['-][a-z]+)*$/i.test(word.spelling)) throw badRequest('这张图暂不支持单词口语练习。')
+  await configuredProvider(userId)
+  const limits = await resolveLimits(userId)
+  if (!limits.unlimited) {
+    const count = await queryOne('SELECT COUNT(*) n FROM dialogue_sessions WHERE user_id=? AND created_at>=?', [userId, businessDayStartUtc(todayKey())])
+    if (Number(count.n) >= MAX_SESSIONS) throw quotaExceeded('今日已开始 10 轮情境对话，可以继续未完成的对话或查看小结')
+  }
+  const image = { wordId, word: word.spelling, sense, imagePath, explanation: card.explanation }
+  const cached = await queryOne(`SELECT * FROM dialogue_scenes WHERE user_id=? AND difficulty=?
+    AND JSON_UNQUOTE(JSON_EXTRACT(scene, '$.memoryImage.imagePath'))=? ORDER BY id DESC LIMIT 1`, [userId, difficulty, imagePath])
+  let scene = cached && savedSceneFromRow(cached)
+  if (!scene) {
+    const { value, usage } = await generateValidated(userId, {}, buildImageScenarioMessages(image, difficulty),
+      raw => validateImageScenario(raw, image, difficulty), true)
+    const saved = await execute(`INSERT INTO dialogue_scenes (user_id,source,difficulty,scene,generation_usage)
+      VALUES (?,'custom',?,?,?)`, [userId, difficulty, JSON.stringify(value), JSON.stringify(usage)])
+    scene = await savedSceneFor(userId, `custom-${saved.insertId}`)
+  }
+  return createDialogue(userId, scene, { sceneId: scene.id, strictness: 'standard', difficulty, mode: 'task', maxTurns: 3 })
 }
 
 export async function repeatDialogue(userId, id, options = {}) {
@@ -129,7 +158,7 @@ export async function repeatDialogue(userId, id, options = {}) {
   const scene = withDifficulty(structuredClone(previous.scene), difficulty)
   return createDialogue(userId, scene, { sceneId: previous.sceneId, difficulty, variant: previous.variant,
     strictness: options.strictness || previous.strictness || 'standard',
-    mode: options.mode || previous.mode || 'task', maxTurns: options.maxTurns || previous.maxTurns || 8 })
+    mode: scene.memoryImage ? 'task' : options.mode || previous.mode || 'task', maxTurns: scene.memoryImage ? 3 : options.maxTurns || previous.maxTurns || 8 })
 }
 
 async function createDialogue(userId, scene, { sceneId, strictness, difficulty, variant, mode, maxTurns }) {
@@ -260,11 +289,12 @@ export async function addDialogueTurn(userId, id, { text, expectedTurn }) {
   try {
     if (session.turnCount >= session.maxTurns) throw conflict('已达到本轮上限，请结束并查看小结')
     const { value: turn, usage } = await generateValidated(userId, session, buildTurnMessages(session, text), raw => recoverTurn(raw, text, session.scene))
-    const helpLevel = Math.max(session.help?.level || 0, turn.mixedLanguage ? 3 : 0)
+    const copiedHelp = copiedImageHelp(session, text)
+    const helpLevel = Math.max(session.help?.level || 0, turn.mixedLanguage ? 3 : 0, copiedHelp?.level || 0)
     const assistanceWords = session.help?.example
       ? session.scene.targets.filter(t => containsWord(session.help.example, t.word)).map(t => t.word)
       : [session.help?.word || turn.helpWord].filter(Boolean)
-    session.targetUsage = updateTargetUsage(session.targetUsage, { ...turn, assistanceWords }, text, helpLevel)
+    session.targetUsage = updateTargetUsage(session.targetUsage, { ...turn, assistanceWords: [...new Set([...assistanceWords, ...(copiedHelp?.words || [])])] }, text, helpLevel)
     session.messages.push({ role: 'user', text, corrections: turn.corrections, helpLevel, usedTargets: turn.usedTargets, mixedLanguage: turn.mixedLanguage })
     session.messages.push({ role: 'assistant', text: turn.reply, translation: turn.translation || '', corrections: [], usage })
     session.turnCount += 1

@@ -85,7 +85,7 @@ onMounted(load)
           <button v-if="state.lastCompleted" class="text-button" :disabled="busy" @click="viewLast">查看上次练习结果</button>
         </div>
       </template>
-      <p v-else-if="busy">正在读取练习进度…</p>
+      <p v-else-if="busy"><LoadingState>正在读取练习进度…</LoadingState></p>
       <button v-else class="btn btn-secondary" @click="load">重新读取</button>
     </section>
     <section v-else-if="feedback" class="card recall-card" aria-live="polite">

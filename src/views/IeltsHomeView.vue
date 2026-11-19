@@ -12,7 +12,7 @@ onMounted(load)
 <template>
   <div class="ielts-page"><IeltsNavigation/>
     <header class="ielts-heading"><div><h1>{{auth.displayName}}，今天向目标再走一步</h1><p>从词汇积累，到听懂、读懂和独立表达。</p></div><router-link class="btn btn-ghost" to="/ielts/settings">调整目标</router-link></header>
-    <p v-if="loading&&!data" role="status">正在准备你的学习计划…</p>
+    <p v-if="loading&&!data"><LoadingState>正在准备你的学习计划…</LoadingState></p>
     <div v-if="error" class="card" role="alert"><p>{{error}}</p><button class="btn btn-ghost" @click="load">重新加载</button><router-link class="btn btn-ghost" to="/study">继续单词学习</router-link></div>
     <template v-if="data">
       <section class="ielts-focus">

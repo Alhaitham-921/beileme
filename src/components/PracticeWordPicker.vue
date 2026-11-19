@@ -37,7 +37,7 @@ function toggle(id) { emit('update:modelValue', props.modelValue.includes(id) ? 
       </li>
     </ul>
     <p v-if="error" role="alert">{{ error }}</p>
-    <p v-else-if="loading">正在加载单词…</p>
+    <p v-else-if="loading"><LoadingState>正在加载单词…</LoadingState></p>
     <p v-else-if="!list.length">暂无单词，可先去背词或收藏。</p>
     <div class="word-options">
       <label v-for="w in list" :key="w.id">

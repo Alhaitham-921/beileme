@@ -9,6 +9,7 @@ import AiUsage from './components/AiUsage.vue'
 import { latestAiUsage } from './stores/aiUsage.js'
 import EnvironmentBackground from './components/EnvironmentBackground.vue'
 import brandMark from './assets/brand-mark.svg'
+import ActivityIndicator from './components/ActivityIndicator.vue'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -33,7 +34,7 @@ const androidTabs = [
   { to: '/', icon: 'home', label: '今日' },
   { to: '/study', icon: 'book', label: '背单词', pages: ['/study', '/assessment'] },
   { to: '/notebooks', icon: 'layers', label: '单词本', pages: ['/notebooks', '/recall'] },
-  { to: '/practice', icon: 'chat', label: '情境', pages: ['/practice', '/practice/demo', '/speech'] },
+  { to: '/practice', icon: 'chat', label: '情境', pages: ['/practice', '/practice/image', '/practice/demo', '/speech'] },
   { to: '/more', icon: 'menu', label: '更多', pages: ['/more', '/lookup', '/settings', '/review', '/review/images', '/roots', '/dashboard', '/article'] },
 ]
 watch(() => route.path, () => {
@@ -91,6 +92,7 @@ function focusMain() { document.getElementById('main-content')?.focus() }
 
 <template>
   <EnvironmentBackground />
+  <ActivityIndicator />
   <div class="app" :class="{ 'with-navigation': showChrome && !isAndroid, 'android-shell': showChrome && isAndroid }">
     <a class="accessibility-skip" href="#main-content" @click.prevent="focusMain">跳到主要内容</a>
     <header v-if="showChrome && isAndroid" class="android-header">
@@ -105,7 +107,7 @@ function focusMain() { document.getElementById('main-content')?.focus() }
           <button ref="menuButton" class="icon-button" aria-label="打开导航" :aria-expanded="menuOpen" aria-controls="app-navigation" @click="openMenu"><AppIcon name="menu" /></button>
         </div>
       </header>
-      <div v-if="menuOpen" class="navigation-overlay" @click="closeMenu()"></div>
+      <Transition name="menu-shade"><div v-if="menuOpen" class="navigation-overlay" @click="closeMenu()"></div></Transition>
       <aside id="app-navigation" ref="sidebar" class="sidebar" :class="{ 'is-open': menuOpen }" :role="menuOpen ? 'dialog' : undefined" :aria-modal="menuOpen ? true : undefined" aria-label="学习导航">
         <div class="sidebar-brand-row">
           <router-link to="/" class="brand" @click="closeMenu(false)"><span class="brand-symbol"><img :src="brandMark" alt="" /></span><span>背了么<span class="brand-dot">.</span><small>让每个单词，都有回响</small></span></router-link>
@@ -123,7 +125,11 @@ function focusMain() { document.getElementById('main-content')?.focus() }
       </aside>
       <header class="workspace-header"><span>学习空间 <span class="breadcrumb-separator">/</span> <strong>{{ pageLabel }}</strong></span><span class="workspace-motto"><span></span> 留一点时间，给自己</span></header>
     </template>
-    <main id="main-content" class="main" :class="{ 'public-main': !showChrome }" :inert="menuOpen || undefined" tabindex="-1"><router-view /><AiUsage v-if="showChrome" :usage="latestAiUsage" :label="`${latestAiUsage?.label || 'AI'}最近一次消耗${latestAiUsage?.failed ? '（生成失败）' : ''}`" /></main>
+    <main id="main-content" class="main" :class="{ 'public-main': !showChrome }" :inert="menuOpen || undefined" tabindex="-1">
+      <div v-if="!route.matched.length" class="card"><LoadingState skeleton>正在打开学习空间…</LoadingState></div>
+      <router-view v-slot="{ Component }"><Transition name="page" mode="out-in"><div v-if="Component" :key="route.path" class="route-page"><component :is="Component" /></div></Transition></router-view>
+      <AiUsage v-if="showChrome" :usage="latestAiUsage" :label="`${latestAiUsage?.label || 'AI'}最近一次消耗${latestAiUsage?.failed ? '（生成失败）' : ''}`" />
+    </main>
     <nav v-if="showChrome && isAndroid" class="android-tabs" aria-label="App 底部导航">
       <router-link v-for="tab in androidTabs" :key="tab.to" :to="tab.to"
         :class="{ 'android-tab-active': tab.pages ? tab.pages.includes(route.path) || (tab.to === '/more' && route.path.startsWith('/ielts')) : route.path === tab.to }">

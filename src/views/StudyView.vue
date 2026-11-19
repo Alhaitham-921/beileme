@@ -453,9 +453,9 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
       <span class="focus-label"><span></span> 专注学习</span>
     </header>
     <!-- 加载中 -->
-    <div v-if="status === 'loading'" class="card result-card" role="status">
+    <div v-if="status === 'loading'" class="card result-card">
       <span class="state-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M12 6c-3-3-7-3-10-2v15c4-1 7 0 10 2 3-2 6-3 10-2V4c-3-1-7-1-10 2Zm0 0v15" /></svg></span>
-      <p class="muted">正在准备今天的单词…</p>
+      <LoadingState skeleton>正在准备今天的单词…</LoadingState>
     </div>
 
     <section v-else-if="status === 'setup'" class="card mode-card">
@@ -498,7 +498,7 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
           <h1 class="word-spell">{{ word.spelling }}</h1><FavoriteWord :key="word.id" :word-id="word.id" compact-on-mobile />
           <button class="speak-btn" title="朗读单词" aria-label="朗读单词" @click="speak()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m11 4-6 5H2v6h3l6 5V4Z" /><path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" /></svg></button>
         </div>
-        <p v-if="preparingWordAudio" role="status">正在准备朗读音频…</p>
+        <p v-if="preparingWordAudio"><LoadingState>正在准备朗读音频…</LoadingState></p>
         <p v-if="speechError" class="error-text" role="status">{{ speechError }}</p>
         <p class="word-meta">
           <!-- 部分开源词表（初高中）没有音标，缺什么就不显示什么，避免留下空白占位 -->
@@ -568,7 +568,7 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
           </button>
         </div>
         <p v-if="navigationNotice" class="navigation-notice" role="status">{{ navigationNotice }}</p>
-        <p v-if="app.loading.answering" class="muted" role="status">正在保存进度…</p>
+        <p v-if="app.loading.answering" class="muted"><LoadingState>正在保存进度…</LoadingState></p>
         <div v-if="saveError && pendingAnswer" class="navigation-notice" role="status">
           <p>本题尚未确认保存。{{ saveError }}</p>
           <button class="btn btn-ghost" type="button" @click="saveAnswer">重试保存</button>
@@ -654,7 +654,7 @@ function changeMode() { stopSpeaking(); choosingMode.value = true }
           <button
             v-if="wrongWordIds.length"
             class="btn btn-ghost"
-            :disabled="generating"
+            :aria-busy="Boolean(generating)" :disabled="generating"
             @click="makeErrorCards"
           >
             {{ generating ? '生成中…' : `错词对比卡片（${wrongWordIds.length} 个）` }}

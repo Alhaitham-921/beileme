@@ -10,6 +10,7 @@ export const practice = {
   repeatSession: (id, body = {}) => http.post(`/practice/sessions/${encodeURIComponent(id)}/repeat`, { body, timeoutMs: 150000 }),
   submit: (body) => http.post('/practice', { body }),
   startSession: (body) => http.post('/practice/sessions', { body, timeoutMs: 150000 }),
+  startImageSession: (body) => http.post('/practice/image-sessions', { body, timeoutMs: 150000 }),
   getSession: (id) => http.get(`/practice/sessions/${encodeURIComponent(id)}`, { timeoutMs: 15000 }),
   turn: (id, body, options = {}) => http.post(`/practice/sessions/${encodeURIComponent(id)}/turns`, { body, timeoutMs: 150000, ...options }),
   help: (id, body) => http.post(`/practice/sessions/${encodeURIComponent(id)}/help`, { body, timeoutMs: 150000 }),

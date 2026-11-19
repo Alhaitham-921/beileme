@@ -1,7 +1,9 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { navigating } from '../stores/activity.js'
 
 const routes = [
+  { path: '/practice/image', name: 'image-practice', component: () => import('../views/ImagePracticeView.vue'), meta: { title: '看图聊三轮' } },
   { path: '/ielts', name: 'ielts-home', component: () => import('../views/IeltsHomeView.vue') },
   { path: '/ielts/specialties', name: 'ielts-specialties', component: () => import('../views/IeltsCatalogView.vue') },
   { path: '/ielts/mock', name: 'ielts-mock', component: () => import('../views/IeltsCatalogView.vue') },
@@ -46,6 +48,7 @@ const router = createRouter({
  *  3. 已经引导过还想去引导页 → 回首页
  */
 router.beforeEach(async (to) => {
+  navigating.value = true
   const auth = useAuthStore()
 
   // 首次进入应用时，先用本地令牌换一次用户信息
@@ -70,5 +73,8 @@ router.beforeEach(async (to) => {
 
   return true
 })
+
+router.afterEach(() => { navigating.value = false })
+router.onError(() => { navigating.value = false })
 
 export default router

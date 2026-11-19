@@ -120,7 +120,7 @@ async function exit() {
         <button class="btn btn-ghost" :disabled="exiting" @click="exit">{{ exiting ? '正在保存进度…' : '暂停并退出' }}</button>
       </div>
       <progress :value="session.answered + Number(selected !== null)" :max="session.total" aria-label="测评进度"></progress>
-      <p v-if="session.question.purpose === 'history'" class="muted">正在复查过去未答出的词义，这部分单独记录。</p>
+      <p v-if="session.question.purpose === 'history'" class="muted"><LoadingState>正在复查过去未答出的词义，这部分单独记录。</LoadingState></p>
       <p v-else-if="session.total > 24" class="muted">正在补测相邻档位，帮你选择合适的起点。</p>
       <p>请选择这个词的含义。不确定时可选“不认识”。退出后可从已保存的进度继续。</p>
       <h2 class="word" aria-live="polite">{{ session.question.spelling }}</h2>
@@ -158,7 +158,7 @@ async function exit() {
       <h2>帮我选起点</h2>
       <template v-if="settings.eligible">
         <p>从当前词书出 24 道分层题。接近分档边界时追加 4 题；有历史薄弱点时，再复查最多 4 题并单独记录。</p>
-        <button class="btn btn-secondary" :disabled="busy" @click="start">{{ busy ? '正在准备…' : '开始可选短测' }}</button>
+        <button class="btn btn-secondary" :aria-busy="Boolean(busy)" :disabled="busy" @click="start">{{ busy ? '正在准备…' : '开始可选短测' }}</button>
       </template>
       <p v-else>当前词书的可用题量暂时不足，可以直接选择学习起点。</p>
     </section>

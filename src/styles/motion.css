@@ -1,0 +1,46 @@
+/* Motion follows an action; waiting stays visible without blocking the page. */
+:root { --motion-fast: 140ms; --motion-normal: 220ms; --motion-ease: cubic-bezier(.2, .7, .2, 1); }
+.route-page { min-width: 0; }
+.page-enter-active { transition: opacity var(--motion-normal) ease, transform var(--motion-normal) var(--motion-ease); }
+.page-leave-active { transition: opacity 90ms ease; }
+.page-enter-from { opacity: 0; transform: translateY(6px); }
+.page-leave-to { opacity: 0; }
+.menu-shade-enter-active, .menu-shade-leave-active { transition: opacity var(--motion-normal) ease; }
+.menu-shade-enter-from, .menu-shade-leave-to { opacity: 0; }
+
+.loading-state { color: var(--ink-soft); font-size: inherit; line-height: 1.7; }
+.loading-state-caption { display: inline-flex; align-items: center; gap: 12px; vertical-align: middle; }
+.loading-dots { display: inline-flex; align-items: center; gap: 4px; flex: none; height: 20px; color: var(--accent); }
+.loading-dots i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: waiting-dot 1.2s ease-in-out infinite; }
+.loading-dots i:nth-child(2) { animation-delay: .16s; }
+.loading-dots i:nth-child(3) { animation-delay: .32s; }
+@keyframes waiting-dot { 0%, 70%, 100% { transform: translateY(0); opacity: .35; } 35% { transform: translateY(-4px); opacity: 1; } }
+.loading-state-panel { display: block; width: 100%; max-width: 440px; margin: 8px auto; text-align: left; }
+.loading-skeleton { display: grid; gap: 12px; margin-top: 26px; }
+.loading-skeleton i { display: block; position: relative; overflow: hidden; height: 12px; border-radius: 6px; background: var(--line); }
+.loading-skeleton i:nth-child(2) { width: 86%; }
+.loading-skeleton i:nth-child(3) { width: 62%; }
+.loading-skeleton i::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, var(--accent-soft), transparent); animation: skeleton-sweep 1.8s ease-in-out infinite; }
+@keyframes skeleton-sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+.activity-indicator { position: fixed; inset: 0 0 auto; height: 3px; z-index: 1000; overflow: hidden; pointer-events: none; background: var(--accent-soft); }
+.activity-indicator > span { display: block; width: 35%; height: 100%; background: var(--accent); border-radius: 99px; animation: activity-travel 1.4s ease-in-out infinite; }
+@keyframes activity-travel { from { transform: translateX(-100%); } to { transform: translateX(390%); } }
+.activity-enter-active, .activity-leave-active { transition: opacity var(--motion-fast) ease; }
+.activity-enter-from, .activity-leave-to { opacity: 0; }
+button[aria-busy='true']::before { content: ''; flex: none; display: inline-block; vertical-align: middle; width: 13px; height: 13px; margin-inline-end: 5px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: busy-spin .75s linear infinite; }
+@keyframes busy-spin { to { transform: rotate(360deg); } }
+.icon-button { transition: transform var(--motion-fast) var(--motion-ease), color var(--motion-fast), background var(--motion-fast); }
+.icon-button:active:not(:disabled) { transform: scale(.94); }
+.android-tabs a { transition: color var(--motion-fast), background var(--motion-fast); }
+.android-tabs a:active { background: var(--accent-soft); }
+.android-tabs .app-icon { transition: background var(--motion-normal), color var(--motion-normal); }
+.conversation .message { animation: message-arrive 180ms var(--motion-ease) both; }
+@keyframes message-arrive { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter-from { transform: none; }
+  .loading-dots i, .loading-skeleton i::after, .activity-indicator > span, button[aria-busy='true']::before, .conversation .message { animation: none; }
+  .loading-dots i { opacity: .75; }
+  .activity-indicator > span { width: 100%; }
+}

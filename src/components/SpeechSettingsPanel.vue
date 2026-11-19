@@ -38,7 +38,7 @@ onMounted(load)
 <template>
   <section class="card speech-settings" aria-label="共享语音服务">
     <h2>语音输入</h2>
-    <p v-if="loading" role="status">正在读取语音服务…</p>
+    <p v-if="loading"><LoadingState>正在读取语音服务…</LoadingState></p>
     <template v-else>
       <p>{{ configured ? '管理员已开启共享语音识别，你可以直接录音转文字，无需个人 API Key。' : '共享语音识别尚未就绪，请联系管理员配置或开启。' }}</p>
       <router-link to="/speech" class="btn btn-primary">测试语音识别</router-link>

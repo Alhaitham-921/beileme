@@ -183,7 +183,7 @@ const quizStats = computed(() => {
 
       <p v-if="errorText" class="msg error">{{ errorText }}</p>
 
-      <button class="btn btn-primary btn-lg btn-full" :disabled="generating" @click="generate(false)">
+      <button class="btn btn-primary btn-lg btn-full" :aria-busy="Boolean(generating)" :disabled="generating" @click="generate(false)">
         {{ generating ? '生成中…' : ai.mode === 'none' ? '生成复习清单（免费）' : '生成巩固短文' }}
       </button>
       <p class="foot-hint">

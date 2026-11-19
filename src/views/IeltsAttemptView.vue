@@ -58,7 +58,7 @@ onBeforeUnmount(()=>{alive=false;clearTimeout(debounce);clearInterval(tick);clea
 watch(selected,()=>audioElements.forEach(a=>a?.pause()))
 </script>
 <template><div class="ielts-page"><IeltsNavigation/>
-  <p v-if="!attempt&&!error" role="status">正在恢复你的练习…</p><p v-if="error" class="ielts-error" role="alert">{{error}}</p>
+  <p v-if="!attempt&&!error"><LoadingState>正在恢复你的练习…</LoadingState></p><p v-if="error" class="ielts-error" role="alert">{{error}}</p>
   <template v-if="attempt">
     <header class="ielts-heading"><div><h1>{{paper.title}}</h1><p>{{attempt.mode==='mock'?'模考模式，计时不会因离开页面而暂停':'训练模式，按自己的节奏练习'}} · 第 {{paper.version}} 版</p></div><router-link class="btn btn-ghost" to="/ielts/specialties">专项目录</router-link></header>
     <p v-if="paper.status!=='published'" class="ielts-warning">管理员草稿预览：{{paper.draftNote||'本材料尚未完成教师复核，未公开发布。'}}</p>

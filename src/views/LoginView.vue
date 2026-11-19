@@ -180,7 +180,7 @@ async function submit() {
 
         <p v-if="formError || auth.error" class="form-error">{{ formError || auth.error }}</p>
 
-        <button type="submit" class="btn btn-primary btn-lg btn-full" :disabled="submitting">
+        <button type="submit" class="btn btn-primary btn-lg btn-full" :aria-busy="submitting" :disabled="submitting">
           {{ submitting ? '处理中…' : submitLabel }}
         </button>
       </form>

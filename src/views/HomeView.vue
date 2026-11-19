@@ -57,7 +57,7 @@ function reload() {
 
     <!-- 首次渲染时 plan 还是 null，统一走加载态，避免闪出全 0 的假数据 -->
     <div v-if="!app.plan && !app.error" class="card skeleton">
-      <p class="muted">正在加载今日任务…</p>
+      <LoadingState skeleton>正在加载今日任务…</LoadingState>
     </div>
 
     <!-- 加载失败 -->

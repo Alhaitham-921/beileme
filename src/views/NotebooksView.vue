@@ -128,7 +128,7 @@ onUnmounted(() => { alive=false; version++; clearTimeout(timer) })
         </div>
         <p class="list-hint">切换单词本、错题本或翻页会保留选择；全选包含当前列表所有页，每组复习十词，可继续下一组。</p>
         <p v-if="mask!=='none'" class="list-hint">先回想，再点击遮罩查看答案。</p>
-        <p v-if="loading" role="status" class="empty-book">正在打开单词列表…</p>
+        <p v-if="loading" class="empty-book"><LoadingState>正在打开单词列表…</LoadingState></p>
         <div v-else-if="!items.length&&!error" class="empty-book"><h3>{{search?'没有找到匹配单词':source==='mistakes'?'还没有历史错词':'这里还没有收藏词'}}</h3><p>{{source==='mistakes'?'之后答错的单词会自动收进来。':'在背词或错词旁点击收藏，即可收进单词本。'}}</p></div>
         <div v-else-if="items.length" class="word-table-wrap">
           <table class="word-table"><thead><tr><th scope="col">选择</th><th scope="col">英文</th><th scope="col">中文释义</th><th scope="col">收藏管理</th></tr></thead><tbody>

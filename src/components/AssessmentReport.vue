@@ -52,7 +52,7 @@ async function review() {
 
 <template>
   <section class="card assessment-report" aria-label="自测历史与综合分析">
-    <p v-if="loading" role="status">正在关联历史自测和学习记录…</p>
+    <p v-if="loading"><LoadingState>正在关联历史自测和学习记录…</LoadingState></p>
     <p v-else-if="error" role="alert">{{ error }} <button class="btn btn-ghost" @click="load">重试读取分析</button></p>
     <template v-if="baseline">
       <h2>复测对比</h2>
@@ -134,7 +134,7 @@ async function review() {
         <template v-else-if="report.ai.available">
           <p v-if="report.ai.needsRegeneration" class="muted">解释核对规则已更新，旧解释暂不展示；可按需重新生成。</p>
           <p class="muted">点击后使用{{ report.ai.source === 'user' ? '个人' : '平台' }}文字 AI 额度，生成后保存。</p>
-          <button class="btn btn-secondary" :disabled="generating" @click="explain">{{ generating ? '正在综合历史记录…' : report.ai.generating ? '查看生成结果' : '生成综合解释' }}</button>
+          <button class="btn btn-secondary" :aria-busy="Boolean(generating)" :disabled="generating" @click="explain">{{ generating ? '正在综合历史记录…' : report.ai.generating ? '查看生成结果' : '生成综合解释' }}</button>
         </template>
         <p v-else class="muted">当前使用自动分析。<router-link to="/settings">接入文字 AI</router-link>后可生成综合解释。</p>
         <p v-if="message" role="status">{{ message }}</p>

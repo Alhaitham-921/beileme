@@ -88,7 +88,7 @@ function generateArticleForToday() {
 
     <div v-if="loadError" class="card load-error" role="alert">
       <div><p class="load-error-title">今日回顾暂时没有加载完成</p><p>{{ loadError }}</p></div>
-      <button class="btn btn-ghost" :disabled="loading" @click="loadReview">{{ loading ? '加载中…' : '重新加载' }}</button>
+      <button class="btn btn-ghost" :aria-busy="Boolean(loading)" :disabled="loading" @click="loadReview">{{ loading ? '加载中…' : '重新加载' }}</button>
     </div>
 
     <p><router-link class="text-button" :to="{path:'/notebooks',query:{source:'mistakes'}}">查看全部历史错词 →</router-link></p>
@@ -103,7 +103,7 @@ function generateArticleForToday() {
       <router-link class="tab" :to="{ name: 'image-recall' }">看图回忆</router-link>
     </div>
 
-    <div v-if="loading && !review" class="card loading-card" role="status"><span class="loading-mark" aria-hidden="true"></span><p class="muted">正在整理今天的学习记录…</p></div>
+    <div v-if="loading && !review" class="card loading-card"><LoadingState skeleton>正在整理今天的学习记录…</LoadingState></div>
 
     <template v-else-if="review">
       <template v-if="tab !== 'articles'">

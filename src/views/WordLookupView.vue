@@ -55,7 +55,7 @@ onBeforeUnmount(() => activeRequest?.abort())
       <button type="submit" class="btn btn-primary" :disabled="!input.trim() || (loading === 'wordbook' && input.trim() === searched)">查词</button>
     </form>
 
-    <p v-if="loading === 'wordbook'" class="lookup-status muted" role="status">正在查找「{{ searched }}」…</p>
+    <p v-if="loading === 'wordbook'" class="lookup-status muted"><LoadingState>正在查找「{{ searched }}」…</LoadingState></p>
     <p v-if="error" class="lookup-status lookup-error" role="alert">
       {{ error.message }}
       <router-link v-if="error.code === 'WORD_LOOKUP_AI_UNAVAILABLE'" to="/settings" class="text-button">打开偏好设置</router-link>

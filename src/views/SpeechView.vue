@@ -23,7 +23,7 @@ async function copy() {
     <p class="intro">说一句英语，或用中英混合表达你的想法。录音停止后，文字会出现在下方，你可以检查和修改。</p>
     <section class="card recorder" aria-label="录音转写">
       <p>语音识别由管理员统一提供，无需填写个人 Key，也无需先开始 AI 对话。</p>
-      <p v-if="statusLoading" role="status">正在检查语音服务…</p>
+      <p v-if="statusLoading"><LoadingState>正在检查语音服务…</LoadingState></p>
       <p v-else-if="!supported" role="alert">当前环境无法录音。请使用 HTTPS 或 localhost，并在新版浏览器中打开。</p>
       <p v-else-if="!available" role="status">{{ statusReason }}</p>
       <p v-else class="quota">每段最多 {{ maxSeconds }} 秒 · 今日剩余 {{ remaining }} 次</p>
@@ -43,7 +43,7 @@ async function copy() {
       </div>
       <SpeechRecoveryControls :speech="speech" />
       <p v-if="error" class="error" role="alert">{{ error }}</p>
-      <p v-if="isRecording" role="status">正在录音，停止后才会上传识别。</p>
+      <p v-if="isRecording"><LoadingState>正在录音，停止后才会上传识别。</LoadingState></p>
       <label for="speech-result">识别结果（可编辑）</label>
       <textarea id="speech-result" v-model="draft" rows="8" placeholder="录音识别后的文字会显示在这里…"></textarea>
       <div class="actions"><button class="btn" :disabled="!draft" @click="copy">复制文字</button><router-link to="/practice" class="btn">前往情境练习</router-link></div>

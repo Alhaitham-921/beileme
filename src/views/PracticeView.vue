@@ -11,6 +11,7 @@ import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { usePracticeSpeech } from '../composables/usePracticeSpeech'
 import PracticeText from '../components/PracticeText.vue'
+import PracticeImage from '../components/PracticeImage.vue'
 import { practiceDay, selectPracticeResume } from '../utils/practiceResume.js'
 import { exportPracticeReport } from '../utils/practiceReportExport.js'
 import { Capacitor } from '@capacitor/core'
@@ -93,6 +94,7 @@ function applySession(data) {
   const next = unwrap(data)
   if (!next?.id) throw new Error('练习进度未能读取，请恢复进度后重试。')
   session.value = next; startError.value = null; remember(next.id)
+  if (route.query.session && String(route.query.session) !== String(next.id)) router.replace({ path: '/practice', query: { session: next.id } })
   const index = sessions.value.findIndex(item => item.id === next.id)
   const summary = { ...next, updatedAt: next.updatedAt || new Date().toISOString() }
   if (index === -1) sessions.value.unshift(summary)
@@ -114,6 +116,13 @@ async function load() {
   loading.value = true; error.value = ''
   try {
     await loadList()
+    if (route.query.session) {
+      const id = Number(route.query.session)
+      if (!Number.isSafeInteger(id) || id <= 0) throw new Error('练习编号无效，请从最近练习中重新打开。')
+      applySession(await practice.getSession(id))
+      showTranslations.value = session.value.difficulty === 'beginner'
+      return
+    }
     if(route.query.followup){const task=await http.get('/practice/followups/'+encodeURIComponent(route.query.followup));startTransfer(task);return}
     const enteredDay = practiceDay()
     const resumable = selectPracticeResume(sessions.value, remembered())
@@ -132,6 +141,8 @@ function selectScene(id) {
   sceneId.value = id; variant.value = 'river'; error.value = ''; notice.value = ''; startError.value = null
   const saved = savedScenes.value.find(item => item.id === id)
   if (saved?.difficulty) difficulty.value = saved.difficulty
+  if (saved?.memoryImage) { mode.value = 'task'; maxTurns.value = 3 }
+  else if (maxTurns.value === 3) maxTurns.value = 16
 }
 function changeTab(tab) {
   if (working.value) return
@@ -199,7 +210,7 @@ async function start() {
   busy.value = true; error.value = ''; notice.value = ''; draft.value = ''; startError.value = null
   speech.cancel(); speech.stopSpeaking(); clearTimers(); pollFailures = 0
   try {
-    applySession(await practice.startSession({ sceneId: sceneId.value, strictness: strictness.value, difficulty: difficulty.value, mode: mode.value, maxTurns: maxTurns.value, ...(sceneId.value === 'bank' ? { variant: variant.value } : {}) }))
+    applySession(await practice.startSession({ sceneId: sceneId.value, strictness: strictness.value, difficulty: difficulty.value, mode: mode.value, maxTurns: selectedScene.value.memoryImage ? 8 : maxTurns.value, ...(sceneId.value === 'bank' ? { variant: variant.value } : {}) }))
     showTranslations.value = session.value.difficulty === 'beginner'; revealedAnswers.value = []; checkedAnswers.value = []; shortAnswers.value = {}
     scrollConversation()
   } catch (e) {
@@ -285,6 +296,7 @@ function backToScenes() {
   if (session.value) drafts.set(session.value.id, draft.value)
   speech.cancel(); speech.stopSpeaking(); clearTimers(); remember(null)
   session.value = null; draft.value = ''; error.value = ''; notice.value = ''; selectedWord.value = ''
+  if (route.query.session) router.replace({ path: '/practice' })
   loadList().catch(e => { error.value = e.message })
 }
 function keyboard(event) {
@@ -336,10 +348,10 @@ onUnmounted(() => { disposed = true; sceneRun++; sceneController?.abort(); clear
 
 <template>
   <main class="practice">
-    <header class="page-intro"><div><span class="eyebrow">AI 情境对话 · 从想说到会说</span><h1 class="section-title">你的生活，就是练习场景</h1><p class="section-sub">描述你想聊什么，让 AI 和你一起把对话展开。</p></div><router-link class="small-link" to="/study">返回背词 →</router-link></header>
+    <header class="page-intro"><div><span class="eyebrow">AI 情境对话 · 从想说到会说</span><h1 class="section-title">{{ session?.scene?.memoryImage ? '看图聊三轮' : '你的生活，就是练习场景' }}</h1><p class="section-sub">{{ session?.scene?.memoryImage ? '沿用记忆图和对应词义，完成三轮简短交流。' : '描述你想聊什么，让 AI 和你一起把对话展开。' }}</p></div><router-link class="small-link" to="/study">返回背词 →</router-link></header>
     <p v-if="error && !active" role="alert" class="error-banner">{{ error }} <button class="text-button" :disabled="working" @click="session ? refreshCurrent() : load()">{{ session ? '恢复最新进度' : '重新加载' }}</button></p>
     <p v-if="notice" role="status" class="notice">{{ notice }}</p>
-    <p v-if="loading" role="status">正在准备你的练习场景…</p>
+    <p v-if="loading"><LoadingState>正在准备你的练习场景…</LoadingState></p>
     <template v-if="!session && !loading">
       <p class="note"><router-link class="small-link" to="/practice/demo">先试一轮示范 →</router-link>
         · {{ aiMode === 'none' ? '正式对话需要配置文字 AI 服务。' : '示范使用预设内容，免费体验。' }}
@@ -370,13 +382,14 @@ onUnmounted(() => { disposed = true; sceneRun++; sceneController?.abort(); clear
       </section>
       <section v-if="scene" class="card setup" aria-labelledby="task-title">
         <div class="section-heading"><div><span class="eyebrow">{{ libraryTab === 'create' ? '02 / 你的专属场景' : '场景预览' }}</span><h2 id="task-title">{{ selectedScene.title }}</h2></div><button class="text-button" :disabled="working || sceneIsSaved" @click="saveScene">{{ sceneIsSaved ? '✓ 已保存到我的场景' : '＋ 保存这个场景' }}</button></div>
+        <PracticeImage v-if="selectedScene.memoryImage" :image="selectedScene.memoryImage" />
         <fieldset v-if="sceneId === 'bank'" class="variant-options"><legend>bank · 这次练哪一种用法？</legend><label><input v-model="variant" type="radio" value="river"> 河岸 · 公园散步</label><label><input v-model="variant" type="radio" value="finance"> 银行 · 办理业务</label></fieldset>
         <p class="task-description">{{ selectedScene.task }}</p><div class="role-pair"><span v-if="selectedScene.userRole"><small>你的身份</small>{{ selectedScene.userRole }}</span><span><small>AI 扮演</small>{{ selectedScene.role }}</span><span v-if="selectedScene.location"><small>地点</small>{{ selectedScene.location }}</span></div>
         <ul v-if="selectedScene.goals?.length" class="scene-goals"><li v-for="goal in selectedScene.goals" :key="goal">{{ goal }}</li></ul>
         <details v-if="selectedScene.description" class="original-request"><summary>回看我的对话需求</summary><p>{{ selectedScene.description }}</p></details>
         <h3 class="vocab-title">带上这些词，试着聊一聊 <span>展开查看搭配与例句</span></h3>
         <div class="vocabulary-preview"><details v-for="target in selectedScene.targets || []" :key="target.word" class="vocabulary-item"><summary><strong>{{ target.word }}</strong><span>{{ target.sense }}</span></summary><p class="phrase">{{ target.phrase }}</p><p>{{ target.example }}</p><button type="button" class="text-button" @click="read(target.example)">◖ 听例句</button></details></div>
-        <div class="settings-grid"><label>对话难度<select v-model="difficulty" :disabled="working"><option value="beginner">入门 · 短句 + 中文提示</option><option value="intermediate">进阶 · 日常交流</option><option value="advanced">挑战 · 更完整的表达</option></select></label><label>纠错严格度<select v-model="strictness" :disabled="working"><option value="lenient">宽松 · 先把意思说清楚</option><option value="standard">标准 · 兼顾准确和流畅</option><option value="strict">严格 · 适合考试备考</option></select></label><label>对话方式<select v-model="mode" :disabled="working"><option value="free">自由交流 · 延伸话题，深入追问</option><option value="task">任务练习 · 完成目标后复盘</option></select></label><label>本次练习长度<select v-model="maxTurns" :disabled="working"><option :value="8">8 轮 · 轻量热身</option><option :value="16">16 轮 · 充分交流</option><option :value="24">24 轮 · 深入练习</option></select></label></div>
+        <div class="settings-grid"><label>对话难度<select v-model="difficulty" :disabled="working"><option value="beginner">入门 · 短句 + 中文提示</option><option value="intermediate">进阶 · 日常交流</option><option value="advanced">挑战 · 更完整的表达</option></select></label><label>纠错严格度<select v-model="strictness" :disabled="working"><option value="lenient">宽松 · 先把意思说清楚</option><option value="standard">标准 · 兼顾准确和流畅</option><option value="strict">严格 · 适合考试备考</option></select></label><label>对话方式<select v-model="mode" :disabled="working || Boolean(selectedScene.memoryImage)"><option value="free">自由交流 · 延伸话题，深入追问</option><option value="task">任务练习 · 完成目标后复盘</option></select></label><label>本次练习长度<select v-model="maxTurns" :disabled="working || Boolean(selectedScene.memoryImage)"><option v-if="selectedScene.memoryImage" :value="3">3 轮 · 看图表达</option><option :value="8">8 轮 · 轻量热身</option><option :value="16">16 轮 · 充分交流</option><option :value="24">24 轮 · 深入练习</option></select></label></div>
         <p class="note">{{ mode === 'free' ? '不用按顺序完成任务，跟着兴趣聊下去，随时可以结束并复盘。' : '围绕交流目标练习，完成任务后由 AI 引导收尾。' }} 最多 {{ maxTurns }} 轮，记录自动保存。</p><button class="btn btn-primary" :disabled="working" :aria-describedby="startError ? 'practice-start-error' : undefined" @click="start">{{ busy ? '正在准备对话…' : needsWordScene ? '用这个情境练所选词 →' : '进入场景，开始对话 →' }}</button>
         <div v-if="startError" id="practice-start-error" ref="startErrorElement" class="start-error" role="alert">
           <strong>{{ startError.code === 'AI_NOT_CONFIGURED' ? '先配置 AI 对话服务' : '对话暂时无法开始' }}</strong>
@@ -386,12 +399,12 @@ onUnmounted(() => { disposed = true; sceneRun++; sceneController?.abort(); clear
       </section>
     </template>
     <section v-if="session" class="conversation-shell" aria-label="情境练习">
-      <AiUsage :usage="session.usage" label="本轮对话累计消耗" /><header class="scene-bar"><div class="section-heading"><div><span class="eyebrow">{{ currentScene?.location || '情境对话' }} · {{ currentScene?.role || 'AI 伙伴' }}</span><h2>{{ currentScene?.title || '情境练习' }}</h2></div><span class="rounds">{{ session.turnCount }} / {{ session.maxTurns || 8 }} 轮</span></div><p class="task-description">{{ currentScene?.task }}</p>
+      <AiUsage :usage="session.usage" label="本轮对话累计消耗" /><header class="scene-bar"><PracticeImage v-if="currentScene?.memoryImage" :image="currentScene.memoryImage" /><div class="section-heading"><div><span class="eyebrow">{{ currentScene?.location || '情境对话' }} · {{ currentScene?.role || 'AI 伙伴' }}</span><h2>{{ currentScene?.title || '情境练习' }}</h2></div><span class="rounds">{{ session.turnCount }} / {{ session.maxTurns || 8 }} 轮</span></div><p class="task-description">{{ currentScene?.task }}</p>
         <div class="target-list"><button v-for="target in targets" :key="target.word + ':' + target.sense" type="button" :class="['target-chip', target.status, { focused: selectedWord === target.word }]" :aria-pressed="selectedWord === target.word" :title="`${target.word} · ${target.sense || ''} · ${usageLabels[target.status] || '待使用'}`" @click="selectedWord = target.word"><strong>{{ ['independent', 'assisted'].includes(target.status) ? '✓ ' : '' }}{{ target.word }}</strong><span>{{ target.sense }}</span><span class="usage-label">{{ usageLabels[target.status] || '待使用' }}</span></button></div>
         <div class="scene-meta"><span>{{ usedCount }} / {{ targets.length }} 个词已用出 · {{ session.mode === 'free' ? '自由交流' : '任务练习' }} · {{ difficultyLabels[session.difficulty] }} · {{ strictnessLabels[session.strictness] }}纠错</span><label><input v-model="showTranslations" type="checkbox"> 中文提示</label></div>
         <div class="scene-actions"><button class="text-button" :disabled="working || sceneIsSaved" @click="saveScene">{{ sceneIsSaved ? '✓ 场景已收藏' : '＋ 保存场景与词汇' }}</button><button class="text-button" :disabled="working" @click="backToScenes">{{ active ? '稍后继续，返回场景' : '返回场景库' }} →</button></div>
       </header>
-      <div class="conversation" role="log" aria-label="对话记录" aria-live="polite" aria-relevant="additions"><article v-for="(message, index) in session.messages || []" :key="message.id || `${session.id}-${index}`" :class="['message', message.role === 'user' ? 'from-user' : 'from-ai']"><div class="message-meta"><span>{{ message.role === 'user' ? '你' : currentScene?.role || 'AI' }}</span><button v-if="message.role !== 'user'" class="read-button" type="button" :disabled="isRecording || isTranscribing" :aria-label="`朗读第 ${index + 1} 条回复`" @click="read(message.text)">{{ isSpeaking ? '■ 停止' : '◖ 朗读' }}</button><span v-if="message.helpLevel >= 3" class="muted">跟读提示</span></div><div class="bubble"><PracticeText :text="message.text" :targets="targets" :corrections="message.role === 'user' ? message.corrections || [] : []" /><p v-if="showTranslations && message.translation" class="translation">{{ message.translation }}</p></div><AiUsage :usage="message.usage" label="本条回复消耗" /></article><div v-if="busy" class="thinking" role="status">{{ active ? 'AI 正在组织回复…' : '正在保存练习…' }}</div><div ref="conversationEnd"></div></div>
+      <div class="conversation" role="log" aria-label="对话记录" aria-live="polite" aria-relevant="additions"><article v-for="(message, index) in session.messages || []" :key="message.id || `${session.id}-${index}`" :class="['message', message.role === 'user' ? 'from-user' : 'from-ai']"><div class="message-meta"><span>{{ message.role === 'user' ? '你' : currentScene?.role || 'AI' }}</span><button v-if="message.role !== 'user'" class="read-button" type="button" :disabled="isRecording || isTranscribing" :aria-label="`朗读第 ${index + 1} 条回复`" @click="read(message.text)">{{ isSpeaking ? '■ 停止' : '◖ 朗读' }}</button><span v-if="message.helpLevel >= 3" class="muted">跟读提示</span></div><div class="bubble"><PracticeText :text="message.text" :targets="targets" :corrections="message.role === 'user' ? message.corrections || [] : []" /><p v-if="showTranslations && message.translation" class="translation">{{ message.translation }}</p></div><AiUsage :usage="message.usage" label="本条回复消耗" /></article><div v-if="busy" class="thinking"><LoadingState>{{ active ? 'AI 正在组织回复…' : '正在保存练习…' }}</LoadingState></div><div ref="conversationEnd"></div></div>
       <div v-if="active" class="composer">
         <p v-if="error" role="alert" class="error-banner">{{ error }} <button type="button" class="text-button" :disabled="working || !draft.trim()" @click="send">重试发送</button> <button type="button" class="text-button" :disabled="working" @click="refreshCurrent">恢复最新进度</button></p>
         <div v-if="session.help" class="help-card" aria-live="polite"><div class="section-heading"><strong>{{ session.help.level === 2 ? '提示词' : session.help.level === 3 ? '试着用英文说' : '跟读示范句' }}</strong><span class="muted">帮助 {{ session.help.level }} / 4</span></div><p v-if="session.help.hint" class="help-hint">{{ session.help.hint }}</p><p v-if="session.help.example" class="example">{{ session.help.example }}</p><p v-if="session.help.translation" class="muted">{{ session.help.translation }}</p><div v-if="session.help.example" class="button-row"><button class="text-button" :disabled="isRecording || isTranscribing" @click="read(session.help.example)">◖ 听一遍</button><button class="text-button" :disabled="working" @click="insertExample">填入输入框，再试着表达</button></div></div>
@@ -419,10 +432,10 @@ onUnmounted(() => { disposed = true; sceneRun++; sceneController?.abort(); clear
 <SpeechRecoveryControls :speech="speech" /><p v-if="!active && voiceError" role="alert" class="error">{{voiceError}}</p>
 <p v-if="generating" role="status">正在按需求生成情境… <button class="text-button" @click="cancelScene">取消等待</button></p>
     <button v-if="!generating && notice.includes('取消等待')" class="text-button" @click="loadList">刷新已保存场景</button>
-    <section v-if="session?.status === 'analyzing'" class="card report-status" aria-live="polite"><span class="eyebrow">对话已保存</span><h2>正在整理你的练习小结…</h2><p>检查完整对话、目标词义项和薄弱点，并准备一轮短句练习。</p><p class="muted">离开页面后也能从最近练习回来查看。</p><button class="text-button" :disabled="busy" @click="refreshCurrent">刷新小结</button></section>
-    <section v-if="session?.status === 'report_failed'" class="card report-status" role="status"><h2>对话已保存，小结暂未生成</h2><p>{{ session.reportError || '暂时无法完成分析，请稍后重试。' }}</p><button class="btn btn-primary" :disabled="busy" @click="retryReport">{{ busy ? '正在重试…' : '重新生成小结' }}</button></section>
+    <section v-if="session?.status === 'analyzing'" class="card report-status" aria-live="polite"><span class="eyebrow">对话已保存</span><h2><LoadingState>正在整理你的练习小结…</LoadingState></h2><p>检查完整对话、目标词义项和薄弱点，并准备一轮短句练习。</p><p class="muted">离开页面后也能从最近练习回来查看。</p><button class="text-button" :disabled="busy" @click="refreshCurrent">刷新小结</button></section>
+    <section v-if="session?.status === 'report_failed'" class="card report-status" role="status"><h2>对话已保存，小结暂未生成</h2><p>{{ session.reportError || '暂时无法完成分析，请稍后重试。' }}</p><button class="btn btn-primary" :aria-busy="Boolean(busy)" :disabled="busy" @click="retryReport">{{ busy ? '正在重试…' : '重新生成小结' }}</button></section>
     <PracticeFollowups v-if="!active && !loading" :source-id="report ? session.id : undefined" @transfer="startTransfer" />
-    <section v-if="report" class="card report" aria-labelledby="report-title"><div class="section-heading report-heading"><div><span class="eyebrow">这一轮，你做得怎么样</span><h2 id="report-title">练习小结</h2></div><div class="button-row"><button class="btn btn-secondary compact" type="button" :disabled="working" @click="exportReport('pdf')">{{ exporting === 'pdf' ? '正在生成 PDF…' : '导出 PDF' }}</button><button class="btn btn-secondary compact" type="button" :disabled="working" @click="exportReport('png')">{{ exporting === 'png' ? '正在生成图片…' : '导出图片' }}</button></div></div><p class="note">导出包含词汇表现、纠错和短句参考答案，文件在本机生成。</p><p v-if="exportError" class="error" role="alert">{{ exportError }}</p><p v-if="exporting" role="status" class="note">正在排版完整小结，请稍候…</p><p>{{ report.summary }}</p>
+    <section v-if="report" class="card report" aria-labelledby="report-title"><div class="section-heading report-heading"><div><span class="eyebrow">这一轮，你做得怎么样</span><h2 id="report-title">练习小结</h2></div><div class="button-row"><button class="btn btn-secondary compact" type="button" :disabled="working" @click="exportReport('pdf')">{{ exporting === 'pdf' ? '正在生成 PDF…' : '导出 PDF' }}</button><button class="btn btn-secondary compact" type="button" :disabled="working" @click="exportReport('png')">{{ exporting === 'png' ? '正在生成图片…' : '导出图片' }}</button></div></div><p class="note">导出包含词汇表现、纠错和短句参考答案，文件在本机生成。</p><p v-if="exportError" class="error" role="alert">{{ exportError }}</p><p v-if="exporting" class="note"><LoadingState>正在排版完整小结，请稍候…</LoadingState></p><p>{{ report.summary }}</p>
       <h3>目标词使用情况</h3><div class="usage-report"><div v-for="target in report.targetUsage || targets" :key="target.word + ':' + target.sense" class="usage-row"><span><strong>{{ target.word }}</strong> · {{ target.sense }}</span><span :class="['usage-badge', target.status]">{{ usageLabels[target.status] || '待使用' }}<small v-if="target.helpLevel"> · 帮助 {{ target.helpLevel }} 级</small></span></div></div>
       <h3>值得改进的表达 <span class="muted">{{ (report.corrections || []).slice(0, 5).length }} 条</span></h3><p v-if="!report.corrections?.length" class="muted">这一轮没有需要展开的纠错，继续保持。</p><article v-for="(correction, index) in (report.corrections || []).slice(0, 5)" :key="index" class="correction-card"><span :class="['correction-tag', { sense: ['word_sense', 'sense', 'sense_misuse'].includes(correction.type) }]">{{ correctionLabels[correction.type] || '表达建议' }}</span><p class="original"><span>原句</span>{{ correction.originalSentence || correction.original }}</p><p class="corrected"><span>改后</span>{{ correction.correctedSentence || correction.replacement }}</p><p class="reason">{{ correction.explanation }}</p></article>
       <h3>回到复习队列</h3><p v-if="report.reviewWords?.length"><span v-for="word in report.reviewWords" :key="word.id || word.spelling" class="weak-word">{{ word.spelling }}<small v-if="wordTags(word.tags)"> · {{ wordTags(word.tags) }}</small></span></p><p v-else class="muted">这一轮没有新增需要回流的词。</p><p v-if="report.unmatchedWords?.length" class="note">词库暂未收录：{{ report.unmatchedWords.join('、') }}。可以先做下方短句练习。</p><button v-if="report.reviewWords?.length" class="btn btn-secondary" :disabled="working" @click="startReview">{{ startingReview ? '正在准备复习…' : '去复习薄弱词 →' }}</button>

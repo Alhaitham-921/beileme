@@ -13,6 +13,7 @@
 
 import { mergeSignals, uploadRequest } from '../utils/uploadRequest.js'
 import { publishAiUsage, latestAiUsage } from '../stores/aiUsage.js'
+import { beginRequest } from '../stores/activity.js'
 
 const STORAGE_KEY = 'beileme:auth'
 
@@ -176,6 +177,15 @@ function ensureRefreshed() {
  * @throws {ApiError}
  */
 export async function request(method, path, options = {}) {
+  const finish = beginRequest()
+  try {
+    return await performRequest(method, path, options)
+  } finally {
+    finish()
+  }
+}
+
+async function performRequest(method, path, options = {}) {
   const { body, query, auth = true, retryOn401 = true, timeoutMs, signal, onUploadComplete, timeoutMessage, responseType } = options
 
   const headers = {}

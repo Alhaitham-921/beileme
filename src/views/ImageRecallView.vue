@@ -313,7 +313,7 @@ onBeforeUnmount(() => {
         <div class="round-controls">
           <p v-if="revealed" role="status">{{ results.at(-1) ? '全部选对了。' : '带 ✓ 的图是正确选项。' }}</p>
           <p v-else-if="failed" role="status">有图片没有加载成功。 <button class="text-button" @click="prepare(round)">重试图片</button></p>
-          <p v-else-if="!ready" role="status">正在加载本题图片…</p>
+          <p v-else-if="!ready"><LoadingState>正在加载本题图片…</LoadingState></p>
           <p v-else role="status">已选 {{ selected.length }} 张</p>
           <button v-if="!revealed" class="text-button skip" @click="advance">跳过</button>
           <button v-if="!revealed" class="btn btn-primary" :disabled="!ready || !selected.length" @click="submit">确认选择</button>

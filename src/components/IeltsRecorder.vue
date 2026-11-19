@@ -39,7 +39,7 @@ onBeforeUnmount(()=>{alive=false;generation++;if(recorder)recorder.onstop=null;s
   <div class="ielts-inline-actions"><button v-if="question.preparationSeconds&&!disabled" class="btn btn-ghost" :disabled="active||prepare>0" @click="preparation">准备 {{question.preparationSeconds}} 秒</button><span v-if="prepare" role="timer">准备剩余 {{prepare}} 秒</span><button v-if="!active&&!disabled" class="btn btn-ghost" :disabled="busy||prepare>0" @click="start">录制回答</button><button v-if="active" class="btn btn-primary" @click="stop">停止录音 {{elapsed}} 秒</button></div>
   <audio v-if="url" :src="url" controls aria-label="回放自己的回答"></audio>
   <template v-if="url&&!record&&!disabled"><label><input v-model="consent" type="checkbox"> 我同意将这段录音保存到服务器，用于回放和转写</label><button class="btn btn-ghost" :disabled="!consent||busy" @click="save">{{busy?'正在保存…':'保存录音'}}</button></template>
-  <div v-if="record&&!disabled" class="ielts-inline-actions"><span>录音已保存</span><button class="btn btn-ghost" :disabled="busy" @click="transcribe">{{busy?'正在识别…':'使用所选语音服务转写'}}</button></div>
+  <div v-if="record&&!disabled" class="ielts-inline-actions"><span>录音已保存</span><button class="btn btn-ghost" :aria-busy="Boolean(busy)" :disabled="busy" @click="transcribe">{{busy?'正在识别…':'使用所选语音服务转写'}}</button></div>
   <template v-if="transcript"><label>请先核对识别内容<textarea v-model="transcript" aria-label="核对转写文字"></textarea></label><button class="btn btn-ghost" :disabled="disabled" @click="emit('apply',transcript)">将核对后的文字填入回答</button></template>
   <p v-if="error" class="ielts-error" role="alert">{{error}}</p><p class="muted">语音转写使用你选择的平台额度或个人语音 Key，不会自动发送回答。发音需要结合原录音评估。</p>
 </div></template>
