@@ -164,7 +164,7 @@ test('a task carries its history through generated scene, dialogue and final rep
   let result
   if(stage==='scene'){
    assert.match(request.messages[1].content,/reservation/);assert.match(request.messages[1].content,/酒店前台/)
-   result={title:'餐厅预订',location:'餐厅入口',role:'餐厅接待员',userRole:'就餐客人',task:'确认两人座位的预订，并说明到店时间。',goals:['说明已有预订','确认就餐人数','说明到店时间'],targets:[{word:'reservation',sense:'预订',phrase:'a reservation',example:'I have a reservation for two.'}],opening:'Welcome! Do you have a reservation?',openingTranslation:'欢迎，您有预订吗？',example:'I have a reservation for two.'}
+   result={title:'餐厅预订',location:'餐厅入口',role:'餐厅接待员',userRole:'就餐客人',task:'确认两人座位的预订，并说明到店时间。',actors:[{id:'partner',name:'交流对象',role:'交流对象',englishName:'Partner',responsibility:'回应当前任务'}],goals:['说明已有预订','确认就餐人数','说明到店时间'],targets:[{word:'reservation',sense:'预订',phrase:'a reservation',example:'I have a reservation for two.'}],opening:'Welcome! Do you have a reservation?',openingTranslation:'欢迎，您有预订吗？',example:'I have a reservation for two.'}
   }else if(isReport)result={summary:'你在餐厅独立表达了预订。',corrections:[],weakWords:[],reinforcement:[],grammarWeaknesses:[]}
   else result={reply:'Your table is ready.',translation:'您的座位已准备好。',mixedLanguage:false,corrections:[],usedTargets:[{word:'reservation',sense:'预订',correct:true}],taskComplete:false}
   return Response.json({choices:[{message:{content:JSON.stringify(result)},finish_reason:'stop'}],usage:{prompt_tokens:20,completion_tokens:80}})

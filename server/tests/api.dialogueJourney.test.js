@@ -5,6 +5,7 @@ import sharp from 'sharp'
 import { getTestServer,createClient,createOnboardedUser } from './helpers/setup.js'
 import { config } from '../src/config.js'
 import { query,queryOne,execute,withTransaction } from '../src/db/pool.js'
+import { hotelChangeScene } from '../src/services/dialogueJourney.js'
 import { saveChallenge } from '../src/services/dialogueJourneyService.js'
 
 async function fixture() {
@@ -64,12 +65,16 @@ test('partner switching is free, revision guarded, actor addressed and requires 
   const f=await fixture();let calls=0,prompt
   mockText(t,body=>{calls++;prompt=body.messages[0].content;return {...reply,handoff:{actorId:'frontdesk',reason:'请前台核对入住信息'},goalEvidence:[null,{goalId:'goal-1',completed:true,quote:'invented text'}]}})
   let s=(await f.post('/api/v1/practice/sessions',{sceneId:'hotel'})).data
+  assert.equal(s.scene.actors.length,1)
+  // Supply an explicit multi-person task; ordinary hotel check-in stays one-to-one.
+  s.scene.actors=hotelChangeScene(s.scene).actors.map(a=>({...a,englishName:a.id}))
+  await execute('UPDATE dialogue_sessions SET state=? WHERE id=?',[JSON.stringify(s),s.id])
   const path=`/api/v1/practice/sessions/${s.id}`,role=s.scene.userRole
   assert.equal((await f.post(path+'/actor',{actorId:'not-here',expectedRevision:0,expectedTurn:0})).status,400)
   let r=await f.post(path+'/actor',{actorId:'manager',expectedRevision:0,expectedTurn:0})
   assert.equal(r.status,200,JSON.stringify(r.raw));s=r.data
   assert.equal(calls,0);assert.equal(s.turnCount,0);assert.equal(s.scene.userRole,role)
-  assert.equal((await f.post(path+'/actor',{actorId:'companion',expectedRevision:0,expectedTurn:0})).status,409)
+  assert.equal((await f.post(path+'/actor',{actorId:'frontdesk',expectedRevision:0,expectedTurn:0})).status,409)
   assert.equal((await f.post(path+'/turns',{text:'Hello',expectedTurn:0,actorId:'frontdesk',expectedRevision:1})).status,409)
   r=await f.post(path+'/turns',{text:'Can I discuss my reservation?',expectedTurn:0,actorId:'manager',expectedRevision:1})
   assert.equal(r.status,200,JSON.stringify(r.raw));s=r.data
@@ -80,6 +85,11 @@ test('partner switching is free, revision guarded, actor addressed and requires 
   assert.equal((await f.client.post(path+'/actor',{token:f.other.token,body:{actorId:'frontdesk',expectedTurn:1,expectedRevision:s.journey.revision}})).status,404)
   s=(await f.post(path+'/actor',{actorId:'frontdesk',expectedTurn:1,expectedRevision:s.journey.revision})).data
   assert.equal(calls,1);assert.equal(s.turnCount,1);assert.equal(s.journey.handoff,null)
+  assert.equal(s.messages.length,4) // original greeting plus manager conversation; no new front-desk greeting
+  s=(await f.post(path+'/actor',{actorId:'manager',expectedTurn:1,expectedRevision:s.journey.revision})).data
+  assert.equal(s.messages.length,4)
+  assert.equal(calls,1)
+  assert.equal((await f.get(path)).data.journey.activeActorId,'manager')
 })
 
 test('quoted goals award once, unlock a branch, and summary answers persist without inflating SRS',async t=>{

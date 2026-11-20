@@ -6,13 +6,15 @@ import { config } from '../src/config.js'
 import { execute,queryOne } from '../src/db/pool.js'
 
 const IMAGE=await sharp({create:{width:32,height:32,channels:3,background:'#8f9eab'}}).webp().toBuffer()
-const scene=()=>({title:'酒店入住',location:'酒店前台',role:'前台接待员',userRole:'旅客',task:'办理入住并讨论房间安排。',goals:['确认预订','询问房间'],targets:[
+const scene=()=>({title:'酒店入住',location:'酒店前台',role:'前台接待员',userRole:'旅客',task:'办理入住并讨论房间安排。',actors:[{id:'partner',name:'交流对象',role:'交流对象',englishName:'Partner',responsibility:'回应当前任务'}],goals:['确认预订','询问房间'],targets:[
   {word:'bank',sense:'银行',phrase:'the bank',example:'Where is the bank?'}],opening:'Welcome! Do you have a reservation?',openingTranslation:'欢迎，请问有预订吗？',example:'I have a reservation.'})
-function providers(t,{hold=false}={}){
+function providers(t,{hold=false,comicEnabled=true}={}){
   const oldImages={...config.wordImages},oldKey=config.ai.apiKey
+  const oldComicEnabled=config.dialogueComicEnabled
   Object.assign(config.wordImages,{apiKey:'comic-test-key',baseUrl:'https://comic-images.example.test/v1',model:'comic-model',siliconFlow:false,dailyQuota:10})
   config.ai.apiKey='comic-text-test-key'
-  t.after(()=>{Object.assign(config.wordImages,oldImages);config.ai.apiKey=oldKey})
+  config.dialogueComicEnabled=comicEnabled
+  t.after(()=>{Object.assign(config.wordImages,oldImages);config.ai.apiKey=oldKey;config.dialogueComicEnabled=oldComicEnabled})
   const imageStarted=Promise.withResolvers(),imageGate=Promise.withResolvers(),images=[],texts=[]
   const real=globalThis.fetch
   t.mock.method(globalThis,'fetch',async(url,options)=>{
@@ -34,6 +36,28 @@ function providers(t,{hold=false}={}){
 async function prepared(t,options){const server=await getTestServer(),client=createClient(server.baseUrl),owner=await createOnboardedUser(client),other=await createOnboardedUser(client);return {server,client,owner,other,...providers(t,options)}}
 async function generate(client,owner){const word=await queryOne("SELECT id FROM words WHERE spelling_norm='bank' LIMIT 1");return client.post('/api/v1/practice/scenes/generate',{token:owner.token,body:{description:'我想练习到酒店办理入住，并前往房间。',wordIds:[Number(word.id)]}})}
 async function waitImages(client,owner,query){for(let n=0;n<100;n++){const response=await client.get('/api/v1/practice/illustrations?'+new URLSearchParams(query),{token:owner.token});assert.equal(response.status,200,JSON.stringify(response.raw));if(response.data.items.length&&response.data.items.every(p=>p.status!=='pending'))return response.data;await new Promise(r=>setTimeout(r,20))}assert.fail('pictures did not finish')}
+
+test('the comic pause overrides previous opt-in without deleting the preference', async t => {
+  const {client,owner,images,texts}=await prepared(t,{comicEnabled:false})
+  const credentials={token:owner.token}
+  const settings=await client.put('/api/v1/practice/illustration-settings',{...credentials,body:{autoImages:true}})
+  assert.equal(settings.data.autoImages,true)
+  assert.equal(settings.data.available,false)
+  const created=await generate(client,owner)
+  assert.equal(created.status,201,JSON.stringify(created.raw))
+  const sceneId=created.data.scene.id
+  const started=await client.post('/api/v1/practice/sessions',{...credentials,body:{sceneId}})
+  assert.equal(started.status,201,JSON.stringify(started.raw))
+  const turn=await client.post('/api/v1/practice/sessions/'+started.data.id+'/turns',
+    {...credentials,body:{text:'Do you have a room?',expectedTurn:0}})
+  assert.equal(turn.status,200,JSON.stringify(turn.raw))
+  assert.doesNotMatch(texts.at(-1).messages[0].content,/本轮已开启漫画式情境插画/)
+  const retry=await client.post('/api/v1/practice/illustrations',{...credentials,body:{sceneId}})
+  assert.equal(retry.status,409)
+  const frames=await client.get('/api/v1/practice/illustrations?sessionId='+started.data.id,credentials)
+  assert.deepEqual(frames.data.items,[])
+  assert.equal(images.length,0)
+})
 
 test('opening image is nonblocking and private; scene changes append frames and settings stop future generation',async t=>{
   const {server,client,owner,other,images,texts,imageStarted,imageGate}=await prepared(t,{hold:true})

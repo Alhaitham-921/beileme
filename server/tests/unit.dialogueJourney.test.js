@@ -6,6 +6,7 @@ import { validateSceneHint, SCENE_HINT_RULES } from '../src/services/dialogueSce
 
 function fixture() {
   const scene = journeyScene(sceneFor('hotel','beginner'))
+  scene.actors = hotelChangeScene(scene).actors
   return { scene, journey:initJourney(scene), messages:[], turnCount:1, mode:'task', difficulty:'beginner', helpEvents:[], targetUsage:[{status:'independent'}] }
 }
 test('goal evidence ignores malformed, invented, Chinese and corrected claims; quotes keep speaker and turn', () => {
@@ -47,4 +48,19 @@ test('scene hint plans require exact senses and disclose indirect visual limitat
   assert.throws(()=>validateSceneHint({...raw,limitations:''},scene))
   assert.throws(()=>validateSceneHint({...raw,cues:[...raw.cues,...raw.cues]},scene))
   assert.match(SCENE_HINT_RULES,/最多2个人、5件/);assert.match(SCENE_HINT_RULES,/最终费用/);assert.match(SCENE_HINT_RULES,/禁止绘制可读文字/)
+})
+
+
+test('ordinary scenes do not invent additional people; explicit participants stay separate', () => {
+  for (const id of ['hotel', 'restaurant', 'directions', 'shopping', 'interview', 'campus', 'bank']) {
+    assert.equal(journeyScene(sceneFor(id, 'beginner')).actors.length, 1, id)
+  }
+  const single = journeyScene({id:'custom-1',role:'同学Alex'})
+  assert.equal(single.actors.length,1)
+  assert.equal(single.actors[0].name,'同学Alex')
+  const legacy = journeyScene({...single,actors:[...single.actors,{id:'companion',name:'讨论伙伴'}]})
+  assert.equal(legacy.actors.length,1)
+  const actors=[{id:'alex',name:'Alex',role:'同学'},{id:'sam',name:'Sam',role:'同学'}]
+  assert.deepEqual(journeyScene({...single,actors}).actors.map(a=>a.id),['alex','sam'])
+  assert.deepEqual(journeyScene(hotelChangeScene(single)).actors.map(a=>a.id),['frontdesk','manager'])
 })

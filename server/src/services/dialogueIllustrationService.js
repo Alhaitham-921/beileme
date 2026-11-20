@@ -2,12 +2,13 @@ import { createHash, randomUUID } from 'node:crypto'
 import { config } from '../config.js'
 import { query, queryOne, execute, withTransaction } from '../db/pool.js'
 import { parseJson } from '../utils/json.js'
-import { badRequest, notFound, quotaExceeded } from '../utils/errors.js'
+import { badRequest, conflict, notFound, quotaExceeded } from '../utils/errors.js'
 import { todayKey } from '../utils/time.js'
 import { generateImage } from './wordMemoryImageService.js'
 import { COMIC_STYLE, canAddPanel, castFor, openingPanel } from './dialogueIllustrationEngine.js'
 
-export const illustrationsAvailable = () => Boolean(config.wordImages.apiKey && config.wordImages.model && config.wordImages.dailyQuota)
+export const illustrationsAvailable = () => config.dialogueComicEnabled &&
+  Boolean(config.wordImages.apiKey && config.wordImages.model && config.wordImages.dailyQuota)
 const statusSql = `CASE WHEN generation_token IS NOT NULL AND lease_until > UTC_TIMESTAMP(3) THEN 'pending'
  WHEN image_revision IS NOT NULL THEN 'ready' ELSE 'failed' END AS status`
 const publicColumns = `id,scene_id,session_id,turn_number,topic_key,caption,description,cast_description,image_revision,generation_error,${statusSql}`
@@ -77,8 +78,9 @@ async function finishPanel(row, token) {
 }
 
 async function reservePanel(userId, scene, sessionId, turn, panel, { retry = false } = {}) {
+  if (!illustrationsAvailable() || scene.memoryImage) return null
   const prefs = await imagePreferences(userId)
-  if (!prefs.autoImages || !prefs.available || scene.memoryImage) return null
+  if (!prefs.autoImages || !prefs.available) return null
   const token = randomUUID(), key = keyFor(scene.id,sessionId,turn), day = todayKey()
   const id = await withTransaction(async conn => {
     await conn.execute('SELECT id FROM users WHERE id=? FOR UPDATE', [userId])
@@ -117,6 +119,7 @@ export async function queueTurnIllustration(userId, session, update) {
   catch (e) { console.warn('[dialogue-image-turn]',e.code || e.name) }
 }
 export async function retryIllustration(userId, { id, sceneId }) {
+  if (!config.dialogueComicEnabled) throw conflict('情境分镜已暂停生成。')
   if (!id) {
     const scene = await ownedScene(userId,sceneId)
     await reservePanel(userId,scene,null,0,openingPanel(scene),{retry:true})

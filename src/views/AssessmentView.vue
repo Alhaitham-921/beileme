@@ -92,23 +92,8 @@ async function exit() {
 <template>
   <main class="assessment">
     <p class="page-eyebrow">FIND YOUR STARTING POINT</p>
-    <h1 class="section-title">选择学习起点</h1>
-    <p class="section-sub">{{ settings?.book.name }} · 自测始终可选，可直接学习，起点随时调整</p>
-    <section v-if="settings && !session?.question" class="card start-options">
-      <h2>我想从这档开始</h2>
-      <div class="choices">
-        <button v-for="(label, level) in labels" :key="level" class="btn btn-secondary"
-          :class="{ selected: settings.preference === level }" :aria-pressed="settings.preference === level"
-          :disabled="preferenceBusy" @click="applyLevel(level)">
-          {{ label }}<small v-if="settings.curated"> · {{ samples[level] }}</small>
-        </button>
-      </div>
-      <p v-if="preferenceMessage" role="status">{{ preferenceMessage }}</p>
-      <p v-if="settings.suggestion">{{ settings.suggestion.reason }}
-        <button class="text-button" :disabled="preferenceBusy" @click="applyLevel(settings.suggestion.recommended)">采用试学建议</button>
-      </p>
-      <router-link class="btn btn-primary" to="/">直接开始学习</router-link>
-    </section>
+    <h1 class="section-title">词汇自测</h1>
+    <p class="section-sub">{{ settings?.book.name }} · 测一测当前词书的词汇掌握情况，结果可用来选择学习起点</p>
     <p v-if="error" role="alert" class="error">
       {{ error }}
       <button v-if="session?.question && !needsReload" class="btn" :disabled="busy || saving || exiting" @click="retry">重试保存</button>
@@ -152,15 +137,30 @@ async function exit() {
         </li>
       </ul>
       <button class="btn btn-primary" :disabled="preferenceBusy" @click="applyLevel(session.result.recommended)">采用本次建议</button>
-      <button class="btn btn-secondary" :disabled="busy" @click="start">换卷复测（可选）</button>
+      <button class="btn btn-secondary" :disabled="busy" @click="start">换卷自测</button>
     </section>
     <section v-else-if="settings" class="card">
-      <h2>帮我选起点</h2>
+      <h2>起点短测</h2>
       <template v-if="settings.eligible">
         <p>从当前词书出 24 道分层题。接近分档边界时追加 4 题；有历史薄弱点时，再复查最多 4 题并单独记录。</p>
-        <button class="btn btn-secondary" :aria-busy="Boolean(busy)" :disabled="busy" @click="start">{{ busy ? '正在准备…' : '开始可选短测' }}</button>
+        <button class="btn btn-primary" :aria-busy="Boolean(busy)" :disabled="busy" @click="start">{{ busy ? '正在准备…' : '开始自测' }}</button>
       </template>
       <p v-else>当前词书的可用题量暂时不足，可以直接选择学习起点。</p>
+    </section>
+    <section v-if="settings && !session?.question" class="card start-options">
+      <h2>手动选择学习起点</h2>
+      <div class="choices">
+        <button v-for="(label, level) in labels" :key="level" class="btn btn-secondary"
+          :class="{ selected: settings.preference === level }" :aria-pressed="settings.preference === level"
+          :disabled="preferenceBusy" @click="applyLevel(level)">
+          {{ label }}<small v-if="settings.curated"> · {{ samples[level] }}</small>
+        </button>
+      </div>
+      <p v-if="preferenceMessage" role="status">{{ preferenceMessage }}</p>
+      <p v-if="settings.suggestion">{{ settings.suggestion.reason }}
+        <button class="text-button" :disabled="preferenceBusy" @click="applyLevel(settings.suggestion.recommended)">采用试学建议</button>
+      </p>
+      <router-link class="btn btn-ghost" to="/">返回首页</router-link>
     </section>
     <AssessmentReport v-if="session?.result" :key="session.id" :session-id="session.id" :preference-busy="preferenceBusy" @retest="start" @adopt="applyLevel" />
     <section v-if="!session?.question && history.some(s => s.result)" class="history">

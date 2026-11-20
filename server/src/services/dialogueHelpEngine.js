@@ -1,3 +1,4 @@
+import { actorMessages } from '../../../src/utils/actorConversation.js'
 import { z } from 'zod'
 import { containsWord } from './dialogueEngine.js'
 
@@ -23,9 +24,9 @@ export function buildHelpMessages(session, options = {}) {
   const selected = selectHelpTarget(session, options)
   const scene = session.scene
   const actor = scene.actors?.find(item => item.id === session.journey?.activeActorId)
-  const transcript = (session.messages || []).filter(message => ['assistant', 'user'].includes(message.role))
+  const transcript = actorMessages(session).filter(message => ['assistant', 'user'].includes(message.role))
     .map(message => ({ role: message.role, text: message.text || message.content || '', actorId: message.actorId, actorName: message.actorName, recipientId: message.recipientId, recipientName: message.recipientName }))
-  if (!transcript.length && scene.opening) transcript.push({ role: 'assistant', text: scene.opening })
+  if (!transcript.length && !actor && scene.opening) transcript.push({ role: 'assistant', text: scene.opening })
   const level = options.level || 2
   const data = {
     scene: { title: scene.title, location: scene.location, partnerRole: actor?.role || actor?.name || scene.role,

@@ -5,7 +5,7 @@ import { buildTurnMessages } from '../src/services/dialogueEngine.js'
 
 const image = { wordId: 1, word: 'bank', sense: '河岸', imagePath: '/private-image', explanation: '两个人在河岸散步。' }
 const scene = () => ({ title: '河边散步', location: '公园河边', role: '散步的朋友', userRole: '同行的朋友',
-  task: '聊聊河边的散步路线。', goals: ['描述散步的地方', '商量接下来的路线'],
+  task: '聊聊河边的散步路线。', actors:[{id:'partner',name:'交流对象',role:'交流对象',englishName:'Partner',responsibility:'回应当前任务'}],goals: ['描述散步的地方', '商量接下来的路线'],
   targets: [{ word: 'bank', sense: '河岸', phrase: 'river bank', example: 'Let us walk along the river bank.' }],
   opening: 'Where would you like to walk?', openingTranslation: '你想去哪里散步？', example: 'Let us walk along the river bank.' })
 

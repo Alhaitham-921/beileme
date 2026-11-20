@@ -9,7 +9,7 @@ const description = '我想练习去酒店办理入住，并向前台说明我�
 const generatedScene = () => ({
   title: '旅行中的酒店入住', location: '酒店前台', role: '酒店前台接待员', userRole: '办理入住的旅客',
   task: '向前台确认预订，询问房间情况，并说明你需要安静的房间。',
-  goals: ['确认预订信息', '询问房间情况', '提出安静房间的要求'],
+  actors:[{id:'partner',name:'交流对象',role:'交流对象',englishName:'Partner',responsibility:'回应当前任务'}],goals: ['确认预订信息', '询问房间情况', '提出安静房间的要求'],
   targets: [
     { word: 'reservation', sense: '预订', phrase: 'a reservation', example: 'I have a reservation for tonight.' },
     { word: 'quiet', sense: '安静的', phrase: 'a quiet room', example: 'Could I have a quiet room, please?' },

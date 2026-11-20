@@ -143,6 +143,9 @@ export const config = {
     userKeyQuotaMultiplier: readInt('AI_USER_KEY_QUOTA_MULTIPLIER', 20),
   },
 
+  // The dialogue scene hint and word memory images have separate controls.
+  dialogueComicEnabled: false,
+
   wordImages: {
     apiKey: readString('WORD_IMAGE_API_KEY', '').trim(),
     baseUrl: wordImageBaseUrl,

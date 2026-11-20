@@ -5,7 +5,7 @@ import { buildScenarioMessages, validateScenario } from '../src/services/scenari
 const request = { description: '我想练习在酒店办理入住，核对预订并询问早餐安排。', difficulty: 'intermediate' }
 const response = () => ({
   title: '酒店入住', location: '酒店前台', role: '酒店前台接待员', userRole: '来办理入住的旅客',
-  task: '核对预订，询问房间和早餐安排。', goals: ['说明预订信息', '询问早餐安排'],
+  task: '核对预订，询问房间和早餐安排。', actors:[{id:'partner',name:'交流对象',role:'交流对象',englishName:'Partner',responsibility:'回应当前任务'}],goals: ['说明预订信息', '询问早餐安排'],
   targets: [
     { word: 'Reservation', sense: '预订', phrase: 'a reservation', example: 'I have a reservation.' },
     { word: 'room', sense: '房间', phrase: 'a quiet room', example: 'Could I have a quiet room?' },
@@ -13,6 +13,17 @@ const response = () => ({
   ],
   opening: 'Welcome! Do you have a reservation?', openingTranslation: '欢迎！请问你有预订吗？',
   example: 'I have a reservation. Is breakfast included?',
+})
+
+test('scenario participants support one person or distinct people with the same role', () => {
+  const alex={id:'alex',name:'Alex',role:'同学',englishName:'Alex',responsibility:'与用户聊电影',opening:'What movies do you like?',openingTranslation:'你喜欢什么电影？'}
+  assert.throws(()=>validateScenario({...response(),actors:undefined},request))
+  assert.equal(validateScenario({...response(),actors:[alex]},request).actors.length,1)
+  assert.deepEqual(validateScenario({...response(),actors:[alex,{...alex,id:'sam',name:'Sam',englishName:'Sam'}]},request).actors.map(a=>a.id),['alex','sam'])
+  assert.throws(()=>validateScenario({...response(),actors:[alex,alex]},request),/id不能重复/)
+  const prompt=buildScenarioMessages(request)[0].content
+  assert.match(prompt,/只要求与一个人交流时必须只有1个对象/)
+  assert.match(prompt,/禁止把多人合写为一个role/)
 })
 
 test('generated scenarios normalize words and derive difficulty from the request', () => {
@@ -39,7 +50,7 @@ test('scenario validation rejects duplicates, non-words, missing examples and ex
   nonWord.targets[0].word = 'check in'
   assert.throws(() => validateScenario(nonWord, request))
   assert.throws(() => validateScenario({ ...response(), targets: response().targets.slice(0, 2) }, request))
-  assert.throws(() => validateScenario({ ...response(), goals: ['仅一个目标'] }, request))
+  assert.throws(() => validateScenario({ ...response(), actors:[{id:'partner',name:'交流对象',role:'交流对象',englishName:'Partner',responsibility:'回应当前任务'}],goals: ['仅一个目标'] }, request))
   assert.throws(() => validateScenario({ ...response(), title: '长'.repeat(81) }, request))
   assert.throws(() => validateScenario({ ...response(), opening: '你好！' }, request))
 })

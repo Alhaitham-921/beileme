@@ -30,7 +30,7 @@ function isTabActive(tab) {
 watch(() => route.path, () => {
   if (isAndroid) window.scrollTo({ top: 0, behavior: 'instant' })
 }, { flush: 'post' })
-const pageLabel = computed(() => route.meta.title || [...links, { to: '/settings', label: '偏好设置' }, { to: '/assessment', label: '学习起点' }, { to: '/recall', label: '错词专项' }].find(item => item.to === route.path)?.label || '学习空间')
+const pageLabel = computed(() => route.meta.title || [...links, { to: '/settings', label: '偏好设置' }, { to: '/assessment', label: '词汇自测' }, { to: '/recall', label: '错词专项' }].find(item => item.to === route.path)?.label || '学习空间')
 const atHome = computed(() => route.path === '/')
 let navigationTouch = null
 function startNavigationSwipe(event) {

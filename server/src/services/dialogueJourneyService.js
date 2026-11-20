@@ -1,3 +1,4 @@
+import { actorMessages } from '../../../src/utils/actorConversation.js'
 import { queryOne, withTransaction } from '../db/pool.js'
 import { parseJson } from '../utils/json.js'
 import { badRequest, conflict, notFound } from '../utils/errors.js'
@@ -74,8 +75,10 @@ export function switchDialogueActor(userId, id, { actorId, expectedRevision, exp
     session.journey.activeActorId = actorId
     session.help = null
     session.journey.handoff = null
-    session.messages.push({ role: 'assistant', actorId, actorName: next.name, event: 'actor_switch',
-      text: 'Hello. What would you like to discuss with me?', translation: '你好，想和我讨论什么？' })
+    // Returning to a person resumes their existing conversation without a new greeting.
+    if (!actorMessages(session, actorId).length) session.messages.push({ role: 'assistant', actorId, actorName: next.name, event: 'actor_switch',
+      text: next.opening || `Hello, I'm ${next.englishName || next.name}. What would you like to discuss?`,
+      translation: next.openingTranslation || `你好，我是${next.name}。你想聊些什么？` })
     // This is a free transition. It does not consume a user turn, call AI, or award evidence.
   })
 }

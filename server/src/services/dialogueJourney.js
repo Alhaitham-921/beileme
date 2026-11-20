@@ -20,7 +20,10 @@ export function journeyScene(input, variant) {
   const family = scene.sourceSceneId || scene.id
   const template = family === 'bank' ? variant || scene.variant || 'river' : family
   scene.userRole ||= template === 'finance' ? '前来开户的客户' : template === 'river' ? '公园游客' : '完成当前交流任务的学习者'
-  scene.actors = scene.actors?.length ? scene.actors : structuredClone(catalogs[template] || [actor('partner', scene.role || '交流伙伴', '围绕当前任务与用户交流'), actor('companion', '讨论伙伴', '帮助用户商量选择，不代替任务中的工作人员做决定')])
+  // A task does not imply a supporting cast. Only explicitly supplied people
+  // participate; ordinary built-in tasks need just their primary counterpart.
+  const supplied = scene.actors?.filter(item => !(item.id === 'companion' && item.name === '讨论伙伴'))
+  scene.actors = supplied?.length ? supplied : structuredClone(catalogs[template]?.slice(0, 1) || [actor('partner', scene.role || '交流伙伴', '围绕当前任务与用户交流')])
   const englishNames = {frontdesk:'Front Desk',manager:'Manager',companion:'Friend',waiter:'Waiter',chef:'Chef',passerby:'Passerby',guide:'Guide',teller:'Teller',advisor:'Advisor',elder:'Visitor',interviewer:'Interviewer',lead:'Team Lead',hr:'HR',assistant:'Assistant',teammate:'Teammate',coordinator:'Coordinator',mentor:'Mentor',partner:'Partner'}
   scene.actors = scene.actors.map(item => ({...item,englishName:item.englishName||englishNames[item.id]||'Partner'}))
   scene.userRoleEnglish ||= ({hotel:'Guest',restaurant:'Diner',directions:'Visitor',river:'Visitor',finance:'Customer',interview:'Candidate',shopping:'Customer',campus:'Student'})[template] || 'Learner'
@@ -31,10 +34,10 @@ export function journeyScene(input, variant) {
 }
 
 export function hotelChangeScene(scene) {
-  return { ...scene, title: '酒店改期挑战', challenge: 'change_dates',
+  return { ...scene, title: '酒店改期挑战', challenge: 'change_dates', actors: structuredClone(catalogs.hotel.slice(0, 2)),
     task: '你是住客，原预订周五入住，现在希望改到周六。说明问题、协商改期方案，并确认最终日期和额外费用。',
     goals: ['说明原预订与改期需求', '讨论可用房间及费用方案', '确认新入住日期和最终费用'],
-    sharedFacts: ['用户始终是住客，原预订周五入住，希望改到周六', '周六有可用房间，标准改期差价为每晚80元', '值班经理可以在用户提出协商后减免40元，最终差价为每晚40元；前台不能直接批准减免', '同行朋友只能提供建议；必须由住客向酒店确认最终选择'],
+    sharedFacts: ['用户始终是住客，原预订周五入住，希望改到周六', '周六有可用房间，标准改期差价为每晚80元', '值班经理可以在用户提出协商后减免40元，最终差价为每晚40元；前台不能直接批准减免', '必须由住客向酒店确认最终选择'],
     targets: [{ word: 'reservation', sense: '预订', phrase: 'change a reservation', example: 'I would like to change my reservation.' },
       { word: 'available', sense: '可用的；有空的', phrase: 'an available room', example: 'Is there an available room for Saturday?' },
       { word: 'confirm', sense: '确认', phrase: 'confirm the new date', example: 'Could you confirm the new date and the extra charge?' }],

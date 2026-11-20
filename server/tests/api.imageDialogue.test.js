@@ -32,7 +32,7 @@ test('private memory images start reusable three-turn practice with exact sense 
       const input = JSON.parse(messages[1].content)
       assert.equal(input.memoryImage.sense, sense)
       content = { title: '看图交流', location: '图片中的场景', role: '交流伙伴', userRole: '学习者',
-        task: '聊聊记忆图中的情境。', goals: ['说明自己的想法', '回应伙伴的提问'],
+        task: '聊聊记忆图中的情境。', actors:[{id:'partner',name:'交流对象',role:'交流对象',englishName:'Partner',responsibility:'回应当前任务'}],goals: ['说明自己的想法', '回应伙伴的提问'],
         targets: [{ word: word.spelling.toLowerCase(), sense, phrase: 'the bank', example: 'I am at the bank.' }],
         opening: 'Hello! How can I help you?', openingTranslation: '你好，有什么能帮你？', example: 'I am at the bank.' }
     } else if (messages[0].content.includes('接话辅导员')) {

@@ -2,6 +2,9 @@ import { getTestServer, createClient, createOnboardedUser } from './helpers/setu
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { config } from '../src/config.js'
+import { execute } from '../src/db/pool.js'
+import { sceneFor } from '../src/services/dialogueEngine.js'
+import { hotelChangeScene } from '../src/services/dialogueJourney.js'
 
 test('contextual references support optional memory words, preserve turns and recover without losing prior help', async t => {
   const {baseUrl}=await getTestServer(), client=createClient(baseUrl)
@@ -74,7 +77,10 @@ test('actor switches guard stale references and preparation cannot call the refe
     calls++;request=JSON.parse(JSON.parse(options.body).messages[1].content)
     return Response.json({choices:[{message:{content:JSON.stringify({hint:'向当前经理说明改期意向',example:'Could you help me discuss a date change?',translation:'您能帮我商量一下改期吗？'})},finish_reason:'stop'}],usage:{prompt_tokens:20,completion_tokens:30}})
   })
-  const started=await client.post('/api/v1/practice/sessions',{token:owner.token,body:{sceneId:'hotel'}})
+  const multiActorScene=hotelChangeScene(sceneFor('hotel','beginner'))
+  const saved=await execute("INSERT INTO dialogue_scenes (user_id,source,difficulty,scene) VALUES (?,'custom','beginner',?)",
+    [owner.userId,JSON.stringify(multiActorScene)])
+  const started=await client.post('/api/v1/practice/sessions',{token:owner.token,body:{sceneId:`custom-${saved.insertId}`}})
   assert.equal(started.status,201)
   const base=`/api/v1/practice/sessions/${started.data.id}`
   const switched=await client.post(`${base}/actor`,{token:owner.token,body:{actorId:'manager',expectedRevision:started.data.journey.revision,expectedTurn:0}})

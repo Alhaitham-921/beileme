@@ -4,7 +4,6 @@ import { useAiStore } from '../stores/ai'
 import EmailRecoveryPanel from '../components/EmailRecoveryPanel.vue'
 import ThemePicker from '../components/ThemePicker.vue'
 import SpeechSettingsPanel from '../components/SpeechSettingsPanel.vue'
-import ScenarioImageSettings from '../components/ScenarioImageSettings.vue'
 import NavigationSettings from '../components/NavigationSettings.vue'
 import AvatarSettings from '../components/AvatarSettings.vue'
 import { readAutoPronounce, saveAutoPronounce } from '../utils/wordAudio.js'
@@ -298,7 +297,6 @@ const typeLabels = { dialogue: '情境对话（含复盘与重试）',
       <p class="muted">背单词时自动播放新出现的单词。此设置保存在当前设备。</p>
     </section>
     <SpeechSettingsPanel v-if="settingsSection === 'speech'" />
-    <ScenarioImageSettings v-if="settingsSection === 'appearance'" />
     <NavigationSettings v-if="settingsSection === 'appearance'" />
     <section v-show="settingsSection === 'ai'" aria-label="AI 服务设置">
     <p class="section-sub">不配置也能用：错因分析与易混词对比完全免费</p>
