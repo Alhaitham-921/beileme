@@ -3,8 +3,9 @@ import { useAuthStore } from '../stores/auth'
 import { navigating } from '../stores/activity.js'
 
 const routes = [
+  { path: '/recall/spelling/:id', name: 'spelling', component: () => import('../views/SpellingView.vue'), meta: { title: '错词专项 · 拼写练习' } },
   { path: '/practice/image', name: 'image-practice', component: () => import('../views/ImagePracticeView.vue'), meta: { title: '看图聊三轮' } },
-  { path: '/notebooks', name: 'notebooks', component: () => import('../views/NotebooksView.vue') },
+  { path: '/notebooks', name: 'notebooks', component: () => import('../views/NotebookLibraryView.vue') },
   { path: '/lookup', name: 'lookup', component: () => import('../views/WordLookupView.vue') },
   { path: '/speech', redirect: '/practice' },
   { path: '/roots', name: 'roots', component: () => import('../views/RootsView.vue') },

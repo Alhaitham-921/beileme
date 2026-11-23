@@ -43,7 +43,7 @@ async function create() {
 </script>
 <template>
   <span class="favorite-word" :class="{ 'compact-on-mobile': compactOnMobile }" @click.stop>
-    <button type="button" class="btn btn-ghost favorite-toggle" :class="{ 'is-saved': saved }" :disabled="busy" :aria-label="saved ? '已收藏，管理单词本' : '收藏至默认单词本'" :title="saved ? '已收藏，管理单词本' : '收藏至默认单词本'" :aria-expanded="saved ? open : undefined" @click="quickSave"><svg class="favorite-star" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.78 5.63L21 9.54l-4.5 4.39 1.06 6.2L12 17.2l-5.56 2.93 1.06-6.2L3 9.54l6.22-.91L12 3Z" /></svg><span class="favorite-label">{{ saved ? '★ 已收藏 · 管理' : '☆ 收藏至默认本' }}</span></button>
+    <button type="button" class="btn btn-ghost favorite-toggle" :class="{ 'is-saved': saved }" :disabled="busy" :aria-label="saved ? '已收藏，管理单词本' : '收藏至生词本'" :title="saved ? '已收藏，管理单词本' : '收藏至生词本'" :aria-expanded="saved ? open : undefined" @click="quickSave"><svg class="favorite-star" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.78 5.63L21 9.54l-4.5 4.39 1.06 6.2L12 17.2l-5.56 2.93 1.06-6.2L3 9.54l6.22-.91L12 3Z" /></svg><span class="favorite-label">{{ saved ? '★ 已收藏 · 管理' : '☆ 收藏至生词本' }}</span></button>
     <button type="button" class="choose-book book-picker-toggle" :aria-expanded="open" :disabled="busy" @click="open = !open; open && load()">选择单词本</button>
     <span v-if="open" class="book-choices" @keydown.esc="open = false">
       <strong>收藏到单词本</strong><small>可同时收藏到多个本，取消勾选仅从该本移除。</small>

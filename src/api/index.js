@@ -34,6 +34,12 @@ export const assessment = {
   explain: (id) => http.post(`/assessment/placement/${id}/explanation`, { timeoutMs: 150000 }),
 }
 
+export const spelling = {
+  overview: () => http.get('/spelling'),
+  create: (wordIds, requestKey) => http.post('/spelling', { body: { wordIds, requestKey }, timeoutMs: 30000 }),
+  get: id => http.get(`/spelling/${encodeURIComponent(id)}`),
+  action: (id, body) => http.post(`/spelling/${encodeURIComponent(id)}/actions`, { body }),
+}
 export const recall = {
   status: () => http.get('/recall', { timeoutMs: 10000 }),
   start: (mode) => http.post('/recall', { body: { mode }, timeoutMs: 10000 }),

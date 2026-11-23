@@ -8,18 +8,18 @@ export async function listNotebooks(userId, wordId = 0) {
   const books = await query(`SELECT b.id,b.name,COUNT(w.word_id) AS wordCount,COALESCE(MAX(w.word_id=?),0) AS containsWord
     FROM user_notebooks b LEFT JOIN user_notebook_words w ON w.notebook_id=b.id
     WHERE b.user_id=? GROUP BY b.id,b.name ORDER BY b.created_at,b.id`, [wordId, userId])
-  return [{ id: 0, name: '默认单词本', isDefault: true, ...defaults }, ...books].map(b => ({ ...b, containsWord: Boolean(b.containsWord) }))
+  return [{ id: 0, name: '生词本', isDefault: true, ...defaults }, ...books].map(b => ({ ...b, containsWord: Boolean(b.containsWord) }))
 }
 
 export async function requireNotebook(userId, id) {
-  if (id === 0) return { id: 0, name: '默认单词本' }
+  if (id === 0) return { id: 0, name: '生词本' }
   const book = await queryOne('SELECT id,name FROM user_notebooks WHERE id=? AND user_id=?', [id, userId])
   if (!book) throw notFound('单词本不存在')
   return book
 }
 
 export async function createNotebook(userId, name) {
-  if (name === '默认单词本') throw conflict('请使用其他单词本名称')
+  if (['生词本','默认单词本'].includes(name)) throw conflict('请使用其他单词书名称')
   try {
     const result = await execute('INSERT INTO user_notebooks (user_id,name) VALUES (?,?)', [userId, name])
     return { id: result.insertId, name, wordCount: 0, containsWord: false }

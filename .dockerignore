@@ -5,6 +5,8 @@
 !vite.config.js
 !src/
 !src/**
+!shared/
+!shared/**
 !public/
 !public/**
 !server/

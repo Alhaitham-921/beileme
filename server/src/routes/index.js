@@ -12,6 +12,7 @@ import gameRoutes from './games.js'
 import healthRoutes from './health.js'
 import assessmentRoutes from './assessment.js'
 import recallRoutes from './recall.js'
+import spellingRoutes from './spelling.js'
 import collocationRoutes from './collocations.js'
 import imageRecallRoutes from './imageRecall.js'
 import practiceRoutes from './practice.js'
@@ -27,6 +28,7 @@ const router = Router()
 router.use('/health', healthRoutes)
 router.use('/assessment', assessmentRoutes)
 router.use('/recall', recallRoutes)
+router.use('/spelling', spellingRoutes)
 router.use('/collocations', collocationRoutes)
 router.use('/image-recall', imageRecallRoutes)
 router.use('/practice', practiceRoutes)
