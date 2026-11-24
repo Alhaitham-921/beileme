@@ -1,7 +1,10 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { recall, spelling } from '../api'
+import AppIcon from '../components/AppIcon.vue'
 
+const router = useRouter()
 const labels = { independent: '独立答出', hinted: '提示后答出', 'needs-practice': '待巩固' }
 const state = ref(null)
 const spellingState = ref(null)
@@ -13,13 +16,43 @@ const busy = ref(false)
 const message = ref('')
 const answerField = ref(null)
 const nextButton = ref(null)
+const mistakes = computed(() => state.value?.daily?.candidates || [])
+const selectedWords = ref([])
+let spellingRequestKey, spellingSelection
 const question = computed(() => session.value?.question)
 const feedback = computed(() => showFeedback.value ? session.value?.feedback : null)
 const results = computed(() => session.value?.results || [])
 const latestSpelling = computed(() => spellingState.value?.active?.[0])
+const historyDate = new Intl.DateTimeFormat('zh-CN', {
+  month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+})
+const historyEntries = computed(() => {
+  const last = state.value?.lastCompleted
+  const entries = [
+    ...(last ? [{
+      key: `recall-${last.id}`, icon: 'repeat', label: last.mode === 'retest' ? '复测' : '填词',
+      count: last.results?.filter(item => item.result === 'independent').length ?? 0,
+      total: last.total, date: last.completedAt,
+    }] : []),
+    ...(spellingState.value?.recent ?? []).map(item => ({
+      key: `spelling-${item.id}`, to: `/recall/spelling/${item.id}`, icon: 'chart',
+      label: '拼写', count: item.independent ?? item.completed, total: item.total, date: item.updatedAt,
+      progress: item.independent == null,
+    })),
+  ]
+  entries.sort((a, b) => (b.date ? Date.parse(b.date) : 0) - (a.date ? Date.parse(a.date) : 0))
+  const active = (spellingState.value?.active ?? []).map(item => ({
+    key: `spelling-${item.id}`, to: `/recall/spelling/${item.id}`, icon: 'book',
+    label: '续练', count: item.completed, total: item.total, date: item.updatedAt, progress: true,
+  }))
+  return [...active, ...entries]
+})
+const daily = computed(() => state.value?.daily)
+const canExtend = computed(() => daily.value && (state.value.due
+  ? daily.value.remaining === 0
+  : daily.value.waiting > 0 && mistakes.value.length === 0))
 const screen = computed(() => !session.value ? 'home' : feedback.value || question.value ? 'exercise' : 'results')
-const steps = ['拼一遍', '换个提示', '隔天测']
-const currentStep = computed(() => session.value?.mode === 'retest' || state.value?.due && !state.value?.active && !latestSpelling.value ? 2 : question.value?.changedContext || feedback.value?.changedContext ? 1 : 0)
+const isRetest = computed(() => session.value?.mode === 'retest')
 const position = computed(() => Math.min(session.value?.total ?? 0, (session.value?.answered ?? 0) + (feedback.value ? 0 : 1)))
 watch([question, feedback, busy], async () => {
   if (busy.value) return
@@ -49,8 +82,55 @@ async function load() {
     spellingState.value = history.status === 'fulfilled' ? history.value : null
     if (status.status === 'rejected') throw status.reason
     state.value = status.value
+    selectSuggestedWords()
   } catch (error) { message.value = error.message }
   finally { busy.value = false }
+}
+
+function selectSuggestedWords() {
+  selectedWords.value = mistakes.value.map(word => word.id)
+}
+
+async function extendPractice() {
+  if (busy.value || !canExtend.value) return
+  busy.value = true
+  message.value = ''
+  try {
+    state.value = await recall.extend()
+    selectSuggestedWords()
+  } catch (error) {
+    message.value = error.message || '加练额度加载失败，请重试'
+  } finally {
+    busy.value = false
+  }
+}
+
+function toggleWord(id) {
+  if (busy.value) return
+  selectedWords.value = selectedWords.value.includes(id)
+    ? selectedWords.value.filter(wordId => wordId !== id)
+    : [...selectedWords.value, id]
+}
+
+async function startSpelling() {
+  if (!selectedWords.value.length || busy.value) return
+  const ids = mistakes.value.map(word => Number(word.id)).filter(id => selectedWords.value.includes(id))
+  const signature = ids.join(',')
+  if (signature !== spellingSelection) {
+    spellingRequestKey = crypto.randomUUID()
+    spellingSelection = signature
+  }
+  busy.value = true
+  message.value = ''
+  try {
+    const practice = await spelling.create(ids, spellingRequestKey, true)
+    await router.push(`/recall/spelling/${practice.id}`)
+  } catch (error) {
+    message.value = error.message || '练习未能开始，请重试'
+    if (error.status === 409) await refreshAfterEmpty()
+  } finally {
+    busy.value = false
+  }
 }
 
 function openActive() {
@@ -76,13 +156,16 @@ async function start(mode) {
     session.value = data.session
     showFeedback.value = Boolean(session.value?.feedback)
     input.value = ''
-    if (!data.session) { await refreshAfterEmpty(); message.value = '今天没有到期的词。' }
+    if (!data.session) { await refreshAfterEmpty(); message.value = daily.value?.remaining === 0 ? '今天的专项练习已完成' : '今天没有到期的词' }
   } catch (error) { message.value = error.message }
   finally { busy.value = false }
 }
 
 async function refreshAfterEmpty() {
-  try { state.value = await recall.status() } catch { /* Keep the last known status. */ }
+  try {
+    state.value = await recall.status()
+    selectSuggestedWords()
+  } catch { /* Keep the last known status. */ }
 }
 
 async function submit(answer) {
@@ -121,18 +204,6 @@ onMounted(load)
       <router-link v-if="screen==='home'" to="/notebooks?source=mistakes" class="quiet-link">错题本</router-link>
       <button v-else type="button" class="quiet-link" :disabled="busy" @click="home">返回专项</button>
     </header>
-    <ol class="recall-path" aria-label="练习步骤">
-      <li v-for="(step, i) in steps" :key="step" :aria-current="currentStep===i ? 'step' : undefined">
-        <span class="step-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path v-if="i===0" d="m5 15-1 5 5-1L20 8l-4-4ZM14 6l4 4"/>
-            <path v-else-if="i===1" d="M4 8h15m-4-4 4 4-4 4M20 16H5m4-4-4 4 4 4"/>
-            <path v-else d="M7 3v4m10-4v4M4 10h16M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Zm3 10 2 2 4-4"/>
-          </svg>
-        </span>
-        <span>{{ step }}</span>
-      </li>
-    </ol>
     <p v-if="message" role="status" class="recall-message">{{ message }}</p>
     <section v-if="screen==='home'" class="card recall-card recall-home">
       <template v-if="busy && !state"><LoadingState>读取进度…</LoadingState></template>
@@ -140,24 +211,65 @@ onMounted(load)
         <span class="home-number" v-if="state.active">{{ state.active.answered }}<small> / {{ state.active.total }}</small></span>
         <span class="home-number" v-else-if="latestSpelling">{{ latestSpelling.completed }}<small> / {{ latestSpelling.total }}</small></span>
         <span class="home-number" v-else-if="state.due">{{ state.due }}</span>
-        <h2>{{ state.active || latestSpelling ? '上次练习' : state.due ? '到期错词' : '选几个错词试试' }}</h2>
+        <h2>{{ state.active || latestSpelling ? '上次练习' : daily?.remaining === 0 ? '今天已练完' : state.due ? '到期错词' : '今日待练' }}</h2>
         <button v-if="state.active" class="btn btn-primary" :disabled="busy" @click="openActive">继续练习</button>
         <router-link v-else-if="latestSpelling" class="btn btn-primary" :to="`/recall/spelling/${latestSpelling.id}`">继续拼写</router-link>
-        <button v-else-if="state.due" class="btn btn-primary" :disabled="busy" @click="start('retest')">开始复测</button>
-        <router-link v-else class="btn btn-primary" to="/notebooks?source=mistakes">去选错词</router-link>
+        <button v-else-if="state.due && daily?.remaining" class="btn btn-primary" :disabled="busy" @click="start('retest')">开始复测</button>
+        <template v-else>
+          <template v-if="mistakes.length && !state.due">
+            <ul class="mistake-grid" aria-label="选择练习词">
+              <li v-for="word in mistakes" :key="word.id">
+                <button type="button" class="mistake-word" :aria-pressed="selectedWords.includes(Number(word.id))"
+                  :disabled="busy" @click="toggleWord(Number(word.id))">
+                  <span lang="en">{{ word.spelling }}</span><span class="selection-mark" aria-hidden="true">✓</span>
+                </button>
+              </li>
+            </ul>
+            <button type="button" class="btn btn-primary" :disabled="busy || !selectedWords.length" @click="startSpelling">
+              {{ busy ? '正在开始…' : selectedWords.length ? `拼写 ${selectedWords.length} 词` : '开始拼写' }}
+            </button>
+          </template>
+          <p v-else-if="daily?.remaining && !state.due" class="muted">
+            {{ !daily.waiting ? '暂无新词待练' : daily.newRemaining ? '今日剩余额度不足以安排新词' : '今日新词名额已用完' }}
+          </p>
+          <button v-if="canExtend" type="button" class="btn btn-primary" :disabled="busy" @click="extendPractice">
+            {{ busy ? '正在安排…' : state.due ? '加练到期错词' : '再练一组错词' }}
+          </button>
+        </template>
+        <div v-if="daily" class="recall-actions schedule-stats" aria-label="今日专项进度">
+          <span>今日已答 {{ daily.attempts }} 次 · 额度 {{ daily.limit }} 次</span>
+          <span v-if="state.due">到期 {{ state.due }}</span>
+          <span v-if="daily.waiting">候选 {{ daily.waiting }}<template v-if="daily.oldestWaitingDays"> · 最久 {{ daily.oldestWaitingDays }} 天</template></span>
+          <span v-if="state.focused">重点 {{ state.focused }}</span>
+        </div>
         <small v-if="!state.active && !latestSpelling && !state.due && state.nextDate">下次复测 {{ state.nextDate }}</small>
       </template>
       <button v-else class="btn btn-secondary" @click="load">重新读取</button>
     </section>
-    <details v-if="screen==='home' && (state?.lastCompleted || spellingState?.recent?.length || spellingState?.active?.length || spellingUnavailable || state?.due && latestSpelling)" class="recall-history">
-      <summary>练习记录</summary>
-      <button v-if="state?.due && latestSpelling && !state.active" class="quiet-link" :disabled="busy" @click="start('retest')">复测 {{ state.due }} 词</button>
-      <button v-if="state?.lastCompleted" class="quiet-link" :disabled="busy" @click="viewLast">上次复测或填词</button>
-      <router-link v-for="item in spellingState?.active || []" :key="item.id" :to="`/recall/spelling/${item.id}`">拼写进行中 · {{ item.completed }}/{{ item.total }}</router-link>
-      <router-link v-for="item in spellingState?.recent || []" :key="item.id" :to="`/recall/spelling/${item.id}`">拼写结果 · {{ item.total }} 词</router-link>
-      <button v-if="spellingUnavailable" class="quiet-link" :disabled="busy" @click="load">重试读取拼写记录</button>
+    <details v-if="screen==='home' && (historyEntries.length || spellingUnavailable || state?.due && latestSpelling)" class="recall-history">
+      <summary><AppIcon name="chart" />练习记录 <span aria-hidden="true" class="history-chevron">›</span></summary>
+      <button v-if="state?.due && daily?.remaining && latestSpelling && !state.active" class="btn btn-ghost history-action" :disabled="busy" @click="start('retest')">复测 {{ state.due }} 词</button>
+      <ul v-if="historyEntries.length" class="history-grid">
+        <li v-for="item in historyEntries" :key="item.key">
+          <component :is="item.to ? 'RouterLink' : 'button'" :to="item.to" :type="item.to ? undefined : 'button'"
+            :disabled="item.to ? undefined : busy" class="history-record" @click="!item.to && viewLast()">
+            <span class="history-icon"><AppIcon :name="item.icon" /></span>
+            <span class="history-type">{{ item.label }}</span>
+            <span class="history-score">{{ item.count }}<small>/{{ item.total }}</small>
+              <span class="history-score-label">{{ item.progress ? '进度' : '独立答对' }}</span>
+            </span>
+            <progress class="history-bar" :value="item.count" :max="item.total" :aria-label="item.progress ? '完成进度' : '独立答对比例'" />
+            <time v-if="item.date" :datetime="item.date">{{ historyDate.format(new Date(item.date)) }}</time>
+          </component>
+        </li>
+      </ul>
+      <button v-if="spellingUnavailable" class="btn btn-ghost history-action" :disabled="busy" @click="load">重试读取</button>
     </details>
     <div v-if="screen==='exercise'" class="recall-progress">
+      <span class="recall-mode">
+        <AppIcon :name="isRetest ? 'repeat' : 'book'" />
+        {{ isRetest ? '复测' : '练习' }}
+      </span>
       <div class="progress-track" aria-hidden="true"><span v-for="n in session.total" :key="n" :class="{ filled:n<=session.answered, current:n===position }"></span></div>
       <span>{{ position }} / {{ session.total }}</span>
     </div>
@@ -165,6 +277,8 @@ onMounted(load)
       <p class="result-tag" :class="feedback.result">{{ labels[feedback.result] }}</p>
       <h2 lang="en">{{ feedback.spelling }}</h2>
       <p>{{ feedback.meaning }}</p>
+      <p v-if="feedback.correction">你的拼写 <span lang="en">{{ feedback.correction }}</span></p>
+      <p v-if="feedback.mastered" class="result-tag independent">已巩固</p>
       <p v-if="feedback.example" lang="en" class="recall-context">{{ feedback.example }}</p>
       <div v-if="feedback.previous" class="result-change"><span>上次 {{ labels[feedback.previous] }}</span><span aria-hidden="true">→</span><span>这次 {{ labels[feedback.result] }}</span></div>
       <div class="recall-actions"><button ref="nextButton" type="button" class="btn btn-primary" @click="showFeedback = false" @keydown.enter.prevent="!$event.repeat && !$event.shiftKey && (showFeedback = false)">{{ question ? '下一词' : '查看结果' }} <kbd>Enter</kbd></button></div>
@@ -179,7 +293,9 @@ onMounted(load)
     <section v-else-if="question" class="card recall-card recall-exercise">
       <h2>{{ question.blank ? '填上缺的词' : '拼出这个词' }}</h2>
       <p v-if="question.blank" lang="en" class="recall-context">{{ question.blank }}</p>
+      <p v-if="question.changedContext" class="recall-context-label"><AppIcon name="repeat" />新例句</p>
       <p>{{ question.cue }} <span v-if="question.pos" class="muted">{{ question.pos }}</span></p>
+      <p v-if="question.letterCount" class="muted">重点词 · {{ question.letterCount }} 个字符</p>
       <p v-if="question.hint" role="status">首字母 · <strong lang="en">{{ question.hint }}</strong></p>
       <form @submit.prevent="input.trim() && submit(input)">
         <input id="recall-answer" ref="answerField" aria-label="输入英文" placeholder="输入英文" v-model="input" @keydown="answerKey" maxlength="100" autocapitalize="none" autocomplete="off" spellcheck="false" :disabled="busy" />
@@ -221,23 +337,43 @@ onMounted(load)
 .recall-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}
 .recall-heading h1{margin:0}
 .quiet-link{border:0;background:transparent;color:var(--accent-deep);padding:7px 0;font:inherit;font-size:13px;cursor:pointer}
-.recall-path{display:flex;list-style:none;margin:32px 0 26px;padding:0;max-width:430px}
-.recall-path li{flex:1;position:relative;display:grid;justify-items:center;gap:8px;color:var(--ink-soft);font-size:12px;text-align:center}
-.recall-path li+li::before{content:'';position:absolute;right:calc(50% + 24px);width:calc(100% - 48px);top:21px;border-top:1px solid var(--line)}
-.step-icon{width:43px;height:43px;display:grid;place-items:center;border:1px solid var(--line);border-radius:50%;background:var(--color-surface)}
-.step-icon svg{width:21px;height:21px}
-.recall-path [aria-current=step]{color:var(--accent-deep)}
-.recall-path [aria-current=step] .step-icon{background:var(--accent-soft);border-color:var(--accent)}
 .recall-home,.recall-exercise{text-align:center;padding:clamp(24px,5vw,40px)}
 .recall-home h2,.recall-exercise h2{margin:0 0 18px}
 .recall-home .btn{min-width:130px}
+.schedule-stats{justify-content:center;margin-top:16px;color:var(--ink-soft);font-size:12px;gap:8px 16px}
+.mistake-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,130px),1fr));gap:8px;padding:0;margin:0 0 18px;list-style:none}
+.mistake-word{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;height:100%;min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--bg-card);color:var(--ink);font:inherit;text-align:left;overflow-wrap:anywhere}
+.mistake-word[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft)}
+.selection-mark{visibility:hidden;color:var(--accent-deep)}
+.mistake-word[aria-pressed=true] .selection-mark{visibility:visible}
 .recall-home small:not(.home-number small){display:block;margin-top:14px;color:var(--ink-soft)}
 .home-number{display:block;font:400 48px var(--serif);line-height:1.15;color:var(--accent-deep);margin-bottom:8px}
 .home-number small{font-size:24px;color:var(--ink-soft)}
 .recall-history,.feedback-details{color:var(--ink-soft);font-size:13px;margin:18px 0}
 .recall-history summary,.feedback-details summary{cursor:pointer;padding:7px 0}
-.recall-history a,.recall-history button{display:block;padding:6px 0;color:var(--accent-deep)}
-.recall-progress{display:flex;align-items:center;gap:14px;color:var(--ink-soft);font-variant-numeric:tabular-nums}
+.recall-history summary{display:flex;align-items:center;gap:8px;list-style:none}
+.recall-history summary::-webkit-details-marker{display:none}
+.history-chevron{margin-left:auto;font-size:20px;line-height:1}
+.recall-history[open] .history-chevron{transform:rotate(90deg)}
+.history-action{margin:8px 0}
+.history-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,145px),1fr));gap:8px;margin:8px 0 0;padding:0;list-style:none}
+.history-record{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:5px 8px;width:100%;height:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--color-surface);color:var(--ink);text-align:left;font:inherit}
+.history-record:hover{border-color:var(--accent)}
+.history-icon{display:grid;place-items:center;width:28px;height:28px;border-radius:7px;background:var(--accent-soft);color:var(--accent-deep)}
+.history-icon .app-icon{width:16px;height:16px}
+.history-type{font-weight:600}
+.history-score,.history-bar,.history-record time{grid-column:1/-1}
+.history-score{font-size:21px;line-height:1.2;font-variant-numeric:tabular-nums}
+.history-score small,.history-score-label,.history-record time{color:var(--ink-soft);font-size:11px}
+.history-score-label{margin-left:6px;white-space:nowrap}
+.history-bar{width:100%;height:4px;margin:2px 0;appearance:none;border:0;border-radius:5px;overflow:hidden;background:var(--line)}
+.history-bar::-webkit-progress-bar{background:var(--line)}
+.history-bar::-webkit-progress-value{background:var(--accent)}
+.history-bar::-moz-progress-bar{background:var(--accent)}
+.recall-progress{display:flex;align-items:center;gap:14px;margin-top:20px;color:var(--ink-soft);font-size:13px;font-variant-numeric:tabular-nums}
+.recall-mode,.recall-context-label{display:inline-flex;align-items:center;gap:5px;color:var(--accent-deep);font-size:12px}
+.recall-mode .app-icon,.recall-context-label .app-icon{width:15px;height:15px}
+.recall-context-label{margin:0}
 .progress-track{flex:1;display:flex;gap:5px}
 .progress-track span{flex:1;height:5px;border-radius:5px;background:var(--line)}
 .progress-track .filled{background:var(--ok)}

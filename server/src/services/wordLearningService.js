@@ -152,6 +152,14 @@ export function localCollocationsFor(spelling) {
   return unique([...original, ...extra], 'phrase', 6).map(item => ({ ...item, source: 'local' }))
 }
 
+function pairedCollocations(local, saved, remote = []) {
+  return pairedUsage([...local, ...saved.collocations, ...remote], 'phrase', 6, saved.translations)
+}
+
+export async function cachedWordCollocations(userId, word) {
+  return pairedCollocations(localCollocationsFor(word.spelling), await savedAiUsage(userId, word))
+}
+
 async function extraFormWords(word) {
   const spelling = word.spelling.toLowerCase()
   if (!/^[a-z]{4,32}$/.test(spelling)) return []
@@ -184,8 +192,8 @@ export async function getWordLearningCard(userId, wordId, { dictionaryLookup = l
     ...(word.examples || []).filter(item => typeof item === 'string').map(example => ({ text: example, translation: '', source: 'wordbook' })),
     ...saved.examples,
   ]
-  const collocations = [...localCollocationsFor(spelling), ...saved.collocations]
-  const needsDictionary = !examples.length || !collocations.length
+  const localCollocations = localCollocationsFor(spelling)
+  const needsDictionary = !examples.length || !(localCollocations.length || saved.collocations.length)
   const remote = !localOnly && needsDictionary ? await dictionaryLookup(spelling) : { examples: [] }
   const choices = related.some(item => item.relationType === 'form') ? related : [...related, ...await extraFormWords(word)]
   const contrasts = ['form', 'meaning'].flatMap(type => choices.filter(item => item.relationType === type).slice(0, 2))
@@ -193,7 +201,7 @@ export async function getWordLearningCard(userId, wordId, { dictionaryLookup = l
   return {
     wordId: word.id, spelling: word.spelling,
     examples: pairedUsage([...examples, ...remote.examples], 'text', 3, saved.translations),
-    collocations: pairedUsage([...collocations, ...(remote.collocations || [])], 'phrase', 6, saved.translations),
+    collocations: pairedCollocations(localCollocations, saved, remote.collocations),
     contrasts, needsDictionary, dictionaryUnavailable: Boolean(remote.unavailable),
   }
 }

@@ -142,9 +142,8 @@ onUnmounted(() => { alive=false; version++; clearTimeout(timer) })
       <section class="card notebook-content" :aria-busy="loading">
         <div class="notebook-title"><h2>{{title}}</h2><span>共 {{total}} 个单词</span><div v-if="embedded" class="detail-menu-wrap"><button v-if="batchMode" class="text-button" :disabled="starting" @click="finishBatch">完成编辑</button><details ref="menu" class="detail-menu" @keydown.esc="menu.open=false"><summary aria-label="单词书菜单"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></summary><div><button @click="enterBatch">批量编辑</button><button @click="showCreate=true;menu.open=false">新建单词书</button><router-link to="/notebooks">返回书架</router-link></div></details></div></div>
         <p v-if="notice" class="book-notice" role="status">{{ notice }}</p>
-        <p v-if="source==='mistakes'" class="list-hint">收录单词或搭配曾答错、未答出的词，答对后仍保留，方便随时回顾。</p>
         <router-link v-if="source==='mistakes'" to="/recall" class="btn btn-primary">错词专项与隔天复测</router-link>
-        <router-link v-if="source==='mistakes'" to="/notebooks/collocations" class="btn btn-ghost">搭配错题与到期复习</router-link>
+        <router-link v-if="source==='mistakes'" to="/notebooks/collocations" class="btn btn-ghost">搭配练习</router-link>
         <p v-if="error" class="book-error" role="alert">{{error}} <button type="button" class="text-button" @click="refresh">重试</button></p>
         <div class="list-controls"><label class="search-label">查找单词<input v-model="search" type="search" maxlength="100" placeholder="搜索英文或中文"></label><fieldset><legend>回顾模式</legend><button v-for="option in [{value:'none',label:'中英对照'},{value:'zh',label:'遮住中文'},{value:'en',label:'遮住英文'}]" :key="option.value" type="button" :class="{chosen:mask===option.value}" :aria-pressed="mask===option.value" @click="changeMask(option.value)">{{option.label}}</button></fieldset></div>
         <div v-if="editing" class="selection-tools" aria-label="批量选择复习词">

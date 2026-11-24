@@ -36,12 +36,13 @@ export const assessment = {
 
 export const spelling = {
   overview: () => http.get('/spelling'),
-  create: (wordIds, requestKey) => http.post('/spelling', { body: { wordIds, requestKey }, timeoutMs: 30000 }),
+  create: (wordIds, requestKey, scheduled = false) => http.post('/spelling', { body: { wordIds, requestKey, scheduled }, timeoutMs: 30000 }),
   get: id => http.get(`/spelling/${encodeURIComponent(id)}`),
   action: (id, body) => http.post(`/spelling/${encodeURIComponent(id)}/actions`, { body }),
 }
 export const recall = {
   status: () => http.get('/recall', { timeoutMs: 10000 }),
+  extend: () => http.post('/recall/extra', { timeoutMs: 10000 }),
   start: (mode) => http.post('/recall', { body: { mode }, timeoutMs: 10000 }),
   hint: (id, wordId) => http.post(`/recall/${id}/hint`, { body: { wordId }, timeoutMs: 10000 }),
   answer: (id, wordId, answer) => http.post(`/recall/${id}/answers`, { body: { wordId, answer }, timeoutMs: 10000 }),

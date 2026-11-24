@@ -13,11 +13,14 @@ test('spelling HTTP and MySQL: selection, ownership, retries, grouping, idempote
   let server, closePool
   try {
     await connection.query(`CREATE DATABASE \`${database}\` CHARACTER SET utf8mb4`)
-    for (const table of ['users','wordbooks','words','user_word_progress','answer_logs','collocation_progress','assessment_answers','word_learning_evidence']) {
+    for (const table of ['users','wordbooks','words','user_word_progress','answer_logs','collocation_progress','assessment_answers','word_learning_evidence',
+      'word_recall_sessions','word_recall_attempts','dialogue_recall_tasks']) {
       await connection.query(`CREATE TABLE \`${database}\`.\`${table}\` LIKE \`${source}\`.\`${table}\``)
     }
     await connection.changeUser({ database })
     await connection.query(await fs.readFile(new URL('../src/db/migrations/038_word_spelling.sql',import.meta.url),'utf8'))
+    await connection.query(await fs.readFile(new URL('../src/db/migrations/039_spelling_schedule.sql',import.meta.url),'utf8'))
+    await connection.query(await fs.readFile(new URL('../src/db/migrations/040_recall_extra_practice.sql',import.meta.url),'utf8'))
     config.db.database = database; config.isTest = true
     const db = await import('../src/db/pool.js'); closePool = db.closePool
     const { signAccessToken } = await import('../src/utils/token.js')
@@ -35,8 +38,8 @@ test('spelling HTTP and MySQL: selection, ownership, retries, grouping, idempote
     }
     server=createApp().listen(0,'127.0.0.1'); await once(server,'listening')
     const base=`http://127.0.0.1:${server.address().port}/api/v1/spelling`
-    async function request(path='',body,auth=token) {
-      const r=await fetch(base+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',...(auth?{Authorization:`Bearer ${auth}`}:{})},body:body===undefined?undefined:JSON.stringify(body)})
+    async function request(path='',body,auth=token, endpoint=base) {
+      const r=await fetch(endpoint+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',...(auth?{Authorization:`Bearer ${auth}`}:{})},body:body===undefined?undefined:JSON.stringify(body)})
       return {status:r.status,...await r.json()}
     }
     assert.equal((await request('',undefined,'')).status,401)
@@ -83,7 +86,81 @@ test('spelling HTTP and MySQL: selection, ownership, retries, grouping, idempote
     assert.equal(Number((await db.queryOne('SELECT SUM(times_wrong) n FROM user_word_progress WHERE user_id=?',[uid])).n),12)
     assert.equal((await db.queryOne('SELECT COUNT(*) n FROM answer_logs')).n,0)
     assert.equal((await db.queryOne('SELECT COUNT(*) n FROM word_learning_evidence')).n,0)
-    assert.equal((await request()).data.recent[0].id,id)
+    const recent = (await request()).data.recent[0]
+    assert.equal(recent.id,id)
+    assert.equal(recent.independent,9)
+    assert.ok(Number.isFinite(Date.parse(recent.updatedAt)))
+
+    const recall = (path = '', body) => request(path, body, token, base.replace(/spelling$/, 'recall'))
+    const { todayKey, addDays } = await import('../src/utils/time.js')
+    const day = todayKey()
+    let status = (await recall()).data
+    assert.deepEqual(status.daily.candidates.map(word => word.id), ids.slice(0, 5))
+    const scheduled = { requestKey: randomUUID(), wordIds: ids.slice(0, 3), scheduled: true }
+    const [started, duplicate] = await Promise.all([request('',scheduled), request('',{...scheduled,requestKey:randomUUID()})])
+    assert.equal(started.status,201,JSON.stringify(started))
+    assert.equal(duplicate.data.id,started.data.id)
+    let practice = started.data
+    const perform = async (action, body={}) => {
+      const reply = await request(`/${practice.id}/actions`, {action, revision:practice.revision, requestKey:randomUUID(),
+        wordId:practice.question?.id,...body})
+      assert.equal(reply.status,200,JSON.stringify(reply))
+      practice = reply.data
+    }
+    await perform('skip')
+    await perform('next')
+    while (practice.stage !== 'finished') {
+      if (practice.stage === 'typing') await perform('answer',{answer:practice.question.spelling})
+      else await perform('next')
+    }
+    status = (await recall()).data
+    assert.equal(status.daily.attempts,4)
+    assert.equal(status.daily.newRemaining,2)
+    assert.equal(status.nextDate,addDays(day,1))
+    assert.equal(status.due,0)
+    assert.equal((await recall('',{mode:'retest'})).data.session,null)
+
+    const target = ids[0]
+    await db.execute('UPDATE word_spelling_schedule SET due_on=? WHERE user_id=? AND word_id=?',[addDays(day,-2),uid,target])
+    await db.execute('UPDATE word_spelling_schedule SET due_on=? WHERE user_id=? AND word_id=?',[day,uid,ids[1]])
+    assert.equal((await request('',{requestKey:randomUUID(),wordIds:[ids[3]],scheduled:true})).status,409)
+    let review = (await recall('',{mode:'retest'})).data.session
+    assert.equal(review.question.wordId,target)
+    let answered = await recall(`/${review.id}/answers`,{wordId:target,answer:'word0'})
+    assert.equal(answered.data.feedback.nextDate,addDays(day,3))
+    assert.equal((await recall(`/${review.id}/answers`,{wordId:target,answer:'word0'})).status,200)
+    assert.equal((await recall()).data.daily.attempts,5)
+    await recall(`/${review.id}/answers`,{wordId:ids[1],answer:'word1'})
+
+    await db.execute('UPDATE word_spelling_schedule SET stage=4,due_on=?,last_check_on=? WHERE user_id=? AND word_id=?',
+      [day,addDays(day,-30),uid,target])
+    review = (await recall('',{mode:'retest'})).data.session
+    answered = await recall(`/${review.id}/answers`,{wordId:target,answer:'word0'})
+    assert.equal(answered.data.feedback.mastered,true)
+    assert.equal(answered.data.feedback.nextDate,null)
+    status = (await recall()).data
+    assert.ok(!status.daily.candidates.some(word=>word.id===target))
+    await db.execute('UPDATE word_spelling_schedule SET mastered_at=DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE) WHERE user_id=? AND word_id=?',[uid,target])
+    await db.execute("INSERT INTO answer_logs (user_id,word_id,result,quality,error_type) VALUES (?,?,0,1,'spelling_weak')",[uid,target])
+    status = (await recall()).data
+    assert.equal(status.daily.waiting,ids.length-2)
+
+    await db.execute('UPDATE word_spelling_schedule SET due_on=?, failure_days=2, last_check_on=? WHERE user_id=? AND word_id=?',
+      [day,addDays(day,-1),uid,ids[1]])
+    review = (await recall('',{mode:'retest'})).data.session
+    answered = await recall(`/${review.id}/answers`,{wordId:ids[1],answer:''})
+    assert.equal(answered.data.feedback.nextDate,addDays(day,3))
+    assert.equal((await recall()).data.focused,1)
+
+    await db.execute('UPDATE word_recall_daily SET attempts=20 WHERE user_id=? AND practice_on=?',[uid,day])
+    assert.equal((await recall()).data.daily.remaining,0)
+    assert.equal((await recall('',{mode:'retest'})).data.session,null)
+
+    await db.execute('UPDATE word_recall_daily SET attempts=6, admitted=5 WHERE user_id=? AND practice_on=?',[uid,day])
+    assert.equal((await recall()).data.daily.candidates.length,0)
+    const extra = await Promise.all([recall('/extra',{}), recall('/extra',{})])
+    assert.ok(extra.every(response => response.status === 200 && response.data.daily.limit === 30))
+    assert.ok(extra.every(response => response.data.daily.candidates.length === 5))
     console.log(`Retained isolated database: ${database}`)
   } finally {
     if(server){server.closeAllConnections();await new Promise(resolve=>server.close(resolve))}

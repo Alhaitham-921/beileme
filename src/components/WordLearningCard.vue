@@ -5,6 +5,7 @@ import WordMemoryImage from './WordMemoryImage.vue'
 import CollocationPractice from './CollocationPractice.vue'
 
 const props = defineProps({ word: { type: Object, required: true }, initialContrast: Object, compact: Boolean, answered: Boolean, wrong: Boolean, sessionId: Number })
+const emit = defineEmits(['practice-active'])
 const expanded = ref(false)
 const practicing = ref(false)
 const card = ref(null), loading = ref(true), error = ref(''), aiLoading = ref(false), aiMessage = ref(''), aiCard = ref(null)
@@ -112,6 +113,10 @@ async function supplement() {
   finally { if (alive && run === aiRun) aiLoading.value = false }
 }
 function cancelAi() { aiRun++; aiController?.abort(); aiLoading.value = false; aiMessage.value = '已取消等待。后台可能继续生成，重试会优先读取缓存。' }
+function setPracticing(active) {
+  practicing.value = active
+  emit('practice-active', active)
+}
 void load()
 onBeforeUnmount(() => { alive = false; controller.abort(); aiController?.abort() })
 </script>
@@ -191,7 +196,7 @@ onBeforeUnmount(() => { alive = false; controller.abort(); aiController?.abort()
     </section>
     <div v-if="error || card?.dictionaryUnavailable" class="usage-retry"><p role="status">{{ error || '免费词典暂时不可用，已有资料仍可查看。' }}</p><button type="button" class="text-button" :disabled="loading" @click="load">重新加载资料</button></div>
     </template>
-    <CollocationPractice :phrases="collocations" :spelling="word.spelling" :word-id="Number(word.id)" @active="practicing = $event" />
+    <CollocationPractice :phrases="collocations" :spelling="word.spelling" :word-id="Number(word.id)" @active="setPracticing" />
     <footer v-if="!compact && (needsSupplement || aiLoading || aiMessage)" class="usage-footer">
       <p class="usage-hint">免费资料优先。AI 补充仅在点击后调用，按当前 AI 服务计费，优先读取缓存。</p>
       <button v-if="needsSupplement && !aiLoading" :disabled="loading" type="button" class="btn btn-ghost" @click="supplement">{{ supplementLabel }}</button>

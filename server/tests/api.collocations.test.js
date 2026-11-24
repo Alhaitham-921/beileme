@@ -26,6 +26,8 @@ test('collocations persist correct, incorrect and unknown evidence; resume and d
   const user=await createOnboardedUser(client)
   const word=await queryOne("SELECT id FROM words WHERE spelling='abandon' LIMIT 1")
   assert.equal((await client.get('/api/v1/collocations')).status,401)
+  assert.equal((await client.get('/api/v1/collocations/recommendations')).status,401)
+  assert.deepEqual((await client.get('/api/v1/collocations/recommendations',{token:user.token})).data,{items:[],mistakeCount:0})
   let session=await start(user,Number(word.id))
   assert.ok(session.total>=4);assert.equal(session.answered,0)
   assert.equal(session.question.answer,undefined);assert.equal(session.question.phrase,undefined)
@@ -37,6 +39,9 @@ test('collocations persist correct, incorrect and unknown evidence; resume and d
   const saved=await queryOne('SELECT COUNT(*) n FROM collocation_attempts WHERE session_id=?',[session.id]);assert.equal(Number(saved.n),1)
   const resumed=await client.get('/api/v1/collocations',{token:user.token,query:{wordId:word.id}})
   assert.equal(resumed.data.active.id,session.id);assert.equal(resumed.data.active.answered,1)
+  const overview=(await client.get('/api/v1/collocations',{token:user.token})).data
+  assert.equal(overview.active,null)
+  assert.deepEqual(overview.wordResume,{id:session.id,wordId:Number(word.id),spelling:'abandon',answered:1,total:session.total})
   session=await submit(user,session,'wrong-answer')
   assert.equal(session.feedback.result,'incorrect')
   session=await submit(user,session,'')
@@ -46,9 +51,14 @@ test('collocations persist correct, incorrect and unknown evidence; resume and d
   assert.equal(status.active,null);assert.equal(status.weak,2);assert.equal(status.attempts,session.total)
   assert.equal(status.progress.length,session.total)
   const freshClient=createClient((await getTestServer()).baseUrl)
-  assert.equal((await freshClient.get('/api/v1/collocations',{token:user.token})).data.weak,2)
+  const completed=(await freshClient.get('/api/v1/collocations',{token:user.token})).data
+  assert.equal(completed.weak,2);assert.equal(completed.wordResume,null)
   const list=(await client.get('/api/v1/words/collections',{token:user.token,query:{source:'mistakes'}})).data
   assert.ok(list.items.some(item=>Number(item.id)===Number(word.id)&&item.collocationWrongTimes===2))
+  const recommendations=(await client.get('/api/v1/collocations/recommendations',{token:user.token})).data
+  assert.equal(recommendations.mistakeCount,1)
+  assert.equal(recommendations.items[0].wordId,Number(word.id))
+  assert.match(recommendations.items[0].phrase,/abandon/i)
   const ids=(await client.get('/api/v1/words/collections/ids',{token:user.token,query:{source:'mistakes'}})).data.wordIds
   assert.ok(ids.includes(Number(word.id)))
   const selected=await client.post('/api/v1/study/review-batches',{token:user.token,body:{wordIds:[Number(word.id)]}})
@@ -69,6 +79,8 @@ test('sessions, progress and mistake collections are isolated by account; out-of
   assert.equal((await client.post(`/api/v1/collocations/sessions/${session.id}/answers`,{token:user.token,body:{questionIndex:2,answer:'x'}})).status,409)
   session=await submit(user,session,'')
   assert.equal((await client.get('/api/v1/collocations',{token:other.token})).data.total,0)
+  assert.equal((await client.get('/api/v1/collocations',{token:other.token})).data.wordResume,null)
+  assert.deepEqual((await client.get('/api/v1/collocations/recommendations',{token:other.token})).data,{items:[],mistakeCount:0})
   assert.equal((await client.get('/api/v1/words/collections',{token:other.token,query:{source:'mistakes'}})).data.total,0)
   const invalid=await client.post('/api/v1/collocations/sessions',{token:user.token,body:{wordId:0}});assert.equal(invalid.status,400)
   assert.equal((await client.post(`/api/v1/collocations/sessions/${session.id}/answers`,{token:user.token,body:{questionIndex:1,answer:'x'.repeat(321)}})).status,400)
@@ -101,4 +113,8 @@ test('any imported word can practice saved bilingual collocations without a samp
   const session=await start(user,Number(row.insertId));assert.equal(session.total,1)
   const answered=await submit(user,session,'efficiently');assert.equal(answered.feedback.result,'correct')
   assert.equal((await client.get('/api/v1/collocations',{token:user.token,query:{wordId:row.insertId}})).data.correct,1)
+  const another=await start(user,Number(row.insertId))
+  await submit(user,another,'')
+  const recommendations=(await client.get('/api/v1/collocations/recommendations',{token:user.token})).data
+  assert.deepEqual(recommendations,{items:[{wordId:Number(row.insertId),spelling:'photosynthesize',phrase:'photosynthesize efficiently'}],mistakeCount:1})
 })

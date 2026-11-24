@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { query, queryOne, withTransaction } from '../db/pool.js'
+import { pool, queryOne, withTransaction } from '../db/pool.js'
 import { badRequest, conflict, notFound } from '../utils/errors.js'
 import { recordWordEvidence } from './wordLearningEvidence.js'
 import { parseJson } from '../utils/json.js'
@@ -7,12 +7,37 @@ import { addDays, todayKey, toDateKey } from '../utils/time.js'
 import { mapWordRow } from './wordService.js'
 import { WORD_USAGE } from '../../data/wordUsage.js'
 import { RECALL_CONTEXTS } from '../../data/recallContexts.js'
+import { countRecallAttempt, dailyRecallBudget, extendRecallBudget, recordSpellingRetest, spellingCandidates } from './spellingSchedule.js'
 
 const latestRecall = `WITH last_recall AS (
   SELECT a.* FROM word_recall_attempts a JOIN (
     SELECT MAX(id) AS id FROM word_recall_attempts WHERE user_id=? AND dialogue_task_id IS NULL GROUP BY word_id
   ) latest ON latest.id=a.id
 )`
+
+const reviewQueue = `${latestRecall}, review_queue AS (
+  SELECT a.word_id, a.id AS task_id, a.next_check_on AS due_on, a.result AS previous_result,
+    a.prompt_key, NULL AS dialogue_task_id, NULL AS dialogue_details, 0 AS scheduled_spelling, 0 AS focused
+  FROM last_recall a WHERE a.next_check_on IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM word_spelling_schedule s WHERE s.user_id=a.user_id AND s.word_id=a.word_id
+  )
+  UNION ALL
+  SELECT word_id,id,due_on,last_result,prompt_key,id,details,0,0
+  FROM dialogue_recall_tasks WHERE user_id=? AND due_on IS NOT NULL
+  UNION ALL
+  SELECT s.word_id,s.word_id,s.due_on,a.result,a.prompt_key,NULL,NULL,1,s.status='focus'
+  FROM word_spelling_schedule s LEFT JOIN last_recall a ON a.word_id=s.word_id
+  WHERE s.user_id=? AND s.due_on IS NOT NULL
+)`
+
+export async function recallDue(conn, userId, day) {
+  const [[counts]] = await conn.execute(`${reviewQueue}
+    SELECT COUNT(DISTINCT IF(due_on<=?,word_id,NULL)) AS due, MIN(due_on) AS nextDate,
+      MIN(IF(due_on<=?,due_on,NULL)) AS oldestDue, SUM(focused) AS focused FROM review_queue`,
+  [userId, userId, userId, day, day])
+  return { due: Number(counts.due), nextDate: toDateKey(counts.nextDate),
+    oldestDue: toDateKey(counts.oldestDue), focused: Number(counts.focused ?? 0) }
+}
 
 function normalize(value) {
   return value.normalize('NFKC').trim().toLowerCase().replace(/[’‘]/g, "'").replace(/\s+/g, ' ')
@@ -74,7 +99,7 @@ function question(row) {
     ...(second ? [{ text: second[0], translation: second[1] }] : []),
     ...(word.examples || []).map(text => ({ text })),
   ]
-  const example = candidates.find(entry => typeof entry.text === 'string' && entry.text.trim().length <= 300 &&
+  const example = (row.focused ? [...candidates].reverse() : candidates).find(entry => typeof entry.text === 'string' && entry.text.trim().length <= 300 &&
     entry.text.trim() !== row.prompt_key &&
     ![dialogue?.quote, dialogue?.reference].some(text => text && normalize(text).includes(normalize(entry.text))) &&
     entry.text.replace(pattern, '___') !== entry.text)
@@ -86,6 +111,7 @@ function question(row) {
     cue: (example?.translation || meaning).replace(pattern, '___'),
     promptKey: example?.text.trim() || 'definition',
     changedContext: Boolean(example && (dialogue || (row.prompt_key && row.prompt_key !== 'definition'))),
+    focused: Boolean(row.focused), scheduledSpelling: Boolean(row.scheduled_spelling),
     evidenceSense: dialogue?.sense || (word.definitions.length === 1 ? word.definitions[0] : null),
     dialogueTaskId: row.dialogue_task_id ? Number(row.dialogue_task_id) : null,
     dialogue: dialogue ? { sourceTitle: dialogue.sourceTitle, reason: dialogue.reason, sense: dialogue.sense } : null,
@@ -100,22 +126,37 @@ function present(row) {
   const item = state.items[state.answers.length]
   return { id: Number(row.id), mode: state.mode, total: state.items.length, answered: state.answers.length,
     question: item ? { wordId: item.wordId, blank: item.blank, cue: item.cue, pos: item.pos,
-      changedContext: item.changedContext, hint: item.hinted ? item.spelling[0] : null } : null,
+      changedContext: item.changedContext, focused: item.focused,
+      letterCount: item.focused && !item.blank ? [...item.spelling].length : null,
+      hint: item.hinted ? item.spelling[0] : null } : null,
     feedback: state.answers.at(-1)?.feedback || null,
     results: item ? null : state.answers.map(answer => answer.feedback),
   }
 }
 
 export async function recallStatus(userId) {
-  const [row, counts, completed] = await Promise.all([
+  const day = todayKey()
+  const [row, counts, completed, daily] = await Promise.all([
     queryOne('SELECT * FROM word_recall_sessions WHERE user_id=? AND completed_at IS NULL ORDER BY id DESC LIMIT 1', [userId]),
-    queryOne(`${latestRecall} SELECT SUM(due_on <= ?) AS due, MIN(due_on) AS nextDate FROM (
-      SELECT next_check_on AS due_on FROM last_recall UNION ALL
-      SELECT due_on FROM dialogue_recall_tasks WHERE user_id=?
-    ) schedule`, [userId, todayKey(), userId]),
+    recallDue(pool, userId, day),
     queryOne('SELECT * FROM word_recall_sessions WHERE user_id=? AND completed_at IS NOT NULL ORDER BY id DESC LIMIT 1', [userId]),
+    spellingCandidates(pool, userId, day),
   ])
-  return { active: present(row), lastCompleted: present(completed), due: Number(counts?.due || 0), nextDate: toDateKey(counts?.nextDate) }
+  return { active: present(row), lastCompleted: completed
+    ? { ...present(completed), completedAt: completed.completed_at }
+    : null, ...counts, daily }
+}
+
+export async function extendRecall(userId) {
+  await withTransaction(async conn => {
+    await conn.execute('SELECT id FROM users WHERE id=? FOR UPDATE', [userId])
+    const day = todayKey()
+    const due = await recallDue(conn, userId, day)
+    const daily = await spellingCandidates(conn, userId, day)
+    const blocked = due.due > 0 ? daily.remaining === 0 : daily.waiting > 0 && daily.candidates.length === 0
+    if (blocked) await extendRecallBudget(conn, userId, day)
+  })
+  return recallStatus(userId)
 }
 
 export async function startRecall(userId, mode) {
@@ -124,20 +165,20 @@ export async function startRecall(userId, mode) {
     const [active] = await conn.execute('SELECT * FROM word_recall_sessions WHERE user_id=? AND completed_at IS NULL ORDER BY id DESC LIMIT 1 FOR UPDATE', [userId])
     if (active.length) return present(active[0])
     const day = todayKey()
+    const budget = await dailyRecallBudget(conn, userId, day)
+    if (!budget.remaining) return null
+    const [[spellingActive]] = await conn.execute(`SELECT id FROM word_spelling_sessions
+      WHERE user_id=? AND completed_at IS NULL AND JSON_EXTRACT(state,'$.scheduled')=TRUE LIMIT 1`, [userId])
+    if (spellingActive) throw conflict('请先完成当前拼写练习')
     const [rows] = mode === 'retest'
-      ? await conn.execute(`${latestRecall} SELECT w.*, ranked.previous_result, ranked.prompt_key, ranked.dialogue_task_id, ranked.dialogue_details
+      ? await conn.execute(`${reviewQueue} SELECT w.*, ranked.previous_result, ranked.prompt_key, ranked.dialogue_task_id, ranked.dialogue_details,
+          ranked.scheduled_spelling, ranked.focused
           FROM (
-            SELECT due.*, ROW_NUMBER() OVER (PARTITION BY word_id ORDER BY due_on, dialogue_task_id DESC, task_id) AS rank_in_word
-            FROM (
-              SELECT word_id, id AS task_id, next_check_on AS due_on, result AS previous_result,
-                prompt_key, NULL AS dialogue_task_id, NULL AS dialogue_details
-              FROM last_recall WHERE next_check_on<=?
-              UNION ALL
-              SELECT word_id, id, due_on, last_result, prompt_key, id, details
-              FROM dialogue_recall_tasks WHERE user_id=? AND due_on<=?
-            ) due
+            SELECT due.*, ROW_NUMBER() OVER (PARTITION BY word_id ORDER BY due_on, scheduled_spelling DESC, dialogue_task_id DESC, task_id) AS rank_in_word
+            FROM review_queue due WHERE due_on<=?
           ) ranked JOIN words w ON w.id=ranked.word_id
-          WHERE ranked.rank_in_word=1 ORDER BY ranked.due_on, ranked.task_id LIMIT 5`, [userId, day, userId, day])
+          WHERE ranked.rank_in_word=1 ORDER BY ranked.due_on, ranked.task_id, ranked.word_id LIMIT ?`,
+      [userId, userId, userId, day, Math.min(5, budget.remaining)])
       : await conn.execute(`${latestRecall} SELECT w.*, a.result AS previous_result, a.prompt_key
           FROM words w LEFT JOIN user_word_progress p ON p.user_id=? AND p.word_id=w.id
           LEFT JOIN last_recall a ON a.word_id=w.id
@@ -148,9 +189,10 @@ export async function startRecall(userId, mode) {
           ) wrongs GROUP BY word_id) logs ON logs.word_id=w.id
           WHERE (COALESCE(p.times_wrong,0)>0 OR logs.times_wrong>0)
             AND (a.id IS NULL OR (a.next_check_on IS NULL AND a.answered_on<?))
+            AND NOT EXISTS (SELECT 1 FROM word_spelling_schedule s WHERE s.user_id=? AND s.word_id=w.id)
           ORDER BY (p.next_review_at IS NOT NULL AND p.next_review_at<=UTC_TIMESTAMP()) DESC,
             a.answered_on ASC, GREATEST(COALESCE(p.times_wrong,0),COALESCE(logs.times_wrong,0)) DESC,
-            logs.last_wrong DESC, w.id LIMIT 5`, [userId, userId, userId, userId, userId, day])
+            logs.last_wrong DESC, w.id LIMIT ?`, [userId, userId, userId, userId, userId, day, userId, Math.min(5, budget.remaining)])
     if (!rows.length) return null
     const state = { mode, items: rows.map(question), answers: [] }
     const [inserted] = await conn.execute('INSERT INTO word_recall_sessions (user_id,state) VALUES (?,?)', [userId, JSON.stringify(state)])
@@ -185,18 +227,26 @@ export function answerRecall(userId, id, wordId, input) {
     const correct = normalize(input) === normalize(item.spelling)
     const result = correct ? (item.hinted ? 'hinted' : 'independent') : 'needs-practice'
     const day = todayKey()
-    const nextDate = state.mode === 'retest' && result === 'independent' ? null : addDays(day, 1)
+    await countRecallAttempt(conn, userId, day)
+    const spellingReview = item.scheduledSpelling
+      ? await recordSpellingRetest(conn, userId, wordId, day, result === 'independent')
+      : null
+    const nextDate = spellingReview ? spellingReview.dueOn
+      : state.mode === 'retest' && result === 'independent' ? null : addDays(day, 1)
     const [attempt] = await conn.execute(`INSERT INTO word_recall_attempts
       (user_id,word_id,session_id,mode,result,prompt_key,next_check_on,answered_on,dialogue_task_id) VALUES (?,?,?,?,?,?,?,?,?)`,
     [userId, wordId, id, state.mode, result, item.promptKey, nextDate, day, item.dialogueTaskId ?? null])
     await recordWordEvidence(conn, { userId, wordId, sense: item.evidenceSense || item.dialogue?.sense || null,
-      source: 'recall', sourceKey: attempt.insertId, result, details: { mode: state.mode, changedContext: item.changedContext, prompt: item.promptKey } })
+      source: 'recall', sourceKey: attempt.insertId, result, details: { mode: state.mode, changedContext: item.changedContext,
+        prompt: item.promptKey, ...(spellingReview && { scheduledIntervalDays: spellingReview.interval }) } })
     if (item.dialogueTaskId) {
       await conn.execute('UPDATE dialogue_recall_tasks SET due_on=?, last_result=?, prompt_key=? WHERE id=? AND user_id=?',
         [nextDate, result, item.promptKey, item.dialogueTaskId, userId])
     }
     state.answers.push({ wordId, feedback: { wordId, spelling: item.spelling, result, previous: item.previous,
       meaning: item.meaning, example: item.text, translation: item.translation, dialogue: item.dialogue || null,
-      collocation: item.collocation, nextDate, changedContext: item.changedContext } })
+      collocation: item.collocation, nextDate, changedContext: item.changedContext,
+      mastered: spellingReview?.status === 'mastered',
+      correction: item.focused && !correct ? input.trim() : '' } })
   })
 }

@@ -33,7 +33,6 @@ onMounted(load)
         <button class="book-card mistake-card" :aria-label="`打开错题本，${wrongCount}个词`" @click="router.push({path:'/notebooks',query:{source:'mistakes'}})"><div class="book-cover mistakes"><span class="cover-label">再遇见，就多记住一点</span><strong>错题本</strong><span class="cover-mark" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none"><path d="M10 8h16v23H10zM14 5h8v6h-8zM14 17h8m-8 5h8" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg></span></div><span class="book-caption"><span>错题本</span><small>{{ wrongCount }} 词</small></span></button>
         <button class="new-book-card" @click="creating=true" aria-label="新建单词书"><span class="new-book-icon" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><rect x="10" y="7" width="28" height="35" rx="3" stroke="currentColor" stroke-width="1.4"/><path d="M16 7v35m10-24v12m-6-6h12" stroke="currentColor" stroke-width="1.4"/></svg></span><strong>新建单词书</strong><span>为一组词，留一本书</span></button>
       </section>
-      <p class="shelf-note">点击书封查看单词。在书内菜单中开启批量编辑。</p>
     </template>
     <NotebookCreateDialog v-if="creating" @close="creating=false" @created="created" />
   </div>

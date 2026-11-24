@@ -4,7 +4,8 @@ import { parseJson } from '../utils/json.js'
 import { recordWordEvidence } from './wordLearningEvidence.js'
 import { conflict, notFound } from '../utils/errors.js'
 import { getWordById } from './wordService.js'
-import { getWordLearningCard } from './wordLearningService.js'
+import { cachedWordCollocations, getWordLearningCard } from './wordLearningService.js'
+import { listCollectionWords } from './collectionService.js'
 import { reviewItem } from './srs.js'
 import { businessDate } from '../utils/time.js'
 import { buildCollocationQuestions, matchesCollocationAnswer } from '../../../src/utils/collocationPractice.js'
@@ -35,7 +36,7 @@ function present(row) {
 }
 
 export async function collocationStatus(userId, wordId = null) {
-  const [active, counts, progress] = await Promise.all([
+  const [active, counts, progress, latestWord] = await Promise.all([
     queryOne('SELECT * FROM collocation_sessions WHERE user_id=? AND word_id <=> ? AND completed_at IS NULL ORDER BY id DESC LIMIT 1', [userId, wordId]),
     queryOne(`SELECT COUNT(*) AS total, COALESCE(SUM(next_review_at<=UTC_TIMESTAMP(3)),0) AS due,
       COALESCE(SUM(last_result<>'correct'),0) AS weak, COALESCE(SUM(times_seen),0) AS attempts,
@@ -43,13 +44,36 @@ export async function collocationStatus(userId, wordId = null) {
       WHERE user_id=? ${wordId ? 'AND word_id=?' : ''}`, wordId ? [userId, wordId] : [userId]),
     wordId ? query(`SELECT question,last_result,times_seen,times_correct,times_wrong,next_review_at
       FROM collocation_progress WHERE user_id=? AND word_id=? ORDER BY next_review_at,phrase_key LIMIT 30`, [userId, wordId]) : [],
+    wordId ? null : queryOne(`SELECT s.id, s.word_id, s.state, w.spelling FROM collocation_sessions s
+      JOIN words w ON w.id=s.word_id
+      WHERE s.user_id=? AND s.completed_at IS NULL ORDER BY s.id DESC LIMIT 1`, [userId]),
   ])
+  const resumable = present(latestWord)
+  const wordResume = resumable?.question ? {
+    id: resumable.id, wordId: resumable.wordId, spelling: latestWord.spelling,
+    answered: resumable.answered, total: resumable.total,
+  } : null
   return { active: present(active), total: Number(counts.total), due: Number(counts.due), weak: Number(counts.weak),
+    ...(!wordId && { wordResume }),
     attempts: Number(counts.attempts), correct: Number(counts.correct), progress: progress.map(row => ({
       phrase: parseJson(row.question, {}).phrase, translation: parseJson(row.question, {}).translation,
       lastResult: row.last_result, timesSeen: Number(row.times_seen), timesCorrect: Number(row.times_correct),
       timesWrong: Number(row.times_wrong), nextReviewAt: row.next_review_at,
     })) }
+}
+
+export async function collocationRecommendations(userId) {
+  const { items, total } = await listCollectionWords(userId, { source: 'mistakes', size: 30 })
+  const recommendations = []
+  for (let offset = 0; offset < items.length && recommendations.length < 3; offset += 5) {
+    const batch = await Promise.all(items.slice(offset, offset + 5).map(async word => {
+      const collocations = await cachedWordCollocations(userId, word)
+      const [question] = buildCollocationQuestions(collocations, word.spelling)
+      return question ? { wordId: word.id, spelling: word.spelling, phrase: question.phrase } : null
+    }))
+    recommendations.push(...batch.filter(Boolean))
+  }
+  return { items: recommendations.slice(0, 3), mistakeCount: total }
 }
 
 export async function startCollocations(userId, { wordId = null, mode = 'practice' } = {}) {

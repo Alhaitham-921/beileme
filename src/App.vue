@@ -154,7 +154,7 @@ function focusMain() { document.getElementById('main-content')?.focus() }
     <main id="main-content" class="main" :class="{ 'public-main': !showChrome }" :inert="menuOpen || undefined" tabindex="-1">
       <div v-if="!route.matched.length" class="card"><LoadingState skeleton>正在打开学习空间…</LoadingState></div>
       <router-view v-slot="{ Component }"><Transition name="page" mode="out-in"><div v-if="Component" :key="route.path" class="route-page"><component :is="Component" /></div></Transition></router-view>
-      <AiUsage v-if="showChrome" :usage="latestAiUsage" :label="`${latestAiUsage?.label || 'AI'}最近一次消耗${latestAiUsage?.failed ? '（生成失败）' : ''}`" />
+      <AiUsage v-if="showChrome && route.name !== 'collocations'" :usage="latestAiUsage" :label="`${latestAiUsage?.label || 'AI'}最近一次消耗${latestAiUsage?.failed ? '（生成失败）' : ''}`" />
     </main>
     <nav v-if="showChrome && isAndroid" class="android-tabs" :inert="menuOpen || undefined" aria-label="App 底部导航">
       <router-link v-for="tab in androidTabs" :key="tab.to" :to="tab.to"
