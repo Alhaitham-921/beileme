@@ -71,9 +71,9 @@ export async function getReading(userId,id,chapterId) {
   return {book:metadata,chapters:chapters.map(({paragraphs,...c})=>c),chapter,progress}
 }
 export async function readingNotice(id) {return (await bookFor(id)).notice}
-export async function saveReading(userId,id,{chapterId,paragraph}) {
+export async function saveReading(userId,id,{chapterId,paragraph,offset=0}) {
   const book=await bookFor(id),chapter=book.chapters.find(c=>c.id===chapterId)
-  if(!chapter||paragraph>=chapter.paragraphs.length)throw badRequest('阅读位置无效')
-  await saveLibraryProgress(userId,'reading',id,{chapterId,paragraph})
+  if(!chapter||paragraph>=chapter.paragraphs.length||offset>chapter.paragraphs[paragraph].length)throw badRequest('阅读位置无效')
+  await saveLibraryProgress(userId,'reading',id,{chapterId,paragraph,offset})
   return {saved:true}
 }

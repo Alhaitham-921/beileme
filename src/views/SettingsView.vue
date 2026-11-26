@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useAiStore } from '../stores/ai'
+import LibraryReadingSettings from '../components/LibraryReadingSettings.vue'
 import EmailRecoveryPanel from '../components/EmailRecoveryPanel.vue'
 import ThemePicker from '../components/ThemePicker.vue'
 import SpeechSettingsPanel from '../components/SpeechSettingsPanel.vue'
@@ -294,7 +295,7 @@ const typeLabels = { dialogue: '情境对话（含复盘与重试）',
     <WordbookSettings v-if="settingsSection === 'wordbooks'" />
     <EmailRecoveryPanel v-if="settingsSection === 'account'" />
     <button class="btn btn-ghost" @click="settingsSection = 'account'">账号安全 · 邮箱验证</button>
-    <AvatarSettings v-if="settingsSection === 'appearance'" />
+    <AvatarSettings v-if="settingsSection === 'appearance'" /><LibraryReadingSettings v-if="settingsSection === 'appearance'" />
     <ThemePicker v-show="settingsSection === 'appearance'" />
     <section v-if="settingsSection === 'appearance'" class="card word-audio-settings" aria-label="背词设置">
       <label><input v-model="autoPronounce" type="checkbox" /> 单词自动发音</label>

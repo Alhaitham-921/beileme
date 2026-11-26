@@ -28,6 +28,11 @@ export const practice = {
   retryReport: (id) => http.post(`/practice/sessions/${encodeURIComponent(id)}/retry-report`, { timeoutMs: 150000 }),
 }
 export const library={
+  preferences:()=>http.get('/library/preferences'),
+  savePreferences:body=>http.put('/library/preferences',{body}),
+  explainPage:(id,body,signal)=>http.post(`/library/books/${id}/explain-page`,{body,signal,timeoutMs:135000}),
+  analyseSelection:(id,body,signal)=>http.post(`/library/books/${id}/analyse-selection`,{body,signal,timeoutMs:135000}),
+  explainListening:(id,attemptId)=>http.post(`/library/listening/${id}/attempts/${attemptId}/explain`,{timeoutMs:135000}),
   overview:()=>http.get('/library'),
   lesson:id=>http.get(`/library/listening/${id}`),
   audio:(id,revision)=>http.get(`/library/listening/${id}/audio`,{query:revision?{v:revision}:{},responseType:'blob'}),

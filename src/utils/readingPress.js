@@ -1,4 +1,4 @@
-export const READING_HOLD_MS=5000
+export const READING_HOLD_MS=2000
 export function readingTokens(text) {
   return text.split(/([A-Za-z]+(?:['’\u2011-][A-Za-z]+)*)/g).filter(Boolean)
     .map(text=>({text,word:/^[A-Za-z]+(?:['’\u2011-][A-Za-z]+)*$/.test(text)}))

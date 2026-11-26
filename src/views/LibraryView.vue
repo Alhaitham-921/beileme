@@ -2,16 +2,24 @@
 import { onMounted,onBeforeUnmount,ref,computed,watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { library } from '../api/index.js'
+import LibraryAiResult from '../components/LibraryAiResult.vue'
 const route=useRoute()
 const data=ref(null),error=ref(''),busy=ref(false),tab=ref(route.query.tab==='reading'?'reading':'listening'),lesson=ref(null),answers=ref([]),feedback=ref(null)
 const transcriptShown=ref(false),playing=ref(false),rate=ref(1),audioUrl=ref(''),audioPlayer=ref(null)
 const ready=computed(()=>lesson.value&&answers.value.length===lesson.value.questions.length&&answers.value.every(Number.isInteger))
-let run=0,disposed=false
+const aiFeedback=ref(null),aiBusy=ref(false),aiError=ref('')
+let run=0,disposed=false,aiRun=0
+function clearAi(){aiRun++;aiFeedback.value=null;aiBusy.value=false;aiError.value=''}
+async function analyseAnswers(){
+  if(!lesson.value||!feedback.value?.attemptId||aiBusy.value)return
+  const serial=++aiRun,attemptId=feedback.value.attemptId,id=lesson.value.id;aiBusy.value=true;aiError.value=''
+  try{const result=await library.explainListening(id,attemptId);if(!disposed&&serial===aiRun&&feedback.value?.attemptId===attemptId)aiFeedback.value=result}catch(e){if(!disposed&&serial===aiRun)aiError.value=e.message}finally{if(serial===aiRun)aiBusy.value=false}
+}
 async function load(){try{data.value=await library.overview()}catch(e){error.value=e.message}}
 function stopAudio(){if(audioPlayer.value){audioPlayer.value.pause();audioPlayer.value.currentTime=0}playing.value=false}
 function releaseAudio(){stopAudio();if(audioUrl.value)URL.revokeObjectURL(audioUrl.value);audioUrl.value=''}
 async function choose(id){
-  const serial=++run;error.value='';feedback.value=null;transcriptShown.value=false;releaseAudio();lesson.value=null
+  const serial=++run;clearAi();error.value='';feedback.value=null;transcriptShown.value=false;releaseAudio();lesson.value=null
   try {
     const item=await library.lesson(id)
     if(disposed||serial!==run)return
@@ -23,9 +31,9 @@ async function choose(id){
 }
 async function play(){if(!audioPlayer.value)return;error.value='';try{audioPlayer.value.playbackRate=rate.value;await audioPlayer.value.play()}catch(e){error.value=e.message||'音频暂时无法播放，请重试。'}}
 function changeRate(){if(audioPlayer.value)audioPlayer.value.playbackRate=rate.value}
-async function submit(){const serial=run;busy.value=true;error.value='';try{const value=await library.listen(lesson.value.id,{answers:answers.value,transcriptShown:transcriptShown.value});if(!disposed&&serial===run)feedback.value=value}catch(e){if(!disposed&&serial===run)error.value=e.message}finally{busy.value=false}}
+async function submit(){const serial=run;clearAi();busy.value=true;error.value='';try{const value=await library.listen(lesson.value.id,{answers:answers.value,transcriptShown:transcriptShown.value});if(!disposed&&serial===run)feedback.value=value}catch(e){if(!disposed&&serial===run)error.value=e.message}finally{busy.value=false}}
 watch(tab,stopAudio)
-onMounted(load);onBeforeUnmount(()=>{disposed=true;run++;releaseAudio()})
+onMounted(load);onBeforeUnmount(()=>{disposed=true;run++;clearAi();releaseAudio()})
 </script>
 <template>
   <main class="library-page">
@@ -40,12 +48,12 @@ onMounted(load);onBeforeUnmount(()=>{disposed=true;run++;releaseAudio()})
             <p>第一遍抓住大意，第二遍带着问题听。需要时再展开文本。</p>
             <fieldset v-for="(q,i) in lesson.questions" :key="q.question"><legend>{{ i+1 }}. {{ q.question }}</legend><label v-for="(choice,j) in q.choices" :key="choice"><input v-model="answers[i]" type="radio" :name="'question-'+i" :value="j"> {{ choice }}</label></fieldset>
             <button class="btn btn-primary" :disabled="busy||!ready" @click="submit">提交理解结果</button>
-            <div v-if="feedback" class="listening-feedback" role="status"><strong>{{ feedback.correct }} / {{ feedback.total }} 题答对</strong><p>{{ feedback.transcriptShown?'本轮已展开文本，按辅助理解记录。':'本轮未展开文本，记录本次听力理解表现。' }}</p><p v-for="(item,i) in feedback.results" :key="i">{{ i+1 }}. {{ item.correct?'正确':'待巩固' }} · {{ item.answer }}</p></div>
+            <div v-if="feedback" class="listening-feedback" role="status"><strong>{{ feedback.correct }} / {{ feedback.total }} 题答对</strong><p>{{ feedback.transcriptShown?'本轮已展开文本，按辅助理解记录。':'本轮未展开文本，记录本次听力理解表现。' }}</p><p v-for="(item,i) in feedback.results" :key="i">{{ i+1 }}. {{ item.correct?'正确':'待巩固' }} · {{ item.answer }}</p><button class="btn btn-secondary" :disabled="busy||aiBusy" @click="analyseAnswers">{{aiBusy?'正在分析原文与选项…':aiFeedback?'重新读取 AI 分析':'AI 分析选项与错因'}}</button><p class="source-line">按已提交的本次答案分析；调用你接入的文字 AI，结果保存后可复用。错因只作可能性解释。</p><p v-if="aiError" role="alert">{{aiError}} <router-link to="/settings">文字 AI 设置</router-link></p><LibraryAiResult :result="aiFeedback" kind="listening"/></div>
             <button class="text-button transcript-toggle" @click="transcriptShown=true">展开文本核对</button><p v-if="transcriptShown" lang="en" class="transcript">{{ lesson.transcript }}</p><p>{{ lesson.task }}</p><router-link class="btn btn-secondary" :to="{path:'/practice',query:{scene:lesson.scene}}">进入对应情境，用自己的话处理任务</router-link>
           </section>
           <section v-else class="card listening-intro"><h2>把听懂变成可以回应</h2><ol><li>选择一段短材料，先不看文字。</li><li>听出对方问什么、有哪些关键条件。</li><li>核对后换日期、价格或需求，再用自己的话表达。</li></ol></section>
         </div>
-        <article class="card source-feature"><h2>真人有声书 · Alice’s Adventures in Wonderland</h2><p>LibriVox 志愿者朗读。可边听原版章节边阅读；不要把合成练习音频与真人录音混为同一种材料。</p><audio controls preload="none" src="https://archive.org/download/alice_in_wonderland_librivox/wonderland_ch_01.mp3" @error="error='外部音频暂时无法连接，可打开来源页面或选择上方情境精听。'" /><p><a href="https://librivox.org/alices-adventures-in-wonderland-by-lewis-carroll/" target="_blank" rel="noopener noreferrer">打开官方来源和其他章节</a></p><small>来源声明在美国属公版，其他地区需核对适用状态。</small></article>
+
       </template>
       <section v-else-if="tab==='reading'" class="reading-shelf"><article v-for="book in data.books" :key="book.id" class="card reading-book"><small>{{ book.level }} · {{ book.chapterCount }} 章</small><h2>{{ book.titleZh }}</h2><p lang="en">{{ book.title }}</p><p>{{ book.author }}</p><p class="source-line">{{ book.sourceName }} · 完整原文</p><router-link class="btn btn-primary" :to="'/library/read/'+book.id">开始或继续阅读</router-link><p><a :href="book.sourceUrl" target="_blank" rel="noopener noreferrer">原始来源与版本</a></p></article></section>
       <section v-else class="source-list"><article v-for="item in data.resources" :key="item.id" class="card"><small>{{ item.source }} · {{ item.type }} · {{ item.level }}</small><h2>{{ item.title }}</h2><p>{{ item.note }}</p><a class="btn btn-primary" :href="item.url" target="_blank" rel="noopener noreferrer">前往官方学习</a><p class="source-line">{{ item.license }} <a :href="item.licenseUrl" target="_blank" rel="noopener noreferrer">使用说明</a></p></article></section>
