@@ -166,8 +166,9 @@ async function load() {
   } catch (e) { error.value = e.message }
   finally { loading.value = false }
 }
-function selectScene(id) {
+function selectScene(id,scrollToSetup=false) {
   challenge.value = 'standard'; learningRoute.value='';transferVariation.value=false
+  if(scrollToSetup)nextTick(()=>document.getElementById('task-title')?.scrollIntoView({behavior:'smooth',block:'start'}))
   sceneId.value = id; variant.value = 'river'; error.value = ''; notice.value = ''; startError.value = null
   const saved = savedScenes.value.find(item => item.id === id)
   if (saved?.difficulty) difficulty.value = saved.difficulty
@@ -458,7 +459,7 @@ onUnmounted(() => { disposed = true;if(session.value)releaseRecordingMemory(auth
       <section v-else class="scene-picker" aria-labelledby="scene-library-title">
         <div class="section-heading"><div><h2 id="scene-library-title">{{ libraryTab === 'saved' ? '留住每一个想练的场景' : '从熟悉的生活开始' }}</h2><p class="muted">{{ libraryTab === 'saved' ? '场景和词汇一直在这里，每次开练都是一段新的对话。' : '挑一个经典场景，AI 会根据你的回答自然接话。' }}</p></div></div>
         <label class="scene-search">搜索场景<input v-model="sceneFilter" type="search" placeholder="搜索名称、任务或单词" :disabled="working"></label>
-        <div v-if="visibleScenes.length" class="scene-grid"><button v-for="item in visibleScenes" :key="item.id" type="button" :disabled="working" :class="['scene-option', { chosen: sceneId === item.id }]" :aria-pressed="sceneId === item.id" @click="selectScene(item.id)"><span class="scene-icon" aria-hidden="true">{{ sceneIcons[item.sourceSceneId || item.id] || '✦' }}</span><strong>{{ item.title }}</strong><span v-if="libraryTab === 'saved'" class="scene-origin">{{ item.source === 'custom' ? 'AI 自定义' : '经典收藏' }} · {{ difficultyLabels[item.difficulty] || '自由练习' }}</span><span class="scene-description">{{ item.task }}</span><span class="scene-words">{{ (item.words || (item.targets || []).map(target => target.word)).join(' · ') }}</span></button></div>
+        <div v-if="visibleScenes.length" class="scene-grid"><button v-for="item in visibleScenes" :key="item.id" type="button" :disabled="working" :class="['scene-option', { chosen: sceneId === item.id }]" :aria-pressed="sceneId === item.id" @click="selectScene(item.id,true)"><span class="scene-icon" aria-hidden="true">{{ sceneIcons[item.sourceSceneId || item.id] || '✦' }}</span><strong>{{ item.title }}</strong><span v-if="libraryTab === 'saved'" class="scene-origin">{{ item.source === 'custom' ? 'AI 自定义' : '经典收藏' }} · {{ difficultyLabels[item.difficulty] || '自由练习' }}</span><span class="scene-description">{{ item.task }}</span><span class="scene-words">{{ (item.words || (item.targets || []).map(target => target.word)).join(' · ') }}</span></button></div>
         <div v-else class="empty-scenes"><strong>{{ sceneFilter ? '暂时没有匹配的场景' : '你的场景库，等你来填满' }}</strong><p>{{ sceneFilter ? '试试其他关键词。' : '生成一个专属场景，或把喜欢的经典场景保存下来。' }}</p><button v-if="!sceneFilter" class="text-button" @click="changeTab('create')">创建第一个场景 →</button></div>
       </section>
       <section v-if="scene" class="card setup" aria-labelledby="task-title">
