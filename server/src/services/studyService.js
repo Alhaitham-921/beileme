@@ -95,29 +95,49 @@ function publicWord(row) {
   }
 }
 
-/** 普通练习单独给出正确选项下标，保留现有选项结构。 */
-function publicOptions(options, wordsById) {
-  return options.map((option) => ({
-    index: option.index,
-    text: option.text,
-    primary: option.primary || '',
-    pos: option.pos ?? wordsById.get(Number(option.wordId))?.pos ?? '',
-  }))
+function optionWordId(option, targetId) {
+  return Number(option.wordId ?? (option.correct ? targetId : 0))
+}
+
+function publicOptions(item, wordsById) {
+  return item.options.map((option) => {
+    const row = wordsById.get(optionWordId(option, item.wordId))
+    const word = item.answered && row ? publicWord(row) : null
+    return {
+      index: option.index,
+      text: option.text,
+      primary: option.primary || '',
+      pos: option.pos ?? row?.pos ?? '',
+      ...(word ? { word: {
+        id: word.id, spelling: word.spelling, phonetic: word.phonetic,
+        pos: word.pos, definitions: word.definitions, defaultSaved: Boolean(row.default_saved),
+      } } : {}),
+    }
+  })
+}
+
+async function loadStudyWords(ids, userId, conn) {
+  const placeholders = Array.from(ids, () => '?').join(',')
+  const sql = `SELECT w.*, (f.word_id IS NOT NULL) AS default_saved
+    FROM words w LEFT JOIN user_favorite_words f ON f.word_id = w.id AND f.user_id = ?
+    WHERE w.id IN (${placeholders})`
+  const params = [userId, ...ids]
+  const rows = conn ? (await conn.execute(sql, params))[0] : await query(sql, params)
+  return new Map(rows.map(row => [Number(row.id), row]))
 }
 
 /** 一次性把队列中的单词查出来，避免逐题查询造成 N+1 */
-async function materializeItems(queueItems) {
+async function materializeItems(queueItems, userId) {
   if (!queueItems.length) return []
 
   const ids = new Set(queueItems.map(item => Number(item.wordId)))
   for (const item of queueItems) {
     for (const option of item.options) {
-      if (option.pos === undefined && option.wordId) ids.add(Number(option.wordId))
+      const id = optionWordId(option, item.wordId)
+      if (id && (item.answered || option.pos === undefined)) ids.add(id)
     }
   }
-  const placeholders = Array.from(ids, () => '?').join(',')
-  const rows = await query(`SELECT * FROM words WHERE id IN (${placeholders})`, [...ids])
-  const byId = new Map(rows.map((row) => [Number(row.id), row]))
+  const byId = await loadStudyWords(ids, userId)
 
   const items = []
   for (const item of queueItems) {
@@ -129,7 +149,7 @@ async function materializeItems(queueItems) {
       reviewReason: item.reviewReason || (item.kind==='review'?'按复习计划再次巩固':'新词学习'),
       nextReviewAt: item.nextReviewAt || null,
       word: publicWord(row),
-      options: publicOptions(item.options, byId),
+      options: publicOptions(item, byId),
       answered: Boolean(item.answered),
       correctOptionIndex: item.options.find(option => option.correct)?.index ?? null,
       ...(item.answered ? { correct: Boolean(item.correct), ...(item.unknown ? { unknown: true } : {}), selectedOptionIndex: item.selectedOptionIndex ?? null } : {}),
@@ -209,7 +229,7 @@ export async function createSession(userId, { kind = 'daily', studyMode = 'revie
     session: mapSessionRow(session),
     plan,
     remainingDueCount: await countDueWords(userId),
-    items: await materializeItems(queue),
+    items: await materializeItems(queue, userId),
   }
 }
 
@@ -223,7 +243,7 @@ export async function getSession(userId, sessionId) {
   // 队列直接从原始行读取：它包含答案标记，不能随会话对象一起下发
   const queue = parseJson(session.queue, [])
   const mapped = mapSessionRow(session)
-  return { session: mapped, items: await materializeItems(queue),
+  return { session: mapped, items: await materializeItems(queue, userId),
     ...(mapped.studyOptions.reviewBatchId ? {reviewBatch:await reviewBatchState(userId, mapped.studyOptions.reviewBatchId)} : {}) }
 }
 
@@ -502,6 +522,8 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
     )
 
     await addAnswerToPlan(conn, userId, todayKey(), { isNew: isNewWord, isCorrect })
+    const optionIds = new Set(item.options.map(option => optionWordId(option, item.wordId)).filter(Boolean))
+    const optionWords = optionIds.size ? await loadStudyWords(optionIds, userId, conn) : new Map()
 
     return {
       isCorrect,
@@ -517,6 +539,7 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
       },
       correctOptionIndex: correctOption?.index ?? null,
       correctText: correctOption?.text ?? word.definitions.join('；'),
+      options: publicOptions(queue[itemIndex], optionWords),
       wrongOption,
       analysis,
       confusion,
@@ -672,7 +695,7 @@ export async function createReviewSession(userId, wordIds = []) {
   return {
     session: mapSessionRow(session),
     plan: await getOrCreateDailyPlan(userId, todayKey()),
-    items: await materializeItems(queue),
+    items: await materializeItems(queue, userId),
   }
 }
 

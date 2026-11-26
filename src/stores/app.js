@@ -301,6 +301,7 @@ export const useAppStore = defineStore('app', {
         // 同步本地题目状态，让进度与结果统计立刻反映出来
         targetItem.answered = true
         targetItem.correct = data.isCorrect
+        if (data.options) targetItem.options = data.options
         if (data.unknown) targetItem.unknown = true
         targetItem.answerResult = data
         targetItem.selectedOptionIndex = Number.isInteger(optionIndex) ? optionIndex : null
