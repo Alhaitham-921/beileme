@@ -67,7 +67,7 @@ function withDifficulty(scene, difficulty) {
 }
 
 export async function generateScenario(userId, { description, difficulty = 'beginner', wordIds = [], followupId }) {
-  const words = await Promise.all([...new Set(wordIds)].map(getWordById))
+  const words = await Promise.all([...new Set(wordIds)].map(wordId => getWordById(wordId, userId)))
   const followup=followupId?await getFollowup(userId,followupId):null
   const targetWords = followup?[followup.word.toLowerCase()]:[...new Set(words.map(w => w.spelling.toLowerCase()))]
   if(followup) description=description.slice(0,1000)+'。这是迁移练习：地点必须不同于'+followup.sourceLocation+'，原场景是'+followup.sourceTitle+'，为目标词设计新的交流任务。'
@@ -151,7 +151,7 @@ export async function startImageDialogue(userId, { wordId, sense, imagePath, dif
   const card = await getWordMemoryImage(userId, wordId, sense)
   if (card.selected?.sense !== sense || !card.imagePath) throw notFound('这条词义还没有记忆图，请先生成图片。')
   if (card.imagePath !== imagePath) throw conflict('记忆图已更新，请返回重新打开这张图。')
-  const word = await getWordById(wordId)
+  const word = await getWordById(wordId, userId)
   if (!/^[a-z]+(?:['-][a-z]+)*$/i.test(word.spelling)) throw badRequest('这张图暂不支持单词口语练习。')
   await configuredProvider(userId)
   const limits = await resolveLimits(userId)
@@ -463,7 +463,8 @@ async function finalizeReport(userId, session, report, evidence, token) {
   const candidates = [...new Set(evidence.map(e => e.word.toLowerCase()))]
   const matches = candidates.length ? await query(`SELECT w.id, w.wordbook_id, w.spelling, w.spelling_norm FROM words w
     JOIN wordbooks b ON b.id = w.wordbook_id WHERE w.spelling_norm IN (${candidates.map(() => '?').join(',')})
-    ORDER BY (w.wordbook_id = ?) DESC, (b.code = 'dialogue-core') DESC, w.id ASC`, [...candidates, book.id]) : []
+    AND (b.owner_user_id IS NULL OR b.owner_user_id = ?)
+    ORDER BY (w.wordbook_id = ?) DESC, (b.code = 'dialogue-core') DESC, w.id ASC`, [...candidates, userId, book.id]) : []
   const words = [...new Map(matches.toReversed().map(w => [w.spelling_norm, w])).values()]
   await withTransaction(async conn => {
     const [rows] = await conn.execute('SELECT status, operation_token FROM dialogue_sessions WHERE id = ? AND user_id = ? FOR UPDATE', [session.id, userId])

@@ -38,10 +38,13 @@ export function mapWordRow(row) {
   }
 }
 
-export async function listWordbooks() {
+export const visibleWordbook = '(SELECT id FROM wordbooks WHERE owner_user_id IS NULL OR owner_user_id = ?)'
+
+export async function listWordbooks(userId = null) {
   const rows = await query(
     `SELECT id, code, name, scope, description, is_builtin, word_count
-       FROM wordbooks ORDER BY is_builtin DESC, id ASC`
+       FROM wordbooks WHERE owner_user_id IS NULL OR owner_user_id = ? ORDER BY is_builtin DESC, id ASC`,
+    [userId]
   )
   return rows.map((row) => ({
     id: Number(row.id),
@@ -54,8 +57,8 @@ export async function listWordbooks() {
   }))
 }
 
-export async function getWordbookByCode(code) {
-  const row = await queryOne('SELECT * FROM wordbooks WHERE code = ?', [code])
+export async function getWordbookByCode(code, userId = null) {
+  const row = await queryOne('SELECT * FROM wordbooks WHERE code = ? AND (owner_user_id IS NULL OR owner_user_id = ?)', [code, userId])
   if (!row) throw notFound(`词书不存在：${code}`)
   return {
     id: Number(row.id),
@@ -77,7 +80,7 @@ export async function resolveWordbookForUser(userId) {
       `SELECT b.id, b.code, b.name, b.scope, b.description, b.word_count
          FROM user_profiles p
          JOIN wordbooks b ON b.id = p.wordbook_id
-        WHERE p.user_id = ?`,
+        WHERE p.user_id = ? AND (b.owner_user_id IS NULL OR b.owner_user_id = p.user_id)`,
       [userId]
     )
     if (profileRow) return mapWordbookRow(profileRow)
@@ -94,7 +97,7 @@ export async function resolveWordbookForUser(userId) {
 
   // 3) 兜底：随便给一本，至少不让学习流程中断
   const fallback = await queryOne(
-    'SELECT id, code, name, scope, description, word_count FROM wordbooks ORDER BY is_builtin DESC, id ASC LIMIT 1'
+    'SELECT id, code, name, scope, description, word_count FROM wordbooks WHERE owner_user_id IS NULL ORDER BY is_builtin DESC, id ASC LIMIT 1'
   )
   if (!fallback) throw notFound('尚未导入任何词书，请先执行 npm run db:import')
   return mapWordbookRow(fallback)
@@ -165,19 +168,19 @@ export async function listWords({ wordbookId, page = 1, size = 20, freq, difficu
   return { items: rows.map(mapWordRow), total }
 }
 
-export async function getWordById(id) {
-  const row = await queryOne('SELECT * FROM words WHERE id = ?', [id])
+export async function getWordById(id, userId = null) {
+  const row = await queryOne(`SELECT * FROM words WHERE id = ? AND wordbook_id IN ${visibleWordbook}`, [id, userId])
   if (!row) throw notFound('单词不存在')
   return mapWordRow(row)
 }
 
 /** 按 id 批量取词，返回顺序与传入的 ids 保持一致（缺失的词直接跳过） */
-export async function listWordsByIds(ids = []) {
+export async function listWordsByIds(ids = [], userId = null) {
   const normalized = [...new Set(ids.map((id) => Number(id)).filter(Number.isFinite))]
   if (!normalized.length) return []
 
   const placeholders = normalized.map(() => '?').join(',')
-  const rows = await query(`SELECT * FROM words WHERE id IN (${placeholders})`, normalized)
+  const rows = await query(`SELECT * FROM words WHERE id IN (${placeholders}) AND wordbook_id IN ${visibleWordbook}`, [...normalized, userId])
   const byId = new Map(rows.map((row) => [Number(row.id), mapWordRow(row)]))
   return normalized.map((id) => byId.get(id)).filter(Boolean)
 }
@@ -212,8 +215,8 @@ export async function getRelatedWords(wordId, { limit = 6 } = {}) {
 export async function findWordByDefinition(definitionText) {
   if (typeof definitionText !== 'string' || !definitionText.trim()) return null
   const row = await queryOne(
-    'SELECT * FROM words WHERE JSON_CONTAINS(definitions, JSON_QUOTE(?)) LIMIT 1',
-    [definitionText.trim()]
+    `SELECT * FROM words WHERE JSON_CONTAINS(definitions, JSON_QUOTE(?)) AND wordbook_id IN ${visibleWordbook} LIMIT 1`,
+    [definitionText.trim(), null]
   )
   return mapWordRow(row)
 }

@@ -112,13 +112,13 @@ export async function updateProfile(userId, patch = {}) {
       ? { ...current.topicWeights, ...patch.topicWeights }
       : current.topicWeights,
     needsWriting: patch.needsWriting != null ? Boolean(patch.needsWriting) : current.needsWriting,
-    wordbookId: patch.wordbookId != null ? Number(patch.wordbookId) : current.wordbookId,
+    wordbookId: patch.wordbookId != null ? Number(patch.wordbookId) : null,
   }
 
   await execute(
     `UPDATE user_profiles SET
        goal = ?, exam_date = ?, self_level = ?, daily_time = ?,
-       new_per_day = ?, review_per_day = ?, wordbook_id = ?, memory_prefs = ?,
+       new_per_day = ?, review_per_day = ?, wordbook_id = COALESCE(?, wordbook_id), memory_prefs = ?,
        topic_weights = ?, needs_writing = ?
      WHERE user_id = ?`,
     [

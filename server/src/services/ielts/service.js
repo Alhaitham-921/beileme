@@ -179,7 +179,7 @@ export async function decideSuggestion(userId,id,state) {
     if(rows[0].state!=='pending') return {state:rows[0].state}
     let wordId=null
     if(state==='accepted') {
-      const [words]=await conn.execute('SELECT id,wordbook_id FROM words WHERE spelling_norm=? ORDER BY id LIMIT 1',[rows[0].spelling.toLowerCase()])
+      const [words]=await conn.execute('SELECT id,wordbook_id FROM words WHERE spelling_norm=? AND wordbook_id IN (SELECT id FROM wordbooks WHERE owner_user_id IS NULL OR owner_user_id=?) ORDER BY id LIMIT 1',[rows[0].spelling.toLowerCase(), userId])
       if(words.length){wordId=Number(words[0].id);await conn.execute('INSERT INTO user_word_progress(user_id,word_id,wordbook_id,first_learned_at,next_review_at) VALUES(?,?,?,UTC_TIMESTAMP(),UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE next_review_at=LEAST(COALESCE(next_review_at,UTC_TIMESTAMP()),UTC_TIMESTAMP())',[userId,wordId,words[0].wordbook_id])}
     }
     await conn.execute('UPDATE learning_suggestions SET state=? WHERE id=?',[state,id])

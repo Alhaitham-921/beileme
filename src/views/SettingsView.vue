@@ -5,6 +5,7 @@ import EmailRecoveryPanel from '../components/EmailRecoveryPanel.vue'
 import ThemePicker from '../components/ThemePicker.vue'
 import SpeechSettingsPanel from '../components/SpeechSettingsPanel.vue'
 import NavigationSettings from '../components/NavigationSettings.vue'
+import WordbookSettings from '../components/WordbookSettings.vue'
 import AvatarSettings from '../components/AvatarSettings.vue'
 import { readAutoPronounce, saveAutoPronounce } from '../utils/wordAudio.js'
 
@@ -286,9 +287,11 @@ const typeLabels = { dialogue: '情境对话（含复盘与重试）',
     <div class="settings-sections" role="group" aria-label="设置分组">
       <button :class="{ active: settingsSection === 'appearance' }" :aria-pressed="settingsSection === 'appearance'" @click="settingsSection = 'appearance'">学习环境 <span>外观与个性化</span></button>
       <button :class="{ active: settingsSection === 'ai' }" :aria-pressed="settingsSection === 'ai'" @click="settingsSection = 'ai'">AI 服务 <span>连接与用量</span></button>
+      <button :class="{ active: settingsSection === 'wordbooks' }" :aria-pressed="settingsSection === 'wordbooks'" @click="settingsSection = 'wordbooks'">词书 <span>选择与导入</span></button>
       <button :class="{ active: settingsSection === 'speech' }" :aria-pressed="settingsSection === 'speech'" @click="settingsSection = 'speech'">语音服务 <span>共享语音输入</span></button>
     </div>
     <EmailRecoveryPanel v-if="settingsSection === 'account'" />
+    <WordbookSettings v-if="settingsSection === 'wordbooks'" />
     <button class="btn btn-ghost" @click="settingsSection = 'account'">账号安全 · 邮箱验证</button>
     <AvatarSettings v-if="settingsSection === 'appearance'" />
     <ThemePicker v-show="settingsSection === 'appearance'" />
@@ -643,7 +646,7 @@ const typeLabels = { dialogue: '情境对话（含复盘与重试）',
 .settings-sections span { display: block; font-size: 10px; color: var(--ink-soft); margin-top: 3px; }
 .key-row { flex-wrap: wrap; }
 .key-actions { flex-wrap: wrap; }
-@media (max-width: 480px) { .settings-sections { gap: 6px; }.settings-sections button { flex: 1; padding: 10px 12px; } }
+@media (max-width: 480px) { .settings-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }.settings-sections button { padding: 10px 12px; } }
 .block {
   margin-bottom: 16px;
 }

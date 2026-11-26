@@ -1,5 +1,5 @@
 import { query, queryOne, execute } from '../db/pool.js'
-import { getWordById, getRelatedWords } from './wordService.js'
+import { getWordById, getRelatedWords, visibleWordbook } from './wordService.js'
 import { diffSpelling, formSimilarity, levenshtein } from './wordRelations.js'
 import { parseJson } from '../utils/json.js'
 import { WORD_USAGE } from '../../data/wordUsage.js'
@@ -160,15 +160,15 @@ export async function cachedWordCollocations(userId, word) {
   return pairedCollocations(localCollocationsFor(word.spelling), await savedAiUsage(userId, word))
 }
 
-async function extraFormWords(word) {
+async function extraFormWords(word, userId) {
   const spelling = word.spelling.toLowerCase()
   if (!/^[a-z]{4,32}$/.test(spelling)) return []
   // The spelling index gives a small cross-book candidate set. Distance and a score
   // floor prevent unrelated words or duplicate spellings from filling the card.
   const rows = await query(`SELECT id, spelling, definitions
     FROM words WHERE spelling_norm LIKE ? AND spelling_norm<>?
-      AND CHAR_LENGTH(spelling_norm) BETWEEN ? AND ?
-    ORDER BY spelling_norm LIMIT 400`, [spelling.slice(0, 2) + '%', spelling, spelling.length - 2, spelling.length + 2])
+      AND wordbook_id IN ${visibleWordbook} AND CHAR_LENGTH(spelling_norm) BETWEEN ? AND ?
+    ORDER BY spelling_norm LIMIT 400`, [spelling.slice(0, 2) + '%', spelling, userId, spelling.length - 2, spelling.length + 2])
   const candidates = new Map()
   for (const row of rows) {
     const other = row.spelling.toLowerCase()
@@ -182,7 +182,7 @@ async function extraFormWords(word) {
 }
 
 export async function getWordLearningCard(userId, wordId, { dictionaryLookup = lookupDictionary, localOnly = false } = {}) {
-  const word = await getWordById(wordId)
+  const word = await getWordById(wordId, userId)
   const spelling = word.spelling.toLowerCase()
   const local = Object.hasOwn(WORD_USAGE, spelling) ? WORD_USAGE[spelling] : { examples: [], collocations: [] }
   const [related, saved] = await Promise.all([getRelatedWords(wordId, { limit: 16 }), savedAiUsage(userId, word)])
@@ -195,7 +195,7 @@ export async function getWordLearningCard(userId, wordId, { dictionaryLookup = l
   const localCollocations = localCollocationsFor(spelling)
   const needsDictionary = !examples.length || !(localCollocations.length || saved.collocations.length)
   const remote = !localOnly && needsDictionary ? await dictionaryLookup(spelling) : { examples: [] }
-  const choices = related.some(item => item.relationType === 'form') ? related : [...related, ...await extraFormWords(word)]
+  const choices = related.some(item => item.relationType === 'form') ? related : [...related, ...await extraFormWords(word, userId)]
   const contrasts = ['form', 'meaning'].flatMap(type => choices.filter(item => item.relationType === type).slice(0, 2))
     .map(item => ({ ...item, diff: diffSpelling(word.spelling, item.spelling) }))
   return {

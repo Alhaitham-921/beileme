@@ -47,7 +47,7 @@ export async function allFavorites(userId) {
 
 export async function setNotebookWord(userId, notebookId, wordId, saved) {
   await requireNotebook(userId, notebookId)
-  if (saved) await getWordById(wordId)
+  if (saved) await getWordById(wordId, userId)
   if (notebookId === 0) {
     await execute(saved ? 'INSERT IGNORE INTO user_favorite_words (user_id,word_id) VALUES (?,?)' : 'DELETE FROM user_favorite_words WHERE user_id=? AND word_id=?', [userId, wordId])
   } else {

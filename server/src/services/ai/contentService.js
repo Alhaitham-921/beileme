@@ -310,7 +310,7 @@ async function saveContent({
 /** 取近期目标词：优先用调用方指定的词，否则用最近复习过的词 */
 async function resolveTargetWords(userId, { wordIds, limit = 10 } = {}) {
   if (Array.isArray(wordIds) && wordIds.length) {
-    const words = await listWordsByIds([...new Set(wordIds)])
+    const words = await listWordsByIds([...new Set(wordIds)], userId)
     if (!words.length) throw badRequest('给定的目标词都不存在')
     return words
   }
@@ -324,7 +324,7 @@ async function resolveTargetWords(userId, { wordIds, limit = 10 } = {}) {
     [userId]
   )
   if (!rows.length) throw badRequest('还没有学习记录，先背几个单词再来生成巩固内容吧')
-  return listWordsByIds(rows.map((row) => Number(row.id)))
+  return listWordsByIds(rows.map((row) => Number(row.id)), userId)
 }
 
 function profileForPrompt(profile) {
@@ -826,7 +826,7 @@ export async function generateQuiz(userId, { articleId, count = 3, forceNew = fa
   const provider = await resolveProvider(userId)
   await ensureCapabilitiesLoaded()
   const limits = await resolveLimits(userId)
-  const words = await listWordsByIds(article.targetWords)
+  const words = await listWordsByIds(article.targetWords, userId)
   const cacheKey = buildCacheKey({
     type: 'quiz',
     wordIds: article.targetWords,
@@ -1156,13 +1156,13 @@ async function resolveErrorWords(userId, { wordIds, limit = 6 } = {}) {
   for (const item of digest.wrongWords) breakdownMap[item.wordId] = item.breakdown
 
   if (Array.isArray(wordIds) && wordIds.length) {
-    const words = await listWordsByIds([...new Set(wordIds)])
+    const words = await listWordsByIds([...new Set(wordIds)], userId)
     return { words, breakdownMap }
   }
 
   const ranked = digest.wrongWords.slice(0, limit).map((item) => item.wordId)
   if (!ranked.length) return { words: [], breakdownMap }
-  return { words: await listWordsByIds(ranked), breakdownMap }
+  return { words: await listWordsByIds(ranked, userId), breakdownMap }
 }
 
 // ── 生成：本周薄弱点小结（PRD 4.3.3）────────────────────────

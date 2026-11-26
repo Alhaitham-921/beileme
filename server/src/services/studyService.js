@@ -15,6 +15,7 @@ import {
   mapWordRow,
   safeLimit,
   shuffle,
+  visibleWordbook,
 } from './wordService.js'
 import {
   addAnswerToPlan,
@@ -264,10 +265,10 @@ async function findWordByIdWithConn(conn, id) {
 }
 
 /** 无选项来源词时的兜底：按中文释义反查（可能命中同义的其他词，属于近似处理） */
-async function findWordByDefinitionWithConn(conn, definitionText) {
+async function findWordByDefinitionWithConn(conn, definitionText, userId) {
   const [rows] = await conn.execute(
-    'SELECT * FROM words WHERE JSON_CONTAINS(definitions, JSON_QUOTE(?)) LIMIT 1',
-    [definitionText]
+    `SELECT * FROM words WHERE JSON_CONTAINS(definitions, JSON_QUOTE(?)) AND wordbook_id IN ${visibleWordbook} LIMIT 1`,
+    [definitionText, userId]
   )
   return rows.length ? mapWordRow(rows[0]) : null
 }
@@ -362,7 +363,7 @@ export async function submitAnswer(userId, sessionId, payload = {}) {
         chosenOption?.wordId != null
           ? await findWordByIdWithConn(conn, Number(chosenOption.wordId))
           : wrongOption
-            ? await findWordByDefinitionWithConn(conn, wrongOption)
+            ? await findWordByDefinitionWithConn(conn, wrongOption, userId)
             : null
 
       if (wrongWord && Number(wrongWord.id) !== Number(wordId)) {
@@ -616,7 +617,7 @@ export async function buildSelectedReviewQueue(userId, ids) {
   if (!ids.length) throw badRequest('请至少选择一个单词')
   const placeholders = ids.map(() => '?').join(',')
   const [rows, learned] = await Promise.all([
-    query(`SELECT * FROM words WHERE id IN (${placeholders})`, ids),
+    query(`SELECT * FROM words WHERE id IN (${placeholders}) AND wordbook_id IN ${visibleWordbook}`, [...ids, userId]),
     query(`SELECT word_id FROM user_word_progress WHERE user_id=? AND word_id IN (${placeholders})`, [userId, ...ids]),
   ])
   const byId = new Map(rows.map(row => [Number(row.id),row]))
@@ -639,7 +640,7 @@ export async function createReviewSession(userId, wordIds = []) {
   const queue = []
 
   for (const wordId of ids.slice(0, cap)) {
-    const row = await queryOne('SELECT * FROM words WHERE id = ?', [wordId])
+    const row = await queryOne(`SELECT * FROM words WHERE id = ? AND wordbook_id IN ${visibleWordbook}`, [wordId, userId])
     if (!row) continue
     const word = mapWordRow(row)
     // 已经学过的记为复习，没学过的记为新词，统计口径与每日会话一致

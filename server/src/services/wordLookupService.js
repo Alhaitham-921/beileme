@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { visibleWordbook } from './wordService.js'
 import { query } from '../db/pool.js'
 import { ApiError } from '../utils/errors.js'
 import { parseJson } from '../utils/json.js'
@@ -44,22 +45,23 @@ function collectEntries(rows, limit = 8) {
   }))
 }
 
-export async function lookupInWordbooks(term) {
+export async function lookupInWordbooks(term, userId = null) {
+  const visible = `wordbook_id IN ${visibleWordbook}`
   if (hasHan.test(term)) {
     const rows = await query(`SELECT ${entryFields} FROM words
-      WHERE JSON_SEARCH(definitions, 'one', ?, '!') IS NOT NULL
+      WHERE ${visible} AND JSON_SEARCH(definitions, 'one', ?, '!') IS NOT NULL
       ORDER BY JSON_CONTAINS(definitions, JSON_QUOTE(?)) DESC, CHAR_LENGTH(spelling_norm), spelling_norm, id
-      LIMIT 80`, [`%${escapeLike(term)}%`, term])
+      LIMIT 80`, [userId, `%${escapeLike(term)}%`, term])
     const entries = collectEntries(rows)
     return { source: entries.length ? 'wordbook' : 'missing', entries, suggestions: [] }
   }
 
-  const exact = await query(`SELECT ${entryFields} FROM words WHERE spelling_norm=? ORDER BY id`, [term])
+  const exact = await query(`SELECT ${entryFields} FROM words WHERE ${visible} AND spelling_norm=? ORDER BY id`, [userId, term])
   if (exact.length) return { source: 'wordbook', entries: collectEntries(exact), suggestions: [] }
 
   const prefixes = await query(`SELECT spelling_norm, MIN(spelling) AS spelling FROM words
-    WHERE spelling_norm LIKE ? ESCAPE '!' GROUP BY spelling_norm ORDER BY spelling_norm LIMIT 8`,
-  [`${escapeLike(term)}%`])
+    WHERE ${visible} AND spelling_norm LIKE ? ESCAPE '!' GROUP BY spelling_norm ORDER BY spelling_norm LIMIT 8`,
+  [userId, `${escapeLike(term)}%`])
   return { source: 'missing', entries: [], suggestions: prefixes.map(row => row.spelling) }
 }
 
@@ -90,7 +92,7 @@ const recent = new Map()
 const pending = new Map()
 
 export async function lookupWithAi(userId, term) {
-  const local = await lookupInWordbooks(term)
+  const local = await lookupInWordbooks(term, userId)
   if (local.source === 'wordbook') return local
 
   const key = JSON.stringify([userId, term])

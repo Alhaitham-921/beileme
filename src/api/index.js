@@ -62,6 +62,8 @@ export const profile = {
   update: (body) => http.put('/profile', { body }),
   completeOnboarding: (body) => http.post('/profile/onboarding', { body }),
   wordbooks: () => http.get('/profile/wordbooks'),
+  importWordbook: (body) => http.post('/profile/wordbooks', { body }),
+  selectWordbook: (wordbookId) => http.put('/profile/wordbooks/current', { body: { wordbookId } }),
 }
 
 export const words = {

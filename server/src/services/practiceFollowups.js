@@ -41,7 +41,8 @@ export async function saveFollowups(conn, userId, session, report) {
     let word = (report.reviewWords || []).find(w => w.spelling?.toLowerCase() === task.word.toLowerCase())
     if (!word) {
       const [matches] = await conn.execute(`SELECT id FROM words WHERE spelling_norm=?
-        ORDER BY (wordbook_id=(SELECT wordbook_id FROM user_profiles WHERE user_id=?)) DESC,id ASC LIMIT 1`, [task.word.toLowerCase(), userId])
+        AND wordbook_id IN (SELECT id FROM wordbooks WHERE owner_user_id IS NULL OR owner_user_id=?)
+        ORDER BY (wordbook_id=(SELECT wordbook_id FROM user_profiles WHERE user_id=?)) DESC,id ASC LIMIT 1`, [task.word.toLowerCase(), userId, userId])
       word = matches[0]
     }
     // Linking an unused dictionary word does not create SRS progress or record a wrong answer.
