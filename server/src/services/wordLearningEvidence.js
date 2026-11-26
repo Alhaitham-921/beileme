@@ -1,54 +1,7 @@
-import { query } from '../db/pool.js'
-import { parseJson } from '../utils/json.js'
 import { businessDate } from '../utils/time.js'
+export { recordWordEvidence, loadWordEvidence } from '../repositories/learningEvidenceRepository.js'
 
 export const normalizeSense = value => String(value || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase()
-
-export async function recordWordEvidence(conn, { userId, wordId, sense = null, source, sourceKey, result, details = {}, at = new Date() }) {
-  if (!wordId) return
-  await conn.execute(`INSERT IGNORE INTO word_learning_evidence
-    (user_id,word_id,wordbook_id,spelling,sense,source,source_key,result,details,occurred_at)
-    SELECT ?,w.id,w.wordbook_id,w.spelling,?,?,?,?,?,? FROM words w WHERE w.id=?`,
-  [userId, sense || null, source, String(sourceKey), result, JSON.stringify(details), at, wordId])
-}
-
-export async function loadWordEvidence(userId, bookId, wordIds, since, until) {
-  if (!wordIds.length) return []
-  const marks = wordIds.map(() => '?').join(',')
-  const [saved, study, phrases, recalls, dialogue] = await Promise.all([
-    query(`SELECT * FROM word_learning_evidence WHERE user_id=? AND wordbook_id=? AND word_id IN (${marks})
-      AND occurred_at>=? AND occurred_at<=? ORDER BY occurred_at,id`, [userId, bookId, ...wordIds, since, until]),
-    query(`SELECT a.* FROM answer_logs a JOIN words w ON w.id=a.word_id WHERE a.user_id=? AND w.wordbook_id=?
-      AND a.word_id IN (${marks}) AND a.source IN ('study','review') AND a.created_at>=? AND a.created_at<=?`,
-    [userId, bookId, ...wordIds, since, until]),
-    query(`SELECT a.* FROM collocation_attempts a JOIN words w ON w.id=a.word_id WHERE a.user_id=? AND w.wordbook_id=?
-      AND a.word_id IN (${marks}) AND a.created_at>=? AND a.created_at<=?`, [userId, bookId, ...wordIds, since, until]),
-    query(`SELECT a.*,s.state,s.completed_at FROM word_recall_attempts a
-      JOIN word_recall_sessions s ON s.id=a.session_id AND s.user_id=a.user_id JOIN words w ON w.id=a.word_id
-      WHERE a.user_id=? AND w.wordbook_id=? AND a.word_id IN (${marks}) AND s.completed_at>=? AND s.completed_at<=?`,
-    [userId, bookId, ...wordIds, since, until]),
-    query(`SELECT a.* FROM dialogue_word_evidence a JOIN words w ON w.id=a.word_id WHERE a.user_id=? AND w.wordbook_id=?
-      AND a.word_id IN (${marks}) AND a.created_at>=? AND a.created_at<=?`, [userId, bookId, ...wordIds, since, until]),
-  ])
-  const events = saved.map(row => ({ wordId: Number(row.word_id), sense: row.sense, source: row.source,
-    sourceKey: row.source_key, result: row.result, details: parseJson(row.details, {}), at: new Date(row.occurred_at).toISOString() }))
-  const seen = new Set(events.map(event => `${event.source}:${event.sourceKey}`))
-  const add = event => { if (!seen.has(`${event.source}:${event.sourceKey}`)) events.push(event) }
-  // Old records remain visible, but absent immutable sense annotations are never reconstructed from today's dictionary.
-  for (const row of study) add({ wordId: Number(row.word_id), sense: null, source: 'study', sourceKey: String(row.id),
-    result: row.result ? 'correct' : 'incorrect', details: { legacy: true }, at: new Date(row.created_at).toISOString() })
-  for (const row of phrases) add({ wordId: Number(row.word_id), sense: null, source: 'collocation', sourceKey: String(row.id),
-    result: row.result, details: { legacy: true }, at: new Date(row.created_at).toISOString() })
-  for (const row of recalls) {
-    const item = parseJson(row.state, {}).items?.find(item => Number(item.wordId) === Number(row.word_id))
-    add({ wordId: Number(row.word_id), sense: item?.dialogue?.sense || null, source: 'recall', sourceKey: String(row.id),
-      result: row.result, details: { mode: row.mode, changedContext: Boolean(item?.changedContext), legacy: true },
-      at: new Date(row.completed_at).toISOString() })
-  }
-  for (const row of dialogue) add({ wordId: Number(row.word_id), sense: row.sense || null, source: 'dialogue', sourceKey: String(row.id),
-    result: row.result, details: { helpLevel: Number(row.help_level) }, at: new Date(row.created_at).toISOString() })
-  return events.sort((a, b) => a.at.localeCompare(b.at))
-}
 
 const names = { assessment: '自测辨义', study: '日常辨义', collocation: '搭配填空', recall: '独立回忆', image: '看图辨义', dialogue: '情境使用', dialogue_quiz: '情境小结巩固' }
 function channels(events) {
@@ -80,10 +33,18 @@ export function buildWordHistory(session, history, practiceEvents = []) {
       at: new Date(row.state.result.completedAt || row.completed_at).toISOString() })
   }
   events.sort((a, b) => a.at.localeCompare(b.at))
+  const byWord=new Map()
+  for(const event of events){
+    const rows=byWord.get(event.wordId)||[];rows.push(event);byWord.set(event.wordId,rows)
+  }
   const words = [...targets.values()].map(target => {
-    const rows = events.filter(event => event.wordId === target.wordId)
+    const rows = byWord.get(target.wordId)||[]
+    const bySense=new Map()
+    for(const event of rows)if(event.sense){
+      const key=normalizeSense(event.sense),matching=bySense.get(key)||[];matching.push(event);bySense.set(key,matching)
+    }
     const senses = [...target.senses].map(([key, sense]) => {
-      const matching = rows.filter(event => event.sense && normalizeSense(event.sense) === key)
+      const matching = bySense.get(key)||[]
       const stats = channels(matching)
       const assessment = stats.find(item => item.source === 'assessment')
       const recall = stats.find(item => item.source === 'recall')

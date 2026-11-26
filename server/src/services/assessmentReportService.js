@@ -14,7 +14,8 @@ import { emptyUsage, addUsage, usageReport } from './ai/usage.js'
 import { estimateTokens } from './ai/costEstimate.js'
 import { resolveLimits } from './ai/aiSettingsService.js'
 import { consumeWindow } from './platform/rateLimit.js'
-import { loadWordEvidence } from './wordLearningEvidence.js'
+import { loadLearningContext } from './learningContextService.js'
+import { findComparableAssessments, countAssessmentHistory } from '../repositories/assessmentHistoryRepository.js'
 
 const decode = row => ({ ...row, state: parseJson(row.state, {}) })
 const numberFields = row => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, Number(value || 0)]))
@@ -31,38 +32,18 @@ async function loadBaseline(userId, sessionId) {
   const until = new Date(savedBaseline?.asOf || session.state.result.completedAt || row.completed_at)
   const since = new Date(until.getTime() - 30 * 86400_000)
   const bookId = Number(session.state.bookId)
-  const [historyRows, totals, study, collocations, recall] = await Promise.all([
-    query(`SELECT * FROM assessment_sessions WHERE user_id=? AND id<? AND completed_at IS NOT NULL AND completed_at<=?
-      AND CAST(JSON_UNQUOTE(JSON_EXTRACT(state,'$.bookId')) AS UNSIGNED)=?
-      AND JSON_UNQUOTE(JSON_EXTRACT(state,'$.methodVersion'))=?
-      AND (? IS NULL OR JSON_EXTRACT(state,'$.questionSetVersion') IS NULL
-        OR JSON_UNQUOTE(JSON_EXTRACT(state,'$.questionSetVersion'))=?)
-      ORDER BY completed_at DESC,id DESC LIMIT 20`, [userId, sessionId, until, bookId,
-      session.state.methodVersion, session.state.questionSetVersion || null, session.state.questionSetVersion || null]),
-    queryOne(`SELECT COUNT(*) AS total,
-      SUM(COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(state,'$.bookId')) AS UNSIGNED),0)<>?) AS otherBook,
-      SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(state,'$.bookId')) AS UNSIGNED)=?
-        AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(state,'$.methodVersion')),'')<>?) AS otherVersion
-      FROM assessment_sessions WHERE user_id=? AND id<? AND completed_at IS NOT NULL AND completed_at<=?`,
-    [bookId, bookId, session.state.methodVersion, userId, sessionId, until]),
-    savedBaseline?.learning ? Promise.resolve(savedBaseline.learning.study) : queryOne(`SELECT COUNT(*) AS total, COALESCE(SUM(a.result=1),0) AS correct, COUNT(DISTINCT a.word_id) AS words
-      FROM answer_logs a JOIN words w ON w.id=a.word_id
-      WHERE a.user_id=? AND w.wordbook_id=? AND a.source IN ('study','review') AND a.created_at>=? AND a.created_at<=?`,
-    [userId, bookId, since, until]),
-    savedBaseline?.learning ? Promise.resolve(savedBaseline.learning.collocations) : queryOne(`SELECT COUNT(*) AS total, COALESCE(SUM(a.result='correct'),0) AS correct, COALESCE(SUM(a.result='unknown'),0) AS unknown
-      FROM collocation_attempts a JOIN words w ON w.id=a.word_id
-      WHERE a.user_id=? AND w.wordbook_id=? AND a.created_at>=? AND a.created_at<=?`, [userId, bookId, since, until]),
-    savedBaseline?.learning ? Promise.resolve(savedBaseline.learning.recall) : queryOne(`SELECT COUNT(*) AS total, COALESCE(SUM(a.result='independent'),0) AS independent,
-      COALESCE(SUM(a.result='hinted'),0) AS hinted, COALESCE(SUM(a.result='needs-practice'),0) AS weak
-      FROM word_recall_attempts a JOIN word_recall_sessions s ON s.id=a.session_id AND s.user_id=a.user_id
-      JOIN words w ON w.id=a.word_id WHERE a.user_id=? AND w.wordbook_id=? AND a.mode='retest'
-      AND s.completed_at>=? AND s.completed_at<=?`, [userId, bookId, since, until]),
+  const wordIds = [...new Set((session.state.answers || []).map(answer => Number(answer.snapshot?.dictionaryWordId)).filter(Boolean))]
+  const scope = { userId, sessionId, until, bookId, methodVersion:session.state.methodVersion,
+    questionVersion:session.state.questionSetVersion }
+  const [historyRows, totals, context] = await Promise.all([
+    findComparableAssessments(scope), countAssessmentHistory(scope),
+    loadLearningContext({userId,bookId,wordIds,since,until,
+      frozenLearning:savedBaseline?.learning,frozenEvidence:savedBaseline?.wordEvidence}),
   ])
   const history = historyRows.map(decode).filter(item => item.state.result?.bands)
-  const wordIds = [...new Set((session.state.answers || []).map(answer => Number(answer.snapshot?.dictionaryWordId)).filter(Boolean))]
-  const wordEvidence = savedBaseline?.wordEvidence || await loadWordEvidence(userId, bookId, wordIds, since, until)
+  const { wordEvidence, learning } = context
   const baseline = buildAssessmentBaseline({ session, history, totals: numberFields(totals),
-    wordEvidence, learning: { study: numberFields(study), collocations: numberFields(collocations), recall: numberFields(recall) } })
+    wordEvidence, learning })
   await execute('INSERT IGNORE INTO assessment_reports (session_id,user_id,baseline) VALUES (?,?,?)',
     [sessionId, userId, JSON.stringify(baseline)])
   if (saved) await execute(`UPDATE assessment_reports SET baseline=?,generation_token=NULL,generation_started_at=NULL

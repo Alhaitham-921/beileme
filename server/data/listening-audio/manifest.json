@@ -1,0 +1,38 @@
+{
+  "source": "平台原创脚本，由本地 Kokoro ONNX 合成，不含用户录音",
+  "voice": "af_heart",
+  "baseRate": 0.85,
+  "createdOn": "2026-11-26",
+  "lessons": {
+    "hotel-arrival": {
+      "file": "hotel-arrival.wav",
+      "transcriptSha256": "5cff9ac82f98db2472f2e572e41a95063d222033c3b735588967381e0da8265d",
+      "audioSha256": "7d49476f3352f62dd94b4c13a1f2d24554c4c8d6ac8e05010526011cdb8f25ae",
+      "bytes": 988588
+    },
+    "hotel-room": {
+      "file": "hotel-room.wav",
+      "transcriptSha256": "f4ad9bfe4e33c94087e79278b4e51d6c2b979a88f9784747641010c77d42407d",
+      "audioSha256": "5b193de2b8021a387b141bab5802e6826ae985204c049086d06067dfc6a737c7",
+      "bytes": 746058
+    },
+    "coffee-order": {
+      "file": "coffee-order.wav",
+      "transcriptSha256": "141f9a54fbcc9f7360ee02d91e1e7dbafbf1eceb9543bb1700ec273d81eb1a25",
+      "audioSha256": "120cb92be91962cad6902e589b33504434a0dcfcfbdb9ee36661f5c61ae874f4",
+      "bytes": 834986
+    },
+    "clarification": {
+      "file": "clarification.wav",
+      "transcriptSha256": "2f1e1fc928d18f12356bbfa68a1129c50d52ef9b5cbb303782222258fa27bf72",
+      "audioSha256": "5b1490371344e87d832bb512b57bafd8126e8b1c8d24e93621ed568f28c6c9cf",
+      "bytes": 1009260
+    },
+    "checkout-bill": {
+      "file": "checkout-bill.wav",
+      "transcriptSha256": "3488dd1e4d51ce93c7220b3d7dc32dc4578c05f4e4511dfb654c6575c0a37234",
+      "audioSha256": "5a69ab0cd27a190c1928284a757277d3ded8a101698bf43b7910390dc8577083",
+      "bytes": 944972
+    }
+  }
+}

@@ -19,7 +19,7 @@ import { resolveWordbookForUser } from '../services/wordService.js'
 import { imagePreferences, saveImagePreferences, listIllustrations, readIllustration, retryIllustration } from '../services/dialogueIllustrationService.js'
 import { listDialogues, startDialogue, getDialogue, addDialogueTurn, requestDialogueHelp, finishDialogue,
   generateScenario, saveScenario, repeatDialogue, gradeShortPractice, startImageDialogue } from '../services/dialogueService.js'
-import { answerPreparation, beginConversation, switchDialogueActor, consolidateDialogue } from '../services/dialogueJourneyService.js'
+import { answerPreparation, beginConversation, switchDialogueActor, consolidateDialogue, actWorkflow } from '../services/dialogueJourneyService.js'
 import { sceneHintStatus, startSceneHint, sceneHintBytes } from '../services/dialogueSceneImage.js'
 
 const router = Router()
@@ -66,6 +66,7 @@ router.post('/image-sessions', validate({ body: z.object({
   difficulty: difficulty.default('beginner'),
 }) }), asyncHandler(async (req, res) => ok(res, await startImageDialogue(req.user.id, req.valid.body), 201)))
 router.post('/scenes/generate', validate({ body: z.object({
+  completeWorkflow:z.boolean().default(false),
   followupId: z.number().int().positive().optional(),
   wordIds: z.array(z.number().int().positive()).min(1).max(5).optional(),
   description: z.string().trim().min(10).max(1500), difficulty: difficulty.default('beginner'),
@@ -77,8 +78,13 @@ router.post('/sessions', validate({ body: z.object({
   sceneId, strictness: strictness.default('standard'), difficulty: difficulty.default('beginner'),
   variant: z.enum(['river', 'finance']).optional(),
   mode: mode.default('task'), maxTurns: maxTurns.default(8),
+  fullJourney:z.boolean().default(false), learningRoute:z.string().max(32).optional(), transfer:z.boolean().default(false),
   prepareWords: z.boolean().default(false), challenge: z.enum(['standard','change_dates']).default('standard'),
 }) }), asyncHandler(async (req, res) => ok(res, await startDialogue(req.user.id, req.valid.body), 201)))
+router.post('/sessions/:id/workflow', validate({params:sessionId,body:z.object({
+  action:z.enum(['advance','skip','previous','reference','transcript','listen']),stageId:z.string().min(1).max(60),
+  selectedIndex:z.number().int().min(0).max(7).optional(),expectedRevision:z.number().int().nonnegative(),
+})}),asyncHandler(async(req,res)=>ok(res,await actWorkflow(req.user.id,req.valid.params.id,req.valid.body))))
 router.get('/sessions/:id', validate({ params: sessionId }), asyncHandler(async (req, res) => ok(res, await getDialogue(req.user.id, req.valid.params.id))))
 router.get('/sessions/:id/scene-image',validate({params:sessionId}),asyncHandler(async(req,res)=>ok(res,await sceneHintStatus(req.user.id,req.valid.params.id))))
 router.post('/sessions/:id/scene-image',validate({params:sessionId,body:z.object({regenerate:z.boolean().default(false)}).strict()}),asyncHandler(async(req,res)=>ok(res,await startSceneHint(req.user.id,req.valid.params.id,req.valid.body))))
@@ -88,17 +94,18 @@ router.get('/sessions/:id/scene-image/:revision',validate({params:sessionId.exte
 }))
 router.post('/sessions/:id/repeat', validate({ params: sessionId, body: z.object({
   strictness: strictness.optional(), difficulty: difficulty.optional(), mode: mode.optional(), maxTurns: maxTurns.optional(),
+  fullJourney:z.boolean().optional(),learningRoute:z.string().max(32).optional(),transfer:z.boolean().optional(),
   prepareWords: z.boolean().optional(),
 }).default({}) }), asyncHandler(async (req, res) => ok(res, await repeatDialogue(req.user.id, req.valid.params.id, req.valid.body), 201)))
 router.post('/sessions/:id/turns', validate({ params: sessionId, body: z.object({
-  text: z.string().trim().min(1).max(2000), expectedTurn: z.number().int().min(0).max(23),
+  text: z.string().trim().min(1).max(2000), expectedTurn: z.number().int().min(0).max(119),
   expectedRevision: z.number().int().min(0).optional(), actorId: z.string().max(32).optional(),
 }) }), asyncHandler(async (req, res) => ok(res, await addDialogueTurn(req.user.id, req.valid.params.id, req.valid.body))))
 router.post('/sessions/:id/help', validate({ params: sessionId, body: z.object({
   level: z.union([z.literal(2), z.literal(3), z.literal(4)]), word: z.string().max(64).optional(),
   useMemoryWord: z.boolean().optional(),
   expectedRevision: z.number().int().min(0).optional(), actorId: z.string().max(32).optional(),
-  text: z.string().trim().max(2000).optional(), expectedTurn: z.number().int().min(0).max(23),
+  text: z.string().trim().max(2000).optional(), expectedTurn: z.number().int().min(0).max(119),
 }) }), asyncHandler(async (req, res) => ok(res, await requestDialogueHelp(req.user.id, req.valid.params.id, req.valid.body))))
 router.post('/sessions/:id/finish', validate({ params: sessionId }), asyncHandler(async (req, res) => ok(res, await finishDialogue(req.user.id, req.valid.params.id))))
 const revision = z.number().int().min(0)
@@ -106,7 +113,7 @@ router.post('/sessions/:id/preparation', validate({ params: sessionId, body: z.o
   asyncHandler(async (req,res) => ok(res, await answerPreparation(req.user.id,req.valid.params.id,req.valid.body))))
 router.post('/sessions/:id/begin', validate({ params: sessionId, body: z.object({ skip: z.boolean().default(false), expectedRevision: revision }).strict() }),
   asyncHandler(async (req,res) => ok(res, await beginConversation(req.user.id,req.valid.params.id,req.valid.body))))
-router.post('/sessions/:id/actor', validate({ params: sessionId, body: z.object({ actorId: z.string().min(1).max(32), expectedTurn: z.number().int().min(0).max(23), expectedRevision: revision }).strict() }),
+router.post('/sessions/:id/actor', validate({ params: sessionId, body: z.object({ actorId: z.string().min(1).max(32), expectedTurn: z.number().int().min(0).max(119), expectedRevision: revision }).strict() }),
   asyncHandler(async (req,res) => ok(res, await switchDialogueActor(req.user.id,req.valid.params.id,req.valid.body))))
 router.post('/sessions/:id/consolidation', validate({ params: sessionId, body: z.object({ action: z.enum(['answer','hint','reset']).default('answer'),
   questionId: z.string().max(40).optional(), answer: z.string().trim().max(200).optional(), selectedIndex: z.number().int().min(0).max(3).optional(), skipped: z.boolean().optional(), expectedRevision: revision }).strict() }),

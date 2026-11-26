@@ -1,3 +1,4 @@
+import { applyWorkflowAction,workflowActorIds } from './scenarioWorkflow.js'
 import { actorMessages } from '../../../src/utils/actorConversation.js'
 import { queryOne, withTransaction } from '../db/pool.js'
 import { parseJson } from '../utils/json.js'
@@ -57,8 +58,8 @@ export async function beginConversation(userId, id, { expectedRevision, skip = f
     session.journey.preparation.skipped = skip
     session.journey.phase = 'conversation'
     const actor = currentActor(session)
-    session.messages.push({ role: 'assistant', actorId: actor.id, actorName: actor.name, text: session.scene.opening,
-      translation: session.difficulty === 'beginner' ? session.scene.openingTranslation || '' : '' })
+    session.messages.push({ role: 'assistant', actorId: actor.id, actorName: actor.name, flowStageId:session.scene.workflow?.stages[0].id,event:session.scene.workflow?'stage_opening':undefined, text: session.scene.opening,
+      translation: session.difficulty === 'beginner' && !session.scene.workflow ? session.scene.openingTranslation || '' : '' })
   })
 }
 
@@ -67,6 +68,7 @@ export function switchDialogueActor(userId, id, { actorId, expectedRevision, exp
     assertConversation(session)
     const next = session.scene.actors.find(actor => actor.id === actorId)
     if (!next) throw badRequest('请选择本场景中的交谈对象')
+    if(!workflowActorIds(session).includes(actorId))throw badRequest('当前阶段请联系负责本步骤的角色；进入后续阶段可联系其他对象')
     if (session.journey.activeActorId === actorId) return false
     assertRevision(session, expectedRevision)
     if (session.turnCount !== expectedTurn) throw conflict('对话已更新，请刷新后切换')
@@ -141,4 +143,11 @@ async function previousChallenge(conn, userId, sessionId, key) {
   const prior = parseJson(row.state, {})
   return { previousIndependentWords: (prior.targetUsage || []).filter(t => t.status === 'independent').length,
     previousHelpCount: (prior.helpEvents || []).length }
+}
+
+export function actWorkflow(userId,id,input) {
+  return mutate(userId,id,['active'],session=>{
+    assertConversation(session); assertRevision(session,input.expectedRevision)
+    try { applyWorkflowAction(session,input) } catch(error) { throw badRequest(error.message) }
+  })
 }

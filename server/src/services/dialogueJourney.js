@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { workflowState, workflowGoals, activeWorkflowStage, sanitizeWorkflow, workflowOutcome } from './scenarioWorkflow.js'
 
 const actor = (id, name, responsibility) => ({ id, name, role: name, responsibility })
 const catalogs = {
@@ -70,8 +71,9 @@ export function consolidationQuestions(scene) {
 
 export function initJourney(scene, prepare = false) {
   return { version: 1, phase: prepare ? 'preparation' : 'conversation', revision: 0,
-    activeActorId: scene.actors[0].id, actorEvents: [], handoff: null,
-    goals: scene.goals.map((description, index) => ({ id: `goal-${index + 1}`, description, completed: false })),
+    activeActorId: scene.workflow?.stages[0].actorId || scene.actors[0].id, actorEvents: [], handoff: null,
+    goals: scene.workflow ? workflowGoals(scene) : scene.goals.map((description, index) => ({ id: `goal-${index + 1}`, description, completed: false })),
+    ...(scene.workflow ? {flow:workflowState(scene)} : {}),
     preparation: { skipped: !prepare, answers: [] }, preparationQuestions: meaningQuestions(scene.targets, 'prepare') }
 }
 
@@ -84,13 +86,17 @@ export function applyGoalEvidence(session, raw, text, helpLevel) {
     const goal = journey.goals.find(goal => goal.id === evidence.goalId)
     const quote = typeof evidence.quote === 'string' ? evidence.quote.trim() : ''
     // Completion is a model assessment with a verifiable excerpt, not a keyword or turn-count score.
-    if (!goal || evidence.completed !== true || quote.length < 5 || !/[A-Za-z]/.test(quote) || !text.includes(quote) || /\p{Script=Han}/u.test(text)) continue
+    if ((activeWorkflowStage(session) && goal?.stageId !== activeWorkflowStage(session).id) || !goal || evidence.completed !== true || quote.length < 5 || !/[A-Za-z]/.test(quote) || !text.includes(quote) || /\p{Script=Han}/u.test(text)) continue
     if (session.messages.at(-1)?.role === 'user' && session.messages.at(-1)?.corrections?.some(c => c.original && quote.includes(c.original))) continue
-    const independent = helpLevel < 2
+    const independent = helpLevel < 2 && !journey.flow?.references.includes(activeWorkflowStage(session)?.id)
     if (goal.completed && (goal.independent || !independent)) continue
     Object.assign(goal, { completed: true, independent, quote, actorId: journey.activeActorId, turn: session.turnCount + 1 })
   }
   const handoff = raw.handoff
+  const currentStage=activeWorkflowStage(session)
+  if(currentStage && journey.goals.filter(g=>g.stageId===currentStage.id).every(g=>g.completed)) {
+    journey.flow.skipped=journey.flow.skipped.filter(id=>id!==currentStage.id)
+  }
   journey.handoff = handoff && typeof handoff.reason === 'string' && handoff.reason.trim().length > 0 && handoff.reason.length <= 250 &&
     session.scene.actors.some(actor => actor.id === handoff.actorId && actor.id !== journey.activeActorId)
     ? { actorId: handoff.actorId, reason: handoff.reason.trim() } : null
@@ -109,7 +115,7 @@ export function challengeOutcome(session) {
   const completed = session.mode === 'task' && session.turnCount > 0 && goals.length > 0 && goals.every(goal => goal.completed)
   const independent = completed && goals.every(goal => goal.independent) && !(session.helpEvents || []).some(event => event.level >= 2) &&
     (session.targetUsage || []).some(target => target.status === 'independent')
-  return { completed, independent, goals: structuredClone(goals), assessedBy: 'ai_with_quoted_user_evidence',
+  return { completed, independent, workflow:workflowOutcome(session), goals: structuredClone(goals), assessedBy: 'ai_with_quoted_user_evidence',
     note: '通关记录代表本次任务表现，不是英语等级或长期掌握证明。' }
 }
 
@@ -131,5 +137,5 @@ export function presentJourney(session) {
     result.consolidation = { ...progress, questions: questions.map(({ answer, correctIndex, ...question }) => question) }
     delete result._consolidation
   }
-  return result
+  return sanitizeWorkflow(result)
 }

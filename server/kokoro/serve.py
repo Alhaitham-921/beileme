@@ -73,5 +73,8 @@ class Handler(BaseHTTPRequestHandler):
 print('Warming up Kokoro English voice...', flush=True)
 synthesize('Welcome to Beileme.', 1)
 bind_host = os.environ.get('KOKORO_BIND_HOST', '127.0.0.1')
-print(f'Kokoro ready at http://{bind_host}:3003', flush=True)
-HTTPServer((bind_host, 3003), Handler).serve_forever()
+bind_port = int(os.environ.get('KOKORO_PORT', '3003'))
+if not 1 <= bind_port <= 65535:
+    raise ValueError('Invalid Kokoro port')
+print(f'Kokoro ready at http://{bind_host}:{bind_port}', flush=True)
+HTTPServer((bind_host, bind_port), Handler).serve_forever()

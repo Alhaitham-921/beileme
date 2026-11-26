@@ -1,3 +1,4 @@
+import { generateProviderImage } from '../adapters/imageProvider.js'
 import { createHash, randomUUID } from 'node:crypto'
 import sharp from 'sharp'
 import { config } from '../config.js'
@@ -28,8 +29,6 @@ const ILLUSTRATION_STYLE = [
   'Show one focal object or one everyday action with at most two people and two essential props. Make the action and direction obvious through posture and placement.',
   'Use a single scene, suitable for students. Keep the artwork free of letters, numbers, captions, logos, gradients, textures and decorative borders.',
 ].join(' ')
-const NEGATIVE_PROMPT = 'photorealism, 3D render, high saturation, neon colors, gradients, glossy surfaces, grain, heavy shadows, ' +
-  'busy background, collage, extra objects, multiple panels, typography, letters, captions, logos, decorative frame'
 const hashSense = sense => createHash('sha256').update(sense).digest()
 const imageEnabled = () => Boolean(config.wordImages.apiKey && config.wordImages.model && config.wordImages.dailyQuota)
 const stateSql = `CASE WHEN lease_until > UTC_TIMESTAMP(3) THEN 'pending'
@@ -154,85 +153,8 @@ function isWebp(image) {
     image.toString('ascii', 8, 12) === 'WEBP' && image.readUInt32LE(4) + 8 === image.length
 }
 
-async function downloadSiliconFlowImage(value, signal) {
-  const url = typeof value === 'string' ? URL.parse(value) : null
-  const trustedHost = url && (url.hostname.endsWith('.siliconflow.cn') ||
-    /^(sc-maas|sf-maas-uat-prod|sf-maas-prod)\.oss-cn-[a-z0-9-]+\.aliyuncs\.com$/.test(url.hostname))
-  if (!trustedHost || url.protocol !== 'https:' || url.port || url.username || url.password) {
-    throw new Error('Unexpected SiliconFlow image host')
-  }
-
-  // The signed download URL authorizes the request. Keep the API key on the generation endpoint.
-  let response
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      response = await fetch(url.href, { signal, redirect: 'error' })
-    } catch (error) {
-      if (attempt || signal.aborted) throw error
-      continue
-    }
-    if (attempt || response.status < 500) break
-    await response.body?.cancel()
-  }
-  if (!response.ok || !response.body || Number(response.headers.get('content-length')) > MAX_DOWNLOAD_BYTES) {
-    await response.body?.cancel()
-    throw new Error(`Invalid SiliconFlow download (${response.status})`)
-  }
-  const chunks = []
-  let size = 0
-  for await (const chunk of response.body) {
-    size += chunk.byteLength
-    if (size > MAX_DOWNLOAD_BYTES) throw new Error('SiliconFlow image exceeds the download limit')
-    chunks.push(chunk)
-  }
-  const image = Buffer.concat(chunks, size)
-  if (!image.subarray(0, 8).equals(PNG_SIGNATURE) && !image.subarray(0, 3).equals(JPEG_SIGNATURE) && !isWebp(image)) {
-    throw new Error('Unsupported SiliconFlow image format')
-  }
-  return image
-}
-
-export async function generateImage(scene, timings = {}, style = ILLUSTRATION_STYLE) {
-  const { baseUrl, apiKey, model, siliconFlow } = config.wordImages
-  const prompt = `Depict this exact scene, keeping the described action, objects and positions: ${scene}\n${style}`
-  const body = siliconFlow
-    ? { model, prompt, image_size: '1024x1024', ...(model === 'Kwai-Kolors/Kolors'
-      ? { negative_prompt: NEGATIVE_PROMPT, num_inference_steps: 20, guidance_scale: 7.5 } : {}) }
-    : { model, prompt, n: 1, size: '1024x1024', quality: 'low', output_format: 'webp', output_compression: 75 }
-  const signal = AbortSignal.timeout(GENERATION_TIMEOUT_MS)
-  const requestedAt = performance.now()
-  const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/images/generations`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal,
-    redirect: 'error',
-  })
-  if (!response.ok) {
-    await response.body?.cancel()
-    throw new Error(`Image provider HTTP ${response.status}`)
-  }
-  const payload = await response.json()
-  timings.providerMs = Math.round(performance.now() - requestedAt)
-  const receivedAt = performance.now()
-  let image
-  if (siliconFlow) {
-    image = await downloadSiliconFlowImage(payload?.images?.[0]?.url, signal)
-  } else {
-    const encoded = payload?.data?.[0]?.b64_json
-    if (typeof encoded !== 'string' || encoded.length > Math.ceil(MAX_IMAGE_BYTES / 3) * 4) {
-      throw new Error('Invalid image payload')
-    }
-    image = Buffer.from(encoded, 'base64')
-    if (image.toString('base64') !== encoded) throw new Error('Invalid base64 image')
-  }
-  timings.downloadMs = Math.round(performance.now() - receivedAt)
-  const decodedAt = performance.now()
-  const normalized = await sharp(image, { limitInputPixels: 4096 * 4096, autoOrient: true })
-    .resize(640, 640, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 82 }).toBuffer()
-  if (normalized.length > MAX_IMAGE_BYTES || !isWebp(normalized)) throw new Error('Invalid WebP image')
-  timings.normalizeMs = Math.round(performance.now() - decodedAt)
-  return normalized
+export async function generateImage(scene,timings={},style=ILLUSTRATION_STYLE) {
+  return generateProviderImage(scene,timings,style,config.wordImages)
 }
 
 export async function generateSceneHintImage(scene) {

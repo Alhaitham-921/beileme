@@ -67,6 +67,7 @@ export const config = {
       ? readString('DB_TEST_NAME', 'beileme_test')
       : readString('DB_NAME', 'beileme'),
     connectionLimit: readInt('DB_CONNECTION_LIMIT', 10),
+    queueLimit: Math.max(1,readInt('DB_QUEUE_LIMIT',100)),
   },
 
   jwt: {

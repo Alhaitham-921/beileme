@@ -4,6 +4,7 @@
  */
 import http from './client.js'
 export const practice = {
+  workflow:(id,body)=>http.post(`/practice/sessions/${id}/workflow`,{body}),
   illustrationSettings: () => http.get('/practice/illustration-settings'),
   saveIllustrationSettings: (autoImages) => http.put('/practice/illustration-settings', { body: { autoImages } }),
   illustrations: (query, options = {}) => http.get('/practice/illustrations', { query, ...options }),
@@ -24,6 +25,15 @@ export const practice = {
   help: (id, body) => http.post(`/practice/sessions/${encodeURIComponent(id)}/help`, { body, timeoutMs: 150000 }),
   finish: (id) => http.post(`/practice/sessions/${encodeURIComponent(id)}/finish`, { timeoutMs: 150000 }),
   retryReport: (id) => http.post(`/practice/sessions/${encodeURIComponent(id)}/retry-report`, { timeoutMs: 150000 }),
+}
+export const library={
+  overview:()=>http.get('/library'),
+  lesson:id=>http.get(`/library/listening/${id}`),
+  audio:(id,revision)=>http.get(`/library/listening/${id}/audio`,{query:revision?{v:revision}:{},responseType:'blob'}),
+  listen:(id,body)=>http.post(`/library/listening/${id}`,{body}),
+  read:(id,chapter)=>http.get(`/library/books/${id}`,{query:chapter?{chapter}:{}}),
+  saveReading:(id,body)=>http.put(`/library/books/${id}/progress`,{body}),
+  notice:async id=>(await http.get(`/library/books/${id}/notice`)).notice,
 }
 export const assessment = {
   history: () => http.get('/assessment/placement', { timeoutMs: 8000 }),

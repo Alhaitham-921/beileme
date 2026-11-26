@@ -32,7 +32,7 @@ const reviewQueue = `${latestRecall}, review_queue AS (
 
 export async function recallDue(conn, userId, day) {
   const [[counts]] = await conn.execute(`${reviewQueue}
-    SELECT COUNT(DISTINCT IF(due_on<=?,word_id,NULL)) AS due, MIN(due_on) AS nextDate,
+    SELECT COUNT(DISTINCT IF(due_on<=?,CONCAT(word_id,':',COALESCE(dialogue_task_id,0)),NULL)) AS due, MIN(due_on) AS nextDate,
       MIN(IF(due_on<=?,due_on,NULL)) AS oldestDue, SUM(focused) AS focused FROM review_queue`,
   [userId, userId, userId, day, day])
   return { due: Number(counts.due), nextDate: toDateKey(counts.nextDate),

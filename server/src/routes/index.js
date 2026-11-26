@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import libraryRoutes from './library.js'
 import authRoutes from './auth.js'
 import recoveryRoutes from './recovery.js'
 import profileRoutes from './profile.js'
@@ -26,6 +27,7 @@ import ttsRoutes from './tts.js'
 const router = Router()
 
 router.use('/health', healthRoutes)
+router.use('/library',libraryRoutes)
 router.use('/assessment', assessmentRoutes)
 router.use('/recall', recallRoutes)
 router.use('/spelling', spellingRoutes)

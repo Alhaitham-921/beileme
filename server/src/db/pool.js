@@ -1,5 +1,6 @@
 import mysql from 'mysql2/promise'
 import { config } from '../config.js'
+import { databaseError } from './errors.js'
 
 /**
  * 全局连接池。timezone 固定为 UTC，避免 JS Date 与 MySQL DATETIME 之间出现时区漂移；
@@ -13,7 +14,7 @@ export const pool = mysql.createPool({
   database: config.db.database,
   waitForConnections: true,
   connectionLimit: config.db.connectionLimit,
-  queueLimit: 0,
+  queueLimit: config.db.queueLimit,
   charset: 'utf8mb4_unicode_ci',
   timezone: 'Z',
   // DATE 列保持字符串形态（'YYYY-MM-DD'）：业务日期全程按字符串比较与拼装，
@@ -30,7 +31,8 @@ pool.on('connection', connection => { connection.query("SET time_zone = '+00:00'
 
 /** 查询并返回行数组 */
 export async function query(sql, params = []) {
-  const [rows] = await pool.execute(sql, params)
+  let rows
+  try { [rows] = await pool.execute(sql, params) } catch(error) { throw databaseError(error) }
   return rows
 }
 
@@ -42,7 +44,8 @@ export async function queryOne(sql, params = []) {
 
 /** 执行写入，返回 { insertId, affectedRows } */
 export async function execute(sql, params = []) {
-  const [result] = await pool.execute(sql, params)
+  let result
+  try { [result] = await pool.execute(sql, params) } catch(error) { throw databaseError(error) }
   return result
 }
 
@@ -53,7 +56,7 @@ export async function execute(sql, params = []) {
  * @returns {Promise<T>}
  */
 export async function withTransaction(fn) {
-  const conn = await pool.getConnection()
+  const conn = await pool.getConnection().catch(error=>{throw databaseError(error)})
   try {
     await conn.beginTransaction()
     const result = await fn(conn)

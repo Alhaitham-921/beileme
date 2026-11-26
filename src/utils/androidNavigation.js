@@ -2,6 +2,7 @@ export const fixedTabs = [
   { id:'today',to:'/',icon:'home',label:'今日',pages:['/study','/assessment'] },
 ]
 export const navigationModules = [
+  {id:'library',to:'/library',icon:'book',label:'听读空间'},
   {id:'notebooks',to:'/notebooks',icon:'book',label:'单词本',pages:['/recall']},
   {id:'practice',to:'/practice',icon:'chat',label:'情境'},
   {id:'more',to:'/more',icon:'menu',label:'更多'},
@@ -14,7 +15,7 @@ export const navigationModules = [
 ]
 export const mainNavigation = [
   {...fixedTabs[0],caption:'TODAY'},
-  ...['lookup','review','notebooks','practice','roots','dashboard','leaderboard'].map(id=>navigationModules.find(module=>module.id===id)),
+  ...['lookup','review','notebooks','practice','library','roots','dashboard','leaderboard'].map(id=>navigationModules.find(module=>module.id===id)),
 ]
 export const defaultTabIds = ['notebooks','practice','leaderboard','more']
 export function normalizeTabIds(value) {

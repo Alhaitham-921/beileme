@@ -22,6 +22,7 @@ import { currentActor, assertRevision, assertConversation, saveChallenge } from 
 import { getWordMemoryImage } from './wordMemoryImageService.js'
 import { buildImageScenarioMessages, validateImageScenario, copiedImageHelp } from './imageDialogueEngine.js'
 import { illustrationContext, queueOpeningIllustration, queueTurnIllustration } from './dialogueIllustrationService.js'
+import { withWorkflow } from './scenarioWorkflow.js'
 import { visualUpdate } from './dialogueIllustrationEngine.js'
 
 const reportJobs = new Map()
@@ -66,16 +67,16 @@ function withDifficulty(scene, difficulty) {
     showTranslation: level === 1, chineseTolerance: level === 1 ? 'high' : level === 2 ? 'medium' : 'low' }
 }
 
-export async function generateScenario(userId, { description, difficulty = 'beginner', wordIds = [], followupId }) {
+export async function generateScenario(userId, { completeWorkflow=false, description, difficulty = 'beginner', wordIds = [], followupId }) {
   const words = await Promise.all([...new Set(wordIds)].map(getWordById))
   const followup=followupId?await getFollowup(userId,followupId):null
   const targetWords = followup?[followup.word.toLowerCase()]:[...new Set(words.map(w => w.spelling.toLowerCase()))]
   if(followup) description=description.slice(0,1000)+'。这是迁移练习：地点必须不同于'+followup.sourceLocation+'，原场景是'+followup.sourceTitle+'，为目标词设计新的交流任务。'
   if (targetWords.some(w => !/^[a-z]+(?:['-][a-z]+)*$/.test(w))) throw badRequest('请选择单个英文单词作为情景目标词')
-  const request = { description, difficulty, ...(targetWords.length ? { targetWords } : {}) }
-  const generation = {}
-  const { value, usage } = await generateValidated(userId, generation,
-    buildScenarioMessages(request), raw => {const scene=validateScenario(raw,request);if(followup && scene.location===followup.sourceLocation)throw new Error('迁移场景需更换地点');return scene}, true)
+  const request = { description, difficulty,requireWorkflow:completeWorkflow, ...(targetWords.length ? { targetWords } : {}) }
+  const generation = {minimumTokens:completeWorkflow?8192:0}
+  const { value, usage } = await generateValidated(userId, {},
+    buildScenarioMessages(request), raw => {const scene=validateScenario(raw,request);if(followup && scene.location===followup.sourceLocation)throw new Error('迁移场景需更换地点');return scene}, true, undefined, generation)
   const saved = await execute(`INSERT INTO dialogue_scenes (user_id,source,difficulty,scene,generation_usage)
     VALUES (?,'custom',?,?,?)`, [userId, difficulty, JSON.stringify({ ...value, description, ...(followup?{followupId:followup.id}: {}) }), JSON.stringify(usage)])
   const scene = await savedSceneFor(userId, `custom-${saved.insertId}`)
@@ -136,7 +137,7 @@ async function configuredProvider(userId) {
   return provider
 }
 
-export async function startDialogue(userId, { sceneId, strictness = 'standard', difficulty = 'beginner', variant, mode = 'task', maxTurns = 8, prepareWords = false, challenge = 'standard' }) {
+export async function startDialogue(userId, { sceneId, strictness = 'standard', difficulty = 'beginner', variant, mode = 'task', maxTurns = 8, prepareWords = false, challenge = 'standard', fullJourney=false, learningRoute, transfer=false }) {
   let scene = await resolveScene(userId, sceneId, difficulty, variant)
   if (challenge === 'change_dates') {
     if ((scene.sourceSceneId || scene.id) !== 'hotel') throw badRequest('改期挑战适用于酒店情境')
@@ -144,7 +145,7 @@ export async function startDialogue(userId, { sceneId, strictness = 'standard', 
     scene = hotelChangeScene(scene)
   }
   if (scene.memoryImage) { mode = 'task'; maxTurns = 3 }
-  return createDialogue(userId, scene, { sceneId, strictness, difficulty, variant: scene.variant, mode, maxTurns, prepareWords })
+  return createDialogue(userId, scene, { sceneId, strictness, difficulty, variant: scene.variant, mode, maxTurns, prepareWords, fullJourney, learningRoute, transfer })
 }
 
 export async function startImageDialogue(userId, { wordId, sense, imagePath, difficulty = 'beginner' }) {
@@ -179,15 +180,17 @@ export async function repeatDialogue(userId, id, options = {}) {
   const scene = withDifficulty(structuredClone(previous.scene), difficulty)
   return createDialogue(userId, scene, { sceneId: previous.sceneId, difficulty, variant: previous.variant,
     strictness: options.strictness || previous.strictness || 'standard',
-    mode: scene.memoryImage ? 'task' : options.mode || previous.mode || 'task', maxTurns: scene.memoryImage ? 3 : options.maxTurns || previous.maxTurns || 8, prepareWords: options.prepareWords ?? false })
+    mode: scene.memoryImage ? 'task' : options.mode || previous.mode || 'task', maxTurns: scene.memoryImage ? 3 : options.maxTurns || previous.maxTurns || 8, prepareWords: options.prepareWords ?? false, fullJourney:options.fullJourney ?? Boolean(previous.scene.workflow),
+    learningRoute:options.learningRoute || previous.scene.workflow?.route,transfer:options.transfer ?? false })
 }
 
-async function createDialogue(userId, scene, { sceneId, strictness, difficulty, variant, mode, maxTurns, prepareWords }) {
+async function createDialogue(userId, scene, { sceneId, strictness, difficulty, variant, mode, maxTurns, prepareWords, fullJourney=false, learningRoute, transfer=false }) {
   if (!prepareWords) await configuredProvider(userId)
-  scene = journeyScene(scene, variant)
+  scene = withWorkflow(journeyScene(scene, variant),{fullJourney,learningRoute,transfer})
+  if (scene.workflow) maxTurns=Math.max(maxTurns,scene.workflow.stages.length*8)
   const limits = await resolveLimits(userId)
   const state = { sceneId, scene: { ...scene, maxTurns }, strictness, difficulty, variant: variant || null, mode, maxTurns, turnCount: 0,
-    messages: prepareWords ? [] : [{ role: 'assistant', actorId: scene.actors[0].id, actorName: scene.actors[0].name, text: scene.opening, translation: difficulty === 'beginner' ? (scene.openingTranslation || scene.task) : '' }],
+    messages: prepareWords ? [] : [{ role: 'assistant', actorId: scene.workflow?.stages[0].actorId || scene.actors[0].id, actorName: (scene.actors.find(a=>a.id===(scene.workflow?.stages[0].actorId||scene.actors[0].id))).name, flowStageId:scene.workflow?.stages[0].id,event:scene.workflow?'stage_opening':undefined, text: scene.opening, translation: difficulty === 'beginner' && !scene.workflow ? (scene.openingTranslation || scene.task) : '' }],
     journey: initJourney(scene, prepareWords),
     targetUsage: scene.targets.map(t => ({ ...t, status: 'unused', helpLevel: 0 })), help: null, helpEvents: [], report: null, reportAttempts: 0 }
   const id = await withTransaction(async conn => {
@@ -230,7 +233,7 @@ async function generateValidated(userId, session, messages, validator, report = 
   const total = emptyUsage()
   let jsonMode = true
   let requestMessages = messages
-  let maxTokens = limits.unlimited ? undefined : report ? Math.max(4096, limits.errorCardTokens) : Math.max(2048, limits.quizTokens)
+  let maxTokens = limits.unlimited ? undefined : Math.max(generation.minimumTokens||0,report ? Math.max(4096, limits.errorCardTokens) : Math.max(2048, limits.quizTokens))
   for (let attempt = 0; attempt < 2; attempt++) {
     await execute('INSERT IGNORE INTO dialogue_daily_usage (user_id, usage_date) VALUES (?, ?)', [userId, todayKey()])
     const reserved = await execute(`UPDATE dialogue_daily_usage SET calls = calls + 1 WHERE user_id = ? AND usage_date = ?${limits.unlimited ? '' : ' AND calls < ?'}`,
@@ -322,15 +325,17 @@ export async function addDialogueTurn(userId, id, { text, expectedTurn, expected
     }))
     const copiedHelp = copiedReferenceHelp(session, text) || copiedImageHelp(session, text)
     if (copiedHelp) session.helpEvents.push({ ...copiedHelp, source: session.scene.memoryImage ? 'memory_image' : 'reference_copy', turn: session.turnCount })
-    const helpLevel = Math.max(session.help?.level || 0, turn.mixedLanguage ? 3 : 0, copiedHelp?.level || 0)
+    const stageId=session.scene.workflow?.stages[session.journey?.flow?.index]?.id
+    const helpLevel = Math.max(session.help?.level || 0, turn.mixedLanguage ? 3 : 0, copiedHelp?.level || 0,
+      session.journey?.flow?.references.includes(stageId)?2:0)
     const assistanceWords = session.help?.example
       ? session.scene.targets.filter(t => containsWord(session.help.example, t.word)).map(t => t.word)
       : [session.help?.word || turn.helpWord].filter(Boolean)
     session.targetUsage = updateTargetUsage(session.targetUsage, { ...turn, assistanceWords: [...new Set([...assistanceWords, ...(copiedHelp?.words || [])])] }, text, helpLevel)
     const actor = currentActor(session)
-    session.messages.push({ role: 'user', recipientId: actor?.id, recipientName: actor?.name, text, corrections: turn.corrections, helpLevel, usedTargets: turn.usedTargets, mixedLanguage: turn.mixedLanguage })
+    session.messages.push({ role: 'user', flowStageId:session.scene.workflow?.stages[session.journey.flow.index].id, recipientId: actor?.id, recipientName: actor?.name, text, corrections: turn.corrections, helpLevel, usedTargets: turn.usedTargets, mixedLanguage: turn.mixedLanguage })
     applyGoalEvidence(session, turn, text, helpLevel)
-    session.messages.push({ role: 'assistant', actorId: actor?.id, actorName: actor?.name, text: turn.reply, translation: turn.translation || '', corrections: [], usage })
+    session.messages.push({ role: 'assistant', flowStageId:session.scene.workflow?.stages[session.journey.flow.index].id, actorId: actor?.id, actorName: actor?.name, text: turn.reply, translation: turn.translation || '', corrections: [], usage })
     if (session.journey) session.journey.revision++
     session.turnCount += 1
     // Chinese assistance is explicitly a demonstration awaiting a separate user turn.
@@ -344,7 +349,7 @@ export async function addDialogueTurn(userId, id, { text, expectedTurn, expected
         ? { ...t, helpLevel: Math.max(t.helpLevel || 0, 3), weak: true, status: t.status === 'unused' ? 'weak' : t.status, tags: [...new Set([...(t.tags || []), 'chinese_help'])] } : t)
     }
     const goalsComplete = session.journey?.goals?.every(goal => goal.completed)
-    const done = session.turnCount >= session.maxTurns || (!session.scene.memoryImage && session.mode !== 'free' && (goalsComplete || (session.turnCount >= 6 && turn.taskComplete)))
+    const done = session.turnCount >= session.maxTurns || (!session.scene.memoryImage && session.mode !== 'free' && (goalsComplete || (!session.scene.workflow && session.turnCount >= 6 && turn.taskComplete)))
     await saveClaimed(session, token, done ? 'analyzing' : 'active')
     await queueTurnIllustration(userId, session, turn.visualUpdate)
     if (done) scheduleReport(userId, id)
