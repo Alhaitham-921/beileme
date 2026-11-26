@@ -158,7 +158,7 @@ async function load() {
       const id = Number(route.query.session)
       if (!Number.isSafeInteger(id) || id <= 0) throw new Error('练习编号无效，请从最近练习中重新打开。')
       applySession(await practice.getSession(id))
-      
+
       return
     }
     if(route.query.scene && scenes.value.some(s=>s.id===route.query.scene)){libraryTab.value='classic';sceneId.value=String(route.query.scene)}
@@ -227,7 +227,7 @@ async function repeatSession(id,options={}) {
   if (session.value) drafts.set(session.value.id, draft.value)
   busy.value = true; error.value = ''; notice.value = ''; speech.cancel(); speech.stopSpeaking(); clearTimers(); pollFailures = 0
   try {
-    applySession(await practice.repeatSession(id,{prepareWords:true,...options})); draft.value = ''; 
+    applySession(await practice.repeatSession(id,{prepareWords:true,...options})); draft.value = '';
     revealedAnswers.value = []; checkedAnswers.value = []; shortAnswers.value = {}; scrollConversation()
   } catch (e) { error.value = e.message }
   finally { busy.value = false; resetIdle() }
@@ -263,7 +263,7 @@ async function restore(id) {
   busy.value = true; error.value = ''; notice.value = ''
   speech.cancel(); speech.stopSpeaking(); clearTimers(); pollFailures = 0
   try {
-    applySession(await practice.getSession(id)); draft.value = drafts.get(id) || ''; 
+    applySession(await practice.getSession(id)); draft.value = drafts.get(id) || '';
     revealedAnswers.value = []; checkedAnswers.value = []; shortAnswers.value = {}; scrollConversation()
   } catch (e) { error.value = e.message }
   finally { busy.value = false; resetIdle() }
@@ -486,7 +486,7 @@ onUnmounted(() => { disposed = true;if(session.value)releaseRecordingMemory(auth
       <header class="scene-bar"><div class="section-heading"><div><span class="eyebrow">{{ currentScene?.location || '情境对话' }} · {{ activeActor?.name || currentScene?.role || 'AI 伙伴' }}</span><h2>{{ currentScene?.title || '情境练习' }}</h2></div><span class="rounds">{{ session.turnCount }} / {{ session.maxTurns || 8 }} 轮</span></div><details class="session-task"><summary>本轮任务说明</summary><p>{{currentScene.displayTask || currentScene.task.split(' 按完整流程')[0]}}</p></details>
         <PracticeImage v-if="currentScene?.memoryImage" :image="currentScene.memoryImage" />
         <div class="journey-identity"><NameAvatar :name="learnerName" /><div><small>你的身份固定</small><strong>{{ currentScene.userRole || '学习者' }} · {{ learnerName }}</strong></div></div>
-        
+
         <div v-if="session.journey && !session.journey.flow" class="goal-progress"><strong>交流目标 · {{ completedGoals }} / {{ session.journey.goals.length }}</strong><ul><li v-for="goal in session.journey.goals" :key="goal.id" :class="{done:goal.completed}"><span>{{ goal.completed?'已完成':'待完成' }}</span> {{ goal.description }}<details v-if="goal.quote"><summary>查看表达依据</summary><q lang="en">{{ goal.quote }}</q></details></li></ul><small>依据本轮表达核对目标，结束对话不会自动视为通关。</small></div>
         <div v-if="talking && currentScene.actors?.length > 1" class="actor-picker" aria-label="选择交谈对象"><button v-for="actor in currentScene.actors" :key="actor.id" :class="{chosen:activeActor?.id===actor.id}" :aria-pressed="activeActor?.id===actor.id" :disabled="working || !talking || !availableActors.some(a=>a.id===actor.id)" @click="journeyAction('actor',{actorId:actor.id})"><NameAvatar :name="actor.englishName" :size="48" /><span><strong>{{ actor.name }}</strong><small>{{ activeActor?.id===actor.id?'正在交谈':availableActors.some(a=>a.id===actor.id)?'切换交谈对象':'后续阶段' }}</small></span></button></div>
         <p v-if="talking" class="current-recipient" role="status">你正在对 <strong>{{ activeActor?.name || currentScene.role }}</strong> 说话。</p>
