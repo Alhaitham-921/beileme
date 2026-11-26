@@ -8,11 +8,13 @@ import { createTypingSound } from '../utils/spellingPractice.js'
 const answerSound = createTypingSound()
 import MistakeRounds from '../components/MistakeRounds.vue'
 const retryItems = ref([])
+let completedReviewSession = null
+import StudyChoices from '../components/StudyChoices.vue'
 import WordLearningCard from '../components/WordLearningCard.vue'
 import { readAutoPronounce, wordAudioIdentity } from '../utils/wordAudio.js'
 import PracticeFollowups from '../components/PracticeFollowups.vue'
 import { http } from '../api/client.js'
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { studyKey } from '../utils/studyKeyboard'
 import { studySwipeDirection } from '../utils/studySwipe.js'
 import FavoriteWord from '../components/FavoriteWord.vue'
@@ -57,6 +59,8 @@ function onNativeActivity(event) {
 }
 const navigationNotice = ref('')
 const wordCard = ref(null)
+const mainFavorite = ref(null)
+const favoriteOverrides = reactive(new Map())
 let swipe = null
 let speechGeneration = 0
 const continueRequested = ref(false)
@@ -106,11 +110,15 @@ watch(showAnswerCard, visible => {
 const correctIndex = computed(() => answer.value?.correctOptionIndex ??
   options.value.find(option => option.text === answer.value?.correctText)?.index ?? -1)
 
-function optionClass(index) {
-  if (status.value !== 'answered') return ''
-  if (index === correctIndex.value) return 'correct'
-  if (index === selectedIndex.value) return 'wrong'
-  return 'dim'
+function updateOptionFavorite(wordId, saved) {
+  favoriteOverrides.set(wordId, saved)
+  if (word.value?.id === wordId) void mainFavorite.value?.load()
+}
+
+function finishMistakeReview() {
+  completedReviewSession = app.session?.id
+  retryItems.value = []
+  void advance()
 }
 
 function freqLabel(freq) {
@@ -145,7 +153,7 @@ async function boot() {
 }
 
 function onKey(event) {
-  if (retryItems.value.length || event.target?.closest?.('.word-learning-card, .speak-btn')) return
+  if (event.defaultPrevented || retryItems.value.length || event.target?.closest?.('.word-learning-card, .speak-btn, .option-word, .word-dialog')) return
   const key = studyKey(event)
   if (key === null || advancing.value) return
   if (key === 'next' && status.value === 'finished' && !(selectedReview.value && !app.reviewBatch.hasMore)) {
@@ -268,14 +276,14 @@ function requestAdvance() {
   void advance()
 }
 
-async function advance(retried = false) {
+async function advance() {
   if (advancing.value || pendingAnswer.value || app.loading.answering) return
   advancing.value = true
   navigationNotice.value = ''
   try {
     if (app.isLastItem) {
       if (app.allAnswered) {
-        if (!retried) {
+        if (completedReviewSession !== app.session?.id) {
           const wrong = app.items.filter(entry => entry.correct === false)
           if (wrong.length) { retryItems.value = wrong; stopSpeaking(); return }
         }
@@ -316,8 +324,8 @@ async function previous() {
 
 function startSwipe(event) {
   swipe = null
-  if (!['question', 'answered'].includes(status.value) || advancing.value || pendingAnswer.value || app.loading.answering || event.touches.length !== 1) return
-  if (event.target?.closest?.('input, textarea, select, a, .favorite-word, .speak-btn, .next-btn')) return
+  if (retryItems.value.length || !['question', 'answered'].includes(status.value) || advancing.value || pendingAnswer.value || app.loading.answering || event.touches.length !== 1) return
+  if (event.target?.closest?.('input, textarea, select, a, .favorite-word, .speak-btn, .next-btn, .option-word, .word-dialog')) return
   if (window.getSelection()?.isCollapsed === false) return
   const touch = event.touches[0]
   // Keep Android system back gestures available at the screen edges.
@@ -479,7 +487,7 @@ function changeMode() { stopSpeaking(); router.push('/') }
 
     <!-- 加载中 -->
     <PageTime :storage-key="auth.user?.id + route.path" :paused="!retryItems.length && !['question','answered'].includes(status)" />
-    <MistakeRounds v-if="retryItems.length" :items="retryItems" @done="retryItems = []; advance(true)" />
+    <MistakeRounds v-if="retryItems.length" :items="retryItems" :favorite-overrides="favoriteOverrides" @favorite="updateOptionFavorite" @done="finishMistakeReview" />
     <div v-else-if="status === 'loading'" class="card result-card">
       <span class="state-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M12 6c-3-3-7-3-10-2v15c4-1 7 0 10 2 3-2 6-3 10-2V4c-3-1-7-1-10 2Zm0 0v15" /></svg></span>
       <LoadingState skeleton>正在准备今天的单词…</LoadingState>
@@ -518,7 +526,7 @@ function changeMode() { stopSpeaking(); router.push('/') }
       <p v-if="!showAnswerCard" class="muted">{{item.reviewReason}}<span v-if="item.nextReviewAt"> · 本次到期：{{new Date(item.nextReviewAt).toLocaleDateString()}}</span></p>
       <div ref="wordCard" class="card word-card" :class="{ 'word-card-answer': showAnswerCard }">
         <div class="word-row">
-          <h1 class="word-spell">{{ word.spelling }}</h1><FavoriteWord :key="word.id" :word-id="word.id" compact-on-mobile />
+          <h1 class="word-spell">{{ word.spelling }}</h1><FavoriteWord ref="mainFavorite" :key="word.id" :word-id="word.id" compact-on-mobile @default-change="(id, saved) => favoriteOverrides.set(id, saved)" />
           <button class="speak-btn" title="朗读单词" aria-label="朗读单词" @click="speak()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m11 4-6 5H2v6h3l6 5V4Z" /><path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" /></svg></button>
         </div>
         <p v-if="preparingWordAudio"><LoadingState>正在准备朗读音频…</LoadingState></p>
@@ -549,35 +557,23 @@ function changeMode() { stopSpeaking(); router.push('/') }
           <p v-if="saveError && pendingAnswer" class="navigation-notice" role="status">
             答案尚未保存。{{ saveError }} <button type="button" class="text-button" @click="saveAnswer">重试保存</button>
           </p>
+          <StudyChoices :options="options" answered :correct-index="correctIndex" :selected-index="selectedIndex" :favorite-overrides="favoriteOverrides" @favorite="updateOptionFavorite" />
           <WordLearningCard :key="`${app.session?.id}:${word.id}`" :word="word" :initial-contrast="answer.confusableCard"
             :answered="Boolean(app.lastAnswer)" :wrong="!answer.isCorrect" :session-id="app.session?.id" compact />
         </section>
         <template v-else>
         <div class="question-heading"><p class="q-prompt">选择正确的中文释义</p><span class="question-hint">相信你的第一反应</span></div>
 
-        <div class="option-grid">
-          <button
-            v-for="option in options"
-            :key="option.index"
-            class="option choice"
-            :class="[optionClass(option.index), { selected: app.loading.answering && selectedIndex === option.index }]"
-            :disabled="status === 'answered' || Boolean(pendingAnswer) || app.loading.answering"
-            :aria-label="`${option.index + 1}. ${option.pos ? option.pos + ' ' : ''}${option.text}${status === 'answered' && option.index === correctIndex ? '，正确答案' : status === 'answered' && option.index === selectedIndex ? '，你的选择，回答错误' : ''}`"
-            @click="choose(option.index)"
-          >
-            <span class="opt-key">{{ option.index + 1 }}</span>
-            <span class="opt-text">
-              <!-- 完整释义，第一条（词表里的主释义）加粗 -->
-              <span v-if="option.pos" class="option-pos">{{ option.pos }} </span>
-              <template v-if="option.primary && option.text.startsWith(option.primary)">
-                <strong>{{ option.primary }}</strong>{{ option.text.slice(option.primary.length) }}
-              </template>
-              <template v-else>{{ option.text }}</template>
-            </span>
-            <svg v-if="status === 'answered' && option.index === correctIndex" class="option-status" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
-            <svg v-else-if="status === 'answered' && option.index === selectedIndex" class="option-status" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
-          </button>
-        </div>
+        <StudyChoices
+          :options="options"
+          :answered="status === 'answered'"
+          :correct-index="correctIndex"
+          :selected-index="selectedIndex"
+          :disabled="Boolean(pendingAnswer) || app.loading.answering"
+          :favorite-overrides="favoriteOverrides"
+          @choose="choose"
+          @favorite="updateOptionFavorite"
+        />
 
         <div v-if="status === 'question'" class="unknown-actions">
           <button class="btn btn-secondary" type="button" :disabled="Boolean(pendingAnswer) || app.loading.answering" @click="choose(null)">不认识</button>
@@ -758,7 +754,7 @@ function changeMode() { stopSpeaking(); router.push('/') }
 .unknown-actions p { width:100%; margin:0; }
 .unknown-actions label { display:flex; gap:5px; align-items:center; }
 .session-actions { display: flex; flex-wrap: wrap; gap: 8px 10px; margin-bottom: 18px; }
-.choice, .next-btn { touch-action: manipulation; }
+.next-btn { touch-action: manipulation; }
 .study-next-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
 .navigation-notice { margin: 12px 0 0; color: var(--ink-soft); font-size: 12px; }
 .word-card { scroll-margin-top: 12px; touch-action: pan-y pinch-zoom; }
@@ -768,7 +764,6 @@ function changeMode() { stopSpeaking(); router.push('/') }
 .back-link:hover { color: var(--ink); }
 .focus-label { display: inline-flex; align-items: center; gap: 7px; font-size: 10px; letter-spacing: 1px; color: var(--ink-soft); }
 .focus-label > span { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
-.choice.selected { outline: 2px solid var(--accent); background: var(--accent-soft); opacity: 1; }
 .study-head {
   display: flex;
   justify-content: space-between;
@@ -829,7 +824,6 @@ function changeMode() { stopSpeaking(); router.push('/') }
   overflow-wrap: anywhere;
 }
 
-.option-pos { color: var(--ink-soft); font-size: 0.875em; margin-right: 4px; }
 .speak-btn {
   background: var(--accent-soft);
   color: var(--accent-deep);
@@ -904,59 +898,6 @@ function changeMode() { stopSpeaking(); router.push('/') }
   margin: 0;
 }
 .question-hint { font-size: 10px; color: var(--ink-soft); opacity: .7; }
-.option-grid { gap: 10px; }
-
-.choice {
-  cursor: pointer;
-  min-height: 66px;
-  border-width: 1px;
-  background: var(--bg-card);
-  padding: 15px 18px;
-  font-size: 14px;
-  gap: 16px;
-}
-.choice .opt-key { width: 26px; height: 26px; background: transparent; border: 1px solid var(--line); border-radius: 6px; color: var(--ink-soft); font-size: 11px; font-weight: 400; }
-.option-status { width: 18px; height: 18px; margin-left: auto; flex-shrink: 0; }
-
-.choice:disabled {
-  cursor: default;
-}
-
-.choice.correct {
-  opacity: 1;
-  border-color: var(--ok);
-  background: var(--ok-soft);
-  color: var(--ok);
-}
-.choice.correct .opt-key { border-color: var(--ok); color: var(--ok); }
-
-.choice.wrong {
-  opacity: 1;
-  border-color: var(--bad);
-  background: var(--bad-soft);
-  color: var(--bad);
-}
-.choice.wrong .opt-key { border-color: var(--bad); color: var(--bad); }
-
-.choice.dim {
-  opacity: 0.55;
-}
-
-.opt-text {
-  line-height: 1.8;
-  overflow-wrap: anywhere;
-}
-
-.opt-text strong {
-  color: var(--ink);
-  font-weight: 500;
-}
-
-.choice.correct .opt-text strong,
-.choice.wrong .opt-text strong {
-  color: inherit;
-}
-
 .feedback {
   margin-top: 28px;
   padding-top: 24px;
@@ -1327,8 +1268,6 @@ function changeMode() { stopSpeaking(); router.push('/') }
   .speak-btn { width: 34px; height: 34px; }
   .word-meta { font-size: 12px; margin-bottom: 32px; }
   .question-hint { display: none; }
-  .choice { padding: 13px 14px; min-height: 62px; font-size: 13px; gap: 12px; }
-  .choice .opt-key { width: 23px; height: 23px; }
   .result-card { padding: 34px 22px; }
   .result-title { font-size: 23px; }
   .result-sub { line-height: 1.9; }

@@ -199,6 +199,9 @@ describe('提交作答：正确路径', () => {
     assert.equal(data.analysis.type, null, '答对不产生错因')
     assert.equal(data.analysis.confidence, 'high')
     assert.equal(data.confusableCard, null)
+    assert.deepEqual(data.options.map(option => option.index), item.options.map(option => option.index))
+    assert.ok(data.options.every(option => option.word?.spelling && option.word.definitions.length))
+    assert.equal(data.options.find(option => option.index === optionIndex).word.spelling, item.word.spelling)
 
     assert.equal(data.progress.repetitions, 1)
     assert.equal(data.progress.intervalDays, 1)
@@ -216,18 +219,28 @@ describe('提交作答：正确路径', () => {
 
   test('精简答题保存错误选项，重试可恢复而不会重复计分', async () => {
     const user = await createOnboardedUser(client)
-    const { sessionId, wordId } = await craftSession(user.userId, 'adapt', 'adopt')
+    const { sessionId, wordId, wrongWordId } = await craftSession(user.userId, 'adapt', 'adopt')
     const url = `/api/v1/study/sessions/${sessionId}`
+    const token = user.token
+    const unanswered = await client.get(url, { token })
+    assert.ok(unanswered.data.items[0].options.every(option => !option.word))
     const request = { token: user.token, body: { wordId, optionIndex: 1, hesitationMs: 800, deferExtras: true } }
     const saved = await client.post(`${url}/answers`, request)
     assert.equal(saved.status, 201)
     assert.equal(saved.data.isCorrect, false)
     assert.equal(saved.data.correctOptionIndex, 0)
+    const distractor = saved.data.options.find(option => option.index === 1).word
+    assert.equal(distractor.id, wrongWordId)
+    assert.equal(distractor.spelling, 'adopt')
+    assert.equal(distractor.defaultSaved, false)
+    assert.ok(distractor.definitions.length)
     assert.ok(saved.data.progress)
     assert.equal(saved.data.confusableCard, undefined)
     assert.equal(saved.data.unlockedBadges, undefined)
     assert.equal((await client.post(`${url}/answers`, request)).status, 409)
-    const restored = await client.get(url, { token: user.token })
+    await execute('INSERT INTO user_favorite_words (user_id, word_id) VALUES (?, ?)', [user.userId, wrongWordId])
+    const restored = await client.get(url, { token })
+    assert.deepEqual(restored.data.items[0].options[1].word, { ...distractor, defaultSaved: true })
     assert.equal(restored.data.items[0].selectedOptionIndex, 1)
     assert.equal(restored.data.items[0].correct, false)
     assert.equal(restored.data.session.answeredCount, 1)

@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { words } from '../api'
-const emit = defineEmits(['change'])
+const emit = defineEmits(['change', 'default-change'])
 const props = defineProps({ wordId: Number, initialSaved: { type: Boolean, default: undefined }, compactOnMobile: Boolean })
 const books = ref([]), busy = ref(false), error = ref(''), open = ref(false), name = ref('')
 const loaded = ref(false)
@@ -13,6 +13,7 @@ async function load() {
   catch (e) { if (version === loadVersion) error.value = e.message }
 }
 watch(() => props.wordId, () => { books.value = []; loaded.value = false; open.value = false; error.value = ''; if (props.initialSaved === undefined) void load() }, { immediate: true })
+defineExpose({ load })
 async function save(book, value) {
   if (busy.value) return
   busy.value = true; error.value = ''
@@ -20,6 +21,7 @@ async function save(book, value) {
     await (value ? words.favorite(props.wordId, book.id) : words.unfavorite(props.wordId, book.id))
     book.containsWord = value
     emit('change', saved.value)
+    if (book.id === 0) emit('default-change', props.wordId, value)
   } catch (e) { error.value = e.message }
   finally { busy.value = false }
 }

@@ -1,3 +1,40 @@
+import { matchesSpelling, normalizeSpelling } from '../../shared/spelling.js'
+
+export function submittedSpellingLetters(input, target) {
+  const typed = Array.from(input.trim())
+  if (matchesSpelling(input, target)) return typed.map(text => ({ text, status: 'correct' }))
+
+  const answer = Array.from(normalizeSpelling(target).trim())
+  const normalized = typed.map(normalizeSpelling)
+  const costs = Array.from({ length: typed.length + 1 }, () => new Uint32Array(answer.length + 1))
+
+  // Align the two spellings so an extra or missing letter does not mark the whole suffix wrong.
+  for (let i = typed.length; i >= 0; i--) {
+    for (let j = answer.length; j >= 0; j--) {
+      if (i === typed.length) costs[i][j] = answer.length - j
+      else if (j === answer.length) costs[i][j] = typed.length - i
+      else if (normalized[i] === answer[j]) costs[i][j] = costs[i + 1][j + 1]
+      else costs[i][j] = 1 + Math.min(costs[i + 1][j + 1], costs[i + 1][j], costs[i][j + 1])
+    }
+  }
+
+  const letters = []
+  let i = 0, j = 0
+  while (i < typed.length || j < answer.length) {
+    const same = i < typed.length && normalized[i] === answer[j]
+    if (i < typed.length && j < answer.length && (same || costs[i][j] === costs[i + 1][j + 1] + 1)) {
+      letters.push({ text: typed[i++], status: same ? 'correct' : 'wrong' })
+      j++
+    } else if (i < typed.length && costs[i][j] === costs[i + 1][j] + 1) {
+      letters.push({ text: typed[i++], status: 'wrong' })
+    } else {
+      letters.push({ text: '–', status: 'missing' })
+      j++
+    }
+  }
+  return letters
+}
+
 export function spellingDraftKey(userId, sessionId, questionId, phase) { return `blm:spelling:${userId}:${sessionId}:${phase}:${questionId}` }
 export function readSpellingDraft(key, storage = globalThis.localStorage) {
   try {
