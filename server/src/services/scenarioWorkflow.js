@@ -15,7 +15,8 @@ export function withWorkflow(scene, options={}) {
   const actors=workflow.actors?.length?workflow.actors:scene.actors
   return {...source,baseTask:source.task,baseGoals:source.goals,baseOpening:source.opening,baseActors:source.actors,baseSharedFacts:source.sharedFacts||[],
     workflowPlan:workflow,workflow,actors,sharedFacts:workflow.sharedFacts||source.sharedFacts||[],
-    opening:workflow.stages[0].opening,
+    opening:workflow.stages[0].opening,openingTranslation:workflow.stages[0].openingTranslation||source.openingTranslation,
+    displayTask:source.task,
     goals:workflow.stages.flatMap(s=>s.goals),
     task:`${source.task} 按完整流程逐步处理；当前阶段以外的目标不提前完成。仅为模拟交流，不执行真实交易。`}
 }
@@ -23,7 +24,7 @@ export function withWorkflow(scene, options={}) {
 
 export function workflowState(scene) {
   if (!scene.workflow) return null
-  return {index:0,skipped:[],references:[],listening:{},events:[],stageStartedTurn:0}
+  return {index:0,skipped:[],references:[],listening:{},events:[],stageStartedTurn:0,autoProgress:true}
 }
 export function workflowGoals(scene) {
   return scene.workflow.stages.flatMap(stage=>stage.goals.map((description,index)=>({
@@ -45,6 +46,8 @@ export function sharedTaskEvidence(session) {
 export function applyWorkflowAction(session,{action,stageId,selectedIndex}) {
   const stage=activeWorkflowStage(session),flow=session.journey?.flow
   if(!stage||stage.id!==stageId)throw new Error('阶段已更新，请读取当前进度')
+  if(action==='automatic'){flow.autoProgress=selectedIndex!==0;return}
+  if(action==='text'){flow.textSupport=true;flow.listening[stage.id]={...(flow.listening[stage.id]||{attempts:0}),revealed:true};return}
   if(action==='reference') {
     if(!flow.references.includes(stage.id)) {
       flow.references.push(stage.id)
@@ -74,11 +77,21 @@ export function applyWorkflowAction(session,{action,stageId,selectedIndex}) {
   flow.events=[...(flow.events||[]),{stageId:stage.id,action,turn:session.turnCount}].slice(-100)
   flow.index+=action==='previous'?-1:1;flow.stageStartedTurn=session.turnCount
   const next=activeWorkflowStage(session)
+  if(flow.textSupport)flow.listening[next.id] ||= {revealed:true,attempts:0}
   session.journey.activeActorId=next.actorId
   session.help=null;session.journey.handoff=null
   const actor=session.scene.actors.find(a=>a.id===next.actorId)
   session.messages.push({role:'assistant',actorId:next.actorId,actorName:actor?.name,
-    text:next.opening,flowStageId:next.id,event:'stage_opening'})
+    text:next.opening,translation:next.openingTranslation||'',flowStageId:next.id,event:'stage_opening'})
+}
+
+export function autoAdvanceWorkflow(session){
+  const stage=activeWorkflowStage(session),flow=session.journey?.flow
+  if(!stage||flow.autoProgress===false||!stageGoals(session).every(g=>g.completed))return false
+  if(flow.index===session.scene.workflow.stages.length-1)return false
+  applyWorkflowAction(session,{action:'advance',stageId:stage.id})
+  session.messages.at(-1).transition={from:stage.title,to:activeWorkflowStage(session).title,automatic:true}
+  return true
 }
 
 export function workflowOutcome(session) {

@@ -4,6 +4,7 @@
  */
 import http from './client.js'
 export const practice = {
+  extendLength:(id,body)=>http.put(`/practice/sessions/${id}/length`,{body}),
   workflow:(id,body)=>http.post(`/practice/sessions/${id}/workflow`,{body}),
   illustrationSettings: () => http.get('/practice/illustration-settings'),
   saveIllustrationSettings: (autoImages) => http.put('/practice/illustration-settings', { body: { autoImages } }),

@@ -38,12 +38,12 @@ export function validateSpeechAudio(body, settings = config.speech) {
     throw badRequest(`每段录音应在 0.2 秒至 ${settings.maxSeconds} 秒之间`)
   }
   const base64 = body.audioBase64
-  if (typeof base64 !== 'string' || !base64 || base64.length > Math.ceil(settings.maxBytes / 3) * 4) {
+  if (!Buffer.isBuffer(body.audioBytes)&&(typeof base64 !== 'string' || !base64 || base64.length > Math.ceil(settings.maxBytes / 3) * 4)) {
     throw new ApiError(413, 'SPEECH_AUDIO_TOO_LARGE', '录音过大，请缩短后重试')
   }
-  if (base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) throw badRequest('录音编码无效')
-  const bytes = Buffer.from(base64, 'base64')
-  if (bytes.toString('base64') !== base64) throw badRequest('录音编码无效')
+  if (!Buffer.isBuffer(body.audioBytes)&&(base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64))) throw badRequest('录音编码无效')
+  const bytes = Buffer.isBuffer(body.audioBytes)?body.audioBytes:Buffer.from(base64, 'base64')
+  if (!Buffer.isBuffer(body.audioBytes)&&bytes.toString('base64') !== base64) throw badRequest('录音编码无效')
   if (bytes.length > settings.maxBytes) throw new ApiError(413, 'SPEECH_AUDIO_TOO_LARGE', '录音过大，请缩短后重试')
   if (!matchesContainer(bytes, extension)) throw badRequest('录音内容与格式不符，请重新录制')
   return { bytes, mimeType, extension, durationMs: body.durationMs }
@@ -85,6 +85,7 @@ export function createSpeechService({ settings = config.speech, now = Date.now, 
       remaining: Math.max(0, settings.dailyQuota - budget.used),
       timeoutMs: settings.timeoutMs,
       acceptedMimeTypes: Object.keys(AUDIO_TYPES),
+      binaryUpload:true,
     }
   }
   async function transcribe(userId, body, { signal } = {}) {

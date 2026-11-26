@@ -1,4 +1,5 @@
 import { COMPLETE_SCENE_CONTENT } from './completeScenarioContent.js'
+import {airportWorkflow,enhanceWorkflow} from './classicWorkflowPresentation.js'
 // Authored learning content, shared by the preview and the server state machine.
 // A route is a complete way of handling a situation, not a mandatory sentence script.
 const step = (id,title,actorId,opening,goals,expressions,question,choices,correctIndex=0) => {
@@ -19,6 +20,7 @@ export const WORKFLOW_ROUTES = {
   restaurant:[{id:'dine-in',label:'堂食 · 预约与到店'},{id:'takeaway',label:'外带 · 到店点餐'}],
   directions:[{id:'walk',label:'步行问路'},{id:'transit',label:'公共交通与步行接驳'}],
   bank:[{id:'standard',label:'所选义项完整流程'}],
+  airport:[{id:'standard',label:'值机、登机与到达'}],
   interview:[{id:'project',label:'项目与技术讨论'},{id:'teamwork',label:'协作与问题处理'}],
   shopping:[{id:'purchase',label:'购买后售后'},{id:'exchange',label:'携收据退换商品'}],
   campus:[{id:'planning',label:'项目规划与交付'},{id:'delay',label:'进度延误与协商'}],
@@ -113,9 +115,10 @@ const paths={
   campus:[['idea','说明项目目标','介绍想法与成果要求'],['tasks','协商分工','讨论任务和个人职责'],['time','安排进度','确认截止时间和讨论时间'],['issue','处理协作问题','说明阻碍并提出调整'],['check','核对进度与交付','确认完成标准和检查安排'],['next','总结下一步','复述分工、时间和后续联系']],
 }
 
-export function workflowFor(scene,{route,transfer=false}={}) {
+function rawWorkflowFor(scene,{route,transfer=false}={}) {
   if (scene.memoryImage || scene.challenge==='change_dates') return null
   const family=scene.sourceSceneId||scene.id
+  if(family==='airport')return airportWorkflow(route,transfer)
   if(family==='hotel')return hotel(WORKFLOW_ROUTES.hotel.some(x=>x.id===route)?route:'online',transfer)
   if(family==='cafe')return cafe(WORKFLOW_ROUTES.cafe.some(x=>x.id===route)?route:'counter',transfer)
   if(scene.workflowPlan?.stages?.length)return structuredClone(scene.workflowPlan)
@@ -161,6 +164,8 @@ export const LIBRARY_SCENE={id:'library',title:'图书馆借阅与归还',locati
   task:'从查找书籍、询问借阅条件，到确认借期、续借与归还，完成一次图书馆交流。',goals:['找到合适书籍','确认借阅与续借条件','归还并确认结果'],
   targets:[{word:'borrow',sense:'借入',phrase:'borrow a book',example:'Could I borrow this book?'},{word:'renew',sense:'续借',phrase:'renew a book',example:'Can I renew this book?'},{word:'return',sense:'归还',phrase:'return the book',example:'I would like to return the book.'}],
   words:['borrow','renew','return'],opening:'Welcome to the library. How can I help you?',openingTranslation:'欢迎来到图书馆，有什么可以帮助你？'}
+
+export function workflowFor(scene,options={}) {return enhanceWorkflow(scene,rawWorkflowFor(scene,options),options)}
 
 export function workflowActorIds(session) {
   const stage=session.scene.workflow?.stages[session.journey?.flow?.index]

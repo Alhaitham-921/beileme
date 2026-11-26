@@ -15,10 +15,10 @@ const audioKey = (text, rate) => JSON.stringify([BASE_URL, getAccessToken(), tex
 const normalizeRate = rate => Math.max(0.5, Math.min(1.5, Number(rate) || 1))
 
 function cacheAudio(key, data) {
-  if (!data?.audioBase64 || data.audioBase64.length > 400000) return
+  if (!data?.audioBase64 || data.audioBase64.length > 2400000) return
   wordAudioCache.delete(key)
   wordAudioCache.set(key, data)
-  while (wordAudioCache.size > 24) wordAudioCache.delete(wordAudioCache.keys().next().value)
+  while (wordAudioCache.size > 24 || [...wordAudioCache.values()].reduce((n,v)=>n+v.audioBase64.length,0)>8000000) wordAudioCache.delete(wordAudioCache.keys().next().value)
 }
 
 function requestAudio(text, rate, signal) {
@@ -80,8 +80,10 @@ export const nativeSpeech = {
     requestController=new AbortController()
     const signal = requestController.signal
     const normalizedRate = normalizeRate(rate)
-    const cacheable = canCache(content)
-    const key = audioKey(content, normalizedRate)
+    const sentence=!canCache(content)
+    const synthesisRate=sentence?1:normalizedRate
+    const cacheable = true
+    const key = audioKey(content, synthesisRate)
     let data = cacheable ? wordAudioCache.get(key) : null
     if (!data && preload?.key === key) data = await preload.promise
     if (token !== generation) return
@@ -89,7 +91,7 @@ export const nativeSpeech = {
       // A cancelled word can leave Kokoro finishing its work. Briefly retry BUSY, never rate-limit errors.
       for (let attempt = 0; ; attempt++) {
         try {
-          data = await requestAudio(content, normalizedRate, signal)
+          data = await requestAudio(content, synthesisRate, signal)
           break
         } catch (error) {
           if (token !== generation || signal.aborted) return
@@ -99,12 +101,13 @@ export const nativeSpeech = {
       }
       if (token !== generation) return
     }
-    if (cacheable && audioKey(content, normalizedRate) === key) cacheAudio(key, data)
+    if (cacheable && audioKey(content, synthesisRate) === key) cacheAudio(key, data)
     if (token !== generation) return
     onReady?.()
     const bytes = Uint8Array.from(atob(data.audioBase64), ch => ch.charCodeAt(0))
     currentUrl = URL.createObjectURL(new Blob([bytes], { type: data.mimeType }))
     const audio = new Audio(currentUrl)
+    audio.playbackRate=sentence?normalizedRate:1
     currentAudio = audio
     await new Promise((resolve, reject) => {
       const finish = error => {

@@ -9,7 +9,7 @@ const report = (patch = {}) => ({ summary: '继续练习河岸的表达。', cor
 const session = (patch = {}) => ({ scene, difficulty: 'beginner', strictness: 'balanced', targetUsage: fresh(), messages: [{ role: 'assistant', text: scene.opening }], ...patch })
 
 test('classic scenes expose distinct bank senses and adapt difficulty without mutating templates', () => {
-  assert.deepEqual(DIALOGUE_SCENES.map(item => item.id), ['cafe','library','restaurant', 'directions', 'bank', 'hotel', 'interview', 'shopping', 'campus'])
+  assert.deepEqual(DIALOGUE_SCENES.map(item => item.id), ['cafe','library','restaurant', 'directions', 'airport', 'hotel', 'interview', 'shopping', 'campus'])
   assert.equal(scene.targets.find(t => t.word === 'bank').sense, '河岸')
   const finance = sceneFor('bank', 'advanced', 'finance')
   assert.equal(finance.targets.find(t => t.word === 'bank').sense, '银行')

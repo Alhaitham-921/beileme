@@ -49,7 +49,7 @@ test('full workflow is durable, revision protected, actor scoped and does not en
     return Response.json({choices:[{message:{content:JSON.stringify({reply:'Thank you. Please confirm the details.',translation:'谢谢，请核对信息。',mixedLanguage:false,corrections:[],usedTargets:[],taskComplete:true,
       goalEvidence:context.goals.map(g=>({goalId:g.id,completed:true,quote:input}))})},finish_reason:'stop'}],usage:{prompt_tokens:10,completion_tokens:20}})
   })
-  const auth={token:user.token},started=await client.post('/api/v1/practice/sessions',{...auth,body:{sceneId:'hotel',fullJourney:true,learningRoute:'online'}})
+  const auth={token:user.token},started=await client.post('/api/v1/practice/sessions',{...auth,body:{sceneId:'hotel',fullJourney:true,learningRoute:'online',autoProgress:false}})
   assert.equal(started.status,201,JSON.stringify(started.raw))
   let s=started.data;const path=`/api/v1/practice/sessions/${s.id}`
   assert.equal(s.scene.workflow.stages.length,10);assert.equal(s.maxTurns,80)

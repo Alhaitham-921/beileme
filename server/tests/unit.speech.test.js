@@ -14,6 +14,18 @@ function recording(size = 32) {
   return { audioBase64: bytes.toString('base64'), mimeType: 'audio/webm;codecs=opus', durationMs: 1200 }
 }
 
+test('binary speech uploads preserve exact bytes and authenticate before parsing',async t=>{
+ const bytes=Buffer.from(recording().audioBase64,'base64')
+ let calls=0
+ const service=createSpeechService({settings:settings(),fetchImpl:async(_url,options)=>{calls++;assert.deepEqual(Buffer.from(await options.body.get('file').arrayBuffer()),bytes);return Response.json({text:'Could I have a coffee?'})}})
+ const app=express();app.use('/speech',createSpeechRouter({authenticate:(req,res,next)=>{if(req.headers.authorization!=='Bearer test')return res.sendStatus(401);req.user={id:9};next()},service}));app.use(errorHandler)
+ const server=app.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>new Promise(resolve=>server.close(resolve)))
+ const send=auth=>fetch(`http://127.0.0.1:${server.address().port}/speech/transcribe-audio?durationMs=1200`,{method:'POST',headers:{'Content-Type':'audio/webm',...(auth?{Authorization:'Bearer test'}:{})},body:bytes})
+ assert.equal((await send(false)).status,401);assert.equal(calls,0)
+ const response=await send(true);assert.equal(response.status,200);assert.equal((await response.json()).data.text,'Could I have a coffee?');assert.equal(calls,1)
+ assert.ok(bytes.length<recording().audioBase64.length)
+})
+
 test('speech validation rejects forged MIME, invalid base64, excessive bytes and time before billing', () => {
   assert.equal(validateSpeechAudio(recording(), settings()).extension, 'webm')
   for (const body of [

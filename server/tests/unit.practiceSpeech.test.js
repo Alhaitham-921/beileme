@@ -202,7 +202,7 @@ test('explicit microphone selection uses exact device and raw input constraints'
   assert.deepEqual(speech.microphones.value, [{ id: 'usb-mic', label: 'USB microphone' }])
   speech.selectedMicrophone.value = 'usb-mic'
   await speech.start()
-  assert.deepEqual(constraints.audio, { deviceId: { exact: 'usb-mic' }, echoCancellation: false, noiseSuppression: false, autoGainControl: false })
+  assert.deepEqual(constraints.audio, { channelCount:{ideal:1},sampleRate:{ideal:16000},deviceId: { exact: 'usb-mic' }, echoCancellation: false, noiseSuppression: false, autoGainControl: false })
   speech.cancel()
   speech.rawAudio.value = false
   await speech.start()

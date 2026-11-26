@@ -119,7 +119,7 @@ test('quoted goals award once, unlock a branch, and summary answers persist with
   assert.equal(other.data.challengeProgress.hotelChangeUnlocked,false)
   const before=await query('SELECT word_id,times_seen,times_correct,times_wrong FROM user_word_progress WHERE user_id=? ORDER BY word_id',[f.user.userId])
   let q=s.consolidation.questions[0]
-  const body={action:'answer',questionId:q.id,selectedIndex:3,expectedRevision:s.journey.revision}
+  const body={action:'answer',questionId:q.id,selectedIndex:q.options.length-1,expectedRevision:s.journey.revision}
   const answers=await Promise.all([f.post(path+'/consolidation',body),f.post(path+'/consolidation',body)])
   for(const r of answers)assert.equal(r.status,200,JSON.stringify(r.raw))
   s=(await f.get(path)).data

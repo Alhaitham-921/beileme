@@ -1,4 +1,7 @@
 <script setup>
+import {CLASSIC_VOCABULARY,withClassicVocabulary} from '../../shared/classicLearning.js'
+import DialogueRecording from '../components/DialogueRecording.vue'
+import {saveDialogueRecording,releaseRecordingMemory} from '../utils/dialogueRecordings.js'
 import { workflowFor,WORKFLOW_ROUTES,workflowActorIds } from '../../shared/scenarioWorkflows.js'
 import ScenarioWorkflowPanel from '../components/ScenarioWorkflowPanel.vue'
 import { actorMessages } from '../utils/actorConversation.js'
@@ -29,17 +32,19 @@ const practiceWords = ref([...new Set(String(route.query.words || '').split(',')
 const auth = useAuthStore()
 const app = useAppStore(), router = useRouter(), startingReview = ref(false)
 const scenes = ref([]), recommendations = ref([]), sessions = ref([]), legacyScenes = ref([]), history = ref([])
-const savedScenes = ref([]), libraryTab = ref('create'), description = ref(practiceWords.value.length ? DEFAULT_WORD_SCENARIO : ''), latestGeneratedId = ref(''), generationUsage = ref(null)
+const savedScenes = ref([]), libraryTab = ref(practiceWords.value.length?'create':'classic'), description = ref(practiceWords.value.length ? DEFAULT_WORD_SCENARIO : ''), latestGeneratedId = ref(''), generationUsage = ref(null)
 const descriptionError = ref(''), descriptionInput = ref(null)
 const generatedSelections = new Map()
 const aiStore = useAiStore(), aiMode = computed(() => aiStore.status?.mode ?? null)
 const followupId=ref(null),transferTask=ref(null)
 let sceneController=null,sceneRun=0
-const fullJourney=ref(true),learningRoute=ref(''),transferVariation=ref(false)
-const mode = ref('task'), maxTurns = ref(16), sceneFilter = ref(''), generating = ref(false)
+const fullJourney=ref(true),learningRoute=ref(''),transferVariation=ref(false),vocabularyCount=ref(8),autoProgress=ref(true)
+const playbackRate=ref(1),onlyCurrentActor=ref(false),audioRevision=ref(0),pendingRecordings=new Map()
+const recordingContext=()=>`${session.value?.id}:${session.value?.journey?.flow?.index??''}:${session.value?.journey?.activeActorId}`
+const mode = ref('task'), maxTurns = ref(64), sceneFilter = ref(''), generating = ref(false)
 const challenge = ref('standard'), challengeProgress = ref({items:[],hotelChangeUnlocked:false})
 const sceneExamples = ['我想练习去国外咖啡店点餐。我对牛奶过敏，需要询问配料，再礼貌地更换饮品。', '模拟一次软件工程师英文面试。请追问我的项目经历，帮我练习解释技术方案和表达自己的优势。', '我想和新认识的外国同学聊电影，从推荐喜欢的电影开始，深入讨论角色的选择和不同的观点。']
-const sceneIcons = { restaurant: '☕', directions: '↗', bank: '≋', hotel: '⌂', interview: '◎', shopping: '♧', campus: '◇' }
+const sceneIcons = { cafe:'☕',library:'▤',airport:'✈',restaurant: '♨', directions: '↗', hotel: '⌂', interview: '◎', shopping: '♧', campus: '◇' }
 const drafts = new Map()
 const sceneId = ref(''), variant = ref('river'), strictness = ref('standard'), difficulty = ref('beginner')
 const session = ref(null), draft = ref(''), busy = ref(false), loading = ref(true), error = ref(''), notice = ref('')
@@ -65,17 +70,19 @@ const chosenVariant = computed(() => {
   if (Array.isArray(variants)) return variants.find(item => item.id === variant.value || item.variant === variant.value)
   return variants?.[variant.value]
 })
-const selectedScene = computed(() => ({ ...scene.value, ...chosenVariant.value, id: scene.value?.id, variant: chosenVariant.value?.id || scene.value?.variant || null }))
+const selectedScene = computed(() => withClassicVocabulary({ ...scene.value, ...chosenVariant.value, id: scene.value?.id, variant: chosenVariant.value?.id || scene.value?.variant || null },vocabularyCount.value))
+const vocabularyPool=computed(()=>CLASSIC_VOCABULARY[selectedScene.value?.sourceSceneId||selectedScene.value?.id])
+const previewActors=computed(()=>workflowPreview.value?.actors||selectedScene.value?.actors||[])
 const active = computed(() => session.value?.status === 'active')
 const workflowPreview=computed(()=>selectedScene.value?.id ? workflowFor(selectedScene.value,{route:learningRoute.value,transfer:transferVariation.value}) : null)
 const routeOptions=computed(()=>WORKFLOW_ROUTES[selectedScene.value?.sourceSceneId||selectedScene.value?.id]||[])
-const stageTranscriptHidden=message=>message.role!=='user'&&message.event==='stage_opening'&&session.value?.journey?.flow&&!session.value.journey.flow.listening[message.flowStageId]?.revealed&&!session.value.journey.flow.listening[message.flowStageId]?.attempts
+const stageTranscriptHidden=()=>false
 const preparing = computed(() => active.value && session.value?.journey?.phase === 'preparation')
 const talking = computed(() => active.value && !preparing.value)
 const activeActor = computed(() => session.value?.scene?.actors?.find(actor=>actor.id===session.value?.journey?.activeActorId))
 const availableActors=computed(()=>session.value?.scene?.actors.filter(a=>workflowActorIds(session.value).includes(a.id))||[])
-const plannedTurns=computed(()=>fullJourney.value&&mode.value==='task'&&challenge.value==='standard'&&workflowPreview.value ? Math.max(maxTurns.value,workflowPreview.value.stages.length*8) : maxTurns.value)
-const conversationMessages = computed(() => active.value ? actorMessages(session.value || {}) : session.value?.messages || [])
+const plannedTurns=computed(()=>maxTurns.value)
+const conversationMessages = computed(() => active.value && onlyCurrentActor.value ? actorMessages(session.value || {}) : session.value?.messages || [])
 const actorDrafts = new Map()
 const completedGoals = computed(() => session.value?.journey?.goals?.filter(goal=>goal.completed).length||0)
 const learnerName = computed(() => currentScene.value?.userRoleEnglish || 'Learner')
@@ -102,7 +109,7 @@ const correctionLabels = { grammar: '语法', tense: '时态', word_usage: '用�
 const evidenceLabels = { ...correctionLabels, dialogue_help: '提示后表达', dialogue_report: '对话复盘', dialogue_error: '表达待巩固', stuck: '表达卡壳' }
 function wordTags(tags = []) { return [...new Set(tags.map(tag => evidenceLabels[tag]).filter(Boolean))].join('、') }
 const sessionLabels = { active: '继续对话', analyzing: '小结生成中', finished: '查看小结', report_failed: '小结待重试' }
-const speechRate = computed(() => ({ beginner: .8, intermediate: .95, advanced: 1.1 })[session.value?.difficulty || difficulty.value])
+const speechRate = computed(() => playbackRate.value)
 const storageKey = () => auth.user?.id ? `beileme:practice-session:${auth.user.id}` : null
 const unwrap = data => data?.session || data
 
@@ -151,7 +158,7 @@ async function load() {
       const id = Number(route.query.session)
       if (!Number.isSafeInteger(id) || id <= 0) throw new Error('练习编号无效，请从最近练习中重新打开。')
       applySession(await practice.getSession(id))
-      showTranslations.value = session.value.difficulty === 'beginner'
+      
       return
     }
     if(route.query.scene && scenes.value.some(s=>s.id===route.query.scene)){libraryTab.value='classic';sceneId.value=String(route.query.scene)}
@@ -220,7 +227,7 @@ async function repeatSession(id,options={}) {
   if (session.value) drafts.set(session.value.id, draft.value)
   busy.value = true; error.value = ''; notice.value = ''; speech.cancel(); speech.stopSpeaking(); clearTimers(); pollFailures = 0
   try {
-    applySession(await practice.repeatSession(id,{prepareWords:true,...options})); draft.value = ''; showTranslations.value = session.value.difficulty === 'beginner'
+    applySession(await practice.repeatSession(id,{prepareWords:true,...options})); draft.value = ''; 
     revealedAnswers.value = []; checkedAnswers.value = []; shortAnswers.value = {}; scrollConversation()
   } catch (e) { error.value = e.message }
   finally { busy.value = false; resetIdle() }
@@ -240,8 +247,8 @@ async function start(prepareWords = true) {
   busy.value = true; error.value = ''; notice.value = ''; draft.value = ''; startError.value = null
   speech.cancel(); speech.stopSpeaking(); clearTimers(); pollFailures = 0
   try {
-    applySession(await practice.startSession({ sceneId: sceneId.value, strictness: strictness.value, difficulty: difficulty.value, mode: mode.value, maxTurns: maxTurns.value, prepareWords:Boolean(prepareWords),challenge:challenge.value,fullJourney:mode.value==='task'&&fullJourney.value&&Boolean(workflowPreview.value),learningRoute:learningRoute.value,transfer:transferVariation.value, ...(sceneId.value === 'bank' ? { variant: variant.value } : {}) }))
-    showTranslations.value = session.value.difficulty === 'beginner'; revealedAnswers.value = []; checkedAnswers.value = []; shortAnswers.value = {}
+    applySession(await practice.startSession({ sceneId: sceneId.value, strictness: strictness.value, difficulty: difficulty.value, mode: mode.value, maxTurns: maxTurns.value,flexibleLength:true,autoProgress:autoProgress.value,textSupport:true,...(vocabularyPool.value?{vocabularyCount:vocabularyCount.value}:{}), prepareWords:Boolean(prepareWords),challenge:challenge.value,fullJourney:mode.value==='task'&&fullJourney.value&&Boolean(workflowPreview.value),learningRoute:learningRoute.value,transfer:transferVariation.value, ...(sceneId.value === 'bank' ? { variant: variant.value } : {}) }))
+    ; revealedAnswers.value = []; checkedAnswers.value = []; shortAnswers.value = {}
     scrollConversation()
   } catch (e) {
     startError.value = { code: e.code || '', message: e.message || '对话暂时无法开始，请稍后重试。' }
@@ -256,7 +263,7 @@ async function restore(id) {
   busy.value = true; error.value = ''; notice.value = ''
   speech.cancel(); speech.stopSpeaking(); clearTimers(); pollFailures = 0
   try {
-    applySession(await practice.getSession(id)); draft.value = drafts.get(id) || ''; showTranslations.value = session.value.difficulty === 'beginner'
+    applySession(await practice.getSession(id)); draft.value = drafts.get(id) || ''; 
     revealedAnswers.value = []; checkedAnswers.value = []; shortAnswers.value = {}; scrollConversation()
   } catch (e) { error.value = e.message }
   finally { busy.value = false; resetIdle() }
@@ -266,16 +273,16 @@ async function recoverAfterError(caught, id, turnBefore) {
   try {
     if (session.value?.id !== id) return
     applySession(await practice.getSession(id))
-    if (session.value.turnCount > turnBefore) { draft.value = ''; notice.value = '刚才的回答已保存，已恢复最新进度。'; error.value = '' }
+    if (session.value.turnCount > turnBefore) { const clips=pendingRecordings.get(recordingContext());if(clips?.length){await saveDialogueRecording(auth.user.id,id,turnBefore+1,clips);audioRevision.value++;pendingRecordings.delete(recordingContext())}draft.value = ''; notice.value = '刚才的回答已保存，已恢复最新进度。'; error.value = '' }
   } catch { /* Preserve the draft for manual recovery. */ }
 }
 async function send() {
   const text = draft.value.trim()
   if (working.value || !active.value || !text) return
-  const id = session.value.id, expectedTurn = session.value.turnCount
+  const id = session.value.id, expectedTurn = session.value.turnCount,voiceContext=recordingContext(),voiceClips=[...(pendingRecordings.get(recordingContext())||[])]
   busy.value = true; error.value = ''; notice.value = ''; clearTimeout(idleTimer); speech.stopSpeaking()
-  try { applySession(await practice.turn(id, { text, expectedTurn, expectedRevision:session.value.journey?.revision, actorId:activeActor.value?.id })); draft.value = ''; scrollConversation() }
-  catch (e) { await recoverAfterError(e, id, expectedTurn); scrollConversation() }
+  try { applySession(await practice.turn(id, { text, expectedTurn, expectedRevision:session.value.journey?.revision, actorId:activeActor.value?.id }));if(voiceClips.length){const saved=await saveDialogueRecording(auth.user.id,id,expectedTurn+1,voiceClips);audioRevision.value++;pendingRecordings.delete(voiceContext);speech.discardRecording();if(!saved.persistent)notice.value='本机存储不可用，原录音本页仍可回放。'} draft.value = ''; scrollConversation() }
+  catch (e) { await recoverAfterError(e, id, expectedTurn);if(session.value?.turnCount>expectedTurn&&voiceClips.length){await saveDialogueRecording(auth.user.id,id,expectedTurn+1,voiceClips);audioRevision.value++;pendingRecordings.delete(voiceContext);speech.discardRecording()}scrollConversation() }
   finally { busy.value = false; resetIdle() }
 }
 const nextHelpLevel = computed(() => Math.min(4, Math.max(2, (session.value?.help?.level || 1) + 1)))
@@ -393,23 +400,28 @@ function shortMatches(index, expected) {
   const normalize = value => String(value || '').toLowerCase().replace(/[.,!?;:'"“”’]/g, '').replace(/\s+/g, ' ').trim()
   return normalize(shortAnswers.value[index]) === normalize(expected)
 }
-watch(transcript, text => { if (text && active.value) { draft.value = `${draft.value.trim()}${draft.value.trim() ? ' ' : ''}${text}`; notice.value = '识别文字已填入输入框，请检查后发送。' } })
+watch(transcript, text => { if (text && active.value) { const clip=speech.getRecording();if(clip){const key=recordingContext();pendingRecordings.set(key,[...(pendingRecordings.get(key)||[]),{...clip,transcript:text}])}draft.value = `${draft.value.trim()}${draft.value.trim() ? ' ' : ''}${text}`; notice.value = '识别文字已填入输入框，请检查后发送。' } })
 watch([isRecording, isTranscribing, isStarting], resetIdle)
 watch(draft, resetIdle)
 watch([description, selectionKey], () => { descriptionError.value = '' })
 watch(sceneFilter, () => {
   if (libraryTab.value !== 'create' && !visibleScenes.value.some(item => item.id === sceneId.value)) selectScene(visibleScenes.value[0]?.id || '')
 })
+async function extendRound(){if(working.value||!session.value||session.value.maxTurns>=240)return;busy.value=true;error.value='';try{applySession(await practice.extendLength(session.value.id,{maxTurns:Math.min(240,session.value.maxTurns+32),expectedRevision:session.value.journey.revision}));notice.value='已增加练习轮次，继续当前对话。'}catch(e){error.value=e.message}finally{busy.value=false}}
+const exposureSynced=new Set()
+watch(()=>[session.value?.id,session.value?.journey?.flow?.index],async()=>{const current=session.value,flow=current?.journey?.flow;if(!flow||flow.textSupport||current.status!=='active'||current.journey.phase!=='conversation'||exposureSynced.has(current.id))return;exposureSynced.add(current.id);try{const updated=await practice.workflow(current.id,{action:'text',stageId:current.scene.workflow.stages[flow.index].id,expectedRevision:current.journey.revision});if(session.value?.id===current.id&&session.value.journey.revision===current.journey.revision)applySession(updated)}catch{/* A concurrent action will keep its own progress. */}})
+watch(showTranslations,value=>{try{localStorage.setItem('beileme:dialogue-translation:'+auth.user?.id,JSON.stringify(value))}catch{}})
+onMounted(()=>{try{const value=localStorage.getItem('beileme:dialogue-translation:'+auth.user?.id);if(value!==null)showTranslations.value=JSON.parse(value)}catch{}})
 onMounted(load)
 onMounted(async () => {
   try { await aiStore.loadStatus() } catch { /* Generation refreshes status and displays any service error. */ }
 })
-onUnmounted(() => { disposed = true; sceneRun++; sceneController?.abort(); clearTimers(); speech.cancel(); speech.stopSpeaking() })
+onUnmounted(() => { disposed = true;if(session.value)releaseRecordingMemory(auth.user?.id,session.value.id);pendingRecordings.clear(); sceneRun++; sceneController?.abort(); clearTimers(); speech.cancel(); speech.stopSpeaking() })
 </script>
 
 <template>
   <main class="practice">
-    <nav v-if="session" class="journey-steps" aria-label="任务流程"><span :class="{current:preparing}">1 · 认识词汇</span><span :class="{current:talking}">2 · 情境交流</span><span :class="{current:Boolean(report)}">3 · 小结巩固</span></nav><header class="page-intro"><div><span class="eyebrow">AI 情境对话 · 从想说到会说</span><h1 class="section-title">{{ currentScene?.memoryImage ? "看图说英语 · 三轮交流" : "你的生活，就是练习场景" }}</h1><p class="section-sub">描述你想聊什么，让 AI 和你一起把对话展开。</p></div><div class="button-row">
+    <nav v-if="session" class="journey-steps" aria-label="任务流程"><span :class="{current:preparing}">1 · 认识词汇</span><span :class="{current:talking}">2 · 情境交流</span><span :class="{current:Boolean(report)}">3 · 小结巩固</span></nav><header class="page-intro"><div><span class="eyebrow">AI 情境对话 · 从想说到会说</span><h1 v-if="!session" class="section-title">{{ currentScene?.memoryImage ? "看图说英语 · 三轮交流" : "选个生活场景，开口练英语" }}</h1><p v-if="!session" class="section-sub">选场景 → 调整词汇与长度 → 开始交流。AI 会按任务进度衔接下一步，你也可以随时继续追问。</p></div><div class="button-row">
       <button v-if="session" type="button" class="btn btn-primary" :disabled="working" @click="openScenarioCreator">＋ 创建新情境</button>
       <router-link class="small-link" to="/study">返回背词 →</router-link>
     </div></header>
@@ -452,17 +464,17 @@ onUnmounted(() => { disposed = true; sceneRun++; sceneController?.abort(); clear
       <section v-if="scene" class="card setup" aria-labelledby="task-title">
         <div class="section-heading"><div><span class="eyebrow">{{ libraryTab === 'create' ? '02 / 你的专属场景' : '场景预览' }}</span><h2 id="task-title">{{ selectedScene.title }}</h2></div><button class="text-button" :disabled="working || sceneIsSaved" @click="saveScene">{{ sceneIsSaved ? '✓ 已保存到我的场景' : '＋ 保存这个场景' }}</button></div>
         <PracticeImage v-if="selectedScene.memoryImage" :image="selectedScene.memoryImage" />
-        <fieldset v-if="sceneId === 'bank'" class="variant-options"><legend>bank · 这次练哪一种用法？</legend><label><input v-model="variant" type="radio" value="river"> 河岸 · 公园散步</label><label><input v-model="variant" type="radio" value="finance"> 银行 · 办理业务</label></fieldset>
-        <p class="task-description">{{ selectedScene.task }}</p><div class="role-pair"><span v-if="selectedScene.userRole"><small>你的身份</small>{{ selectedScene.userRole }}</span><span><small>AI 扮演</small>{{ selectedScene.role }}</span><span v-if="selectedScene.location"><small>地点</small>{{ selectedScene.location }}</span></div>
+
+        <p class="task-description">{{ selectedScene.task }}</p><div class="role-pair"><span v-if="selectedScene.userRole"><small>你的身份</small>{{ selectedScene.userRole }}</span><span><small>AI 扮演</small>{{ previewActors.length?previewActors.map(a=>a.name).join('、'):selectedScene.role }}</span><span v-if="selectedScene.location"><small>地点</small>{{ selectedScene.location }}</span></div>
         <ul v-if="selectedScene.goals?.length" class="scene-goals"><li v-for="goal in selectedScene.goals" :key="goal">{{ goal }}</li></ul>
         <details v-if="selectedScene.description" class="original-request"><summary>回看我的对话需求</summary><p>{{ selectedScene.description }}</p></details>
-        <h3 class="vocab-title">任务词汇 <span>搭配练习安排在对话小结中</span></h3>
-        <div class="vocabulary-preview"><div v-for="target in selectedScene.targets || []" :key="target.word" class="vocabulary-item"><strong>{{ target.word }}</strong><p>{{ target.sense }}</p><button class="text-button" type="button" @click="read(target.word)">听单词</button></div></div>
+        <div v-if="vocabularyPool" class="vocabulary-settings"><h3>这次想练多少任务词？</h3><div class="word-count-presets"><button v-for="count in [4,8,12]" :key="count" class="btn" :class="vocabularyCount===count?'btn-primary':'btn-ghost'" :disabled="working" @click="vocabularyCount=count">{{count}} 个 · {{count===4?'轻量':count===8?'标准':'拓展'}}</button></div><label>微调数量 <input v-model.number="vocabularyCount" type="range" min="4" :max="vocabularyPool.length" :disabled="working"> {{vocabularyCount}} 个</label><small>选择的是本轮学习目标，未用出的词会在小结中单独呈现。</small></div>
+        <details class="vocab-preview"><summary>查看本轮 {{selectedScene.targets?.length||0}} 个词和释义</summary><div class="vocabulary-preview"><div v-for="target in selectedScene.targets || []" :key="target.word" class="vocabulary-item"><strong>{{target.word}}</strong><p>{{target.sense}}</p><button class="text-button" type="button" @click="read(target.word)">听单词</button></div></div></details>
         <label v-if="(selectedScene.sourceSceneId||selectedScene.id)==='hotel'" class="challenge-select">任务路线 <select v-model="challenge" :disabled="working"><option value="standard">基础任务 · 酒店入住</option><option value="change_dates" :disabled="!challengeProgress.hotelChangeUnlocked">改期支线{{ challengeProgress.hotelChangeUnlocked?' · 已解锁':' · 完成基础酒店任务后解锁' }}</option></select></label>
-        <section v-if="!selectedScene.memoryImage && challenge==='standard'" class="complete-flow-setup"><label><input v-model="fullJourney" type="checkbox"> 按完整流程练习</label><template v-if="fullJourney && workflowPreview"><label v-if="routeOptions.length">选择路线 <select v-model="learningRoute"><option value="">默认完整路线</option><option v-for="item in routeOptions" :key="item.id" :value="item.id">{{ item.label }}</option></select></label><label v-if="routeOptions.length"><input v-model="transferVariation" type="checkbox"> 更换条件复练</label><ol><li v-for="step in workflowPreview.stages" :key="step.id">{{ step.title }}</li></ol><p>每步先听懂，再尝试不同表达；可以暂停续练，查看参考后完成会单独记录。完整流程按阶段安排轮次。</p></template><p v-else-if="fullJourney">旧自定义场景可以继续普通对话；重新生成后可使用完整阶段流程。</p></section>
-        <div class="settings-grid"><label>对话难度<select v-model="difficulty" :disabled="working"><option value="beginner">入门 · 短句 + 中文提示</option><option value="intermediate">进阶 · 日常交流</option><option value="advanced">挑战 · 更完整的表达</option></select></label><label>纠错严格度<select v-model="strictness" :disabled="working"><option value="lenient">宽松 · 先把意思说清楚</option><option value="standard">标准 · 兼顾准确和流畅</option><option value="strict">严格 · 适合考试备考</option></select></label><label>对话方式<select v-model="mode" :disabled="working"><option value="free">自由交流 · 延伸话题，深入追问</option><option value="task">任务练习 · 完成目标后复盘</option></select></label><label>本次练习长度<select v-model="maxTurns" :disabled="working || (fullJourney && mode==='task' && Boolean(workflowPreview))"><option :value="8">8 轮 · 轻量热身</option><option :value="16">16 轮 · 充分交流</option><option :value="24">24 轮 · 深入练习</option></select></label></div>
-        <p class="note">{{ mode === 'free' ? '不用按顺序完成任务，跟着兴趣聊下去，随时可以结束并复盘。' : '围绕交流目标练习，完成任务后由 AI 引导收尾。' }} 最多 {{ plannedTurns }} 轮，记录自动保存。</p><button class="btn btn-primary" :disabled="working" :aria-describedby="startError ? 'practice-start-error' : undefined" @click="start">{{ busy ? '正在准备对话…' : needsWordScene ? '用这个情境练所选词 →' : '先认识词汇，再进入场景 →' }}</button>
-        <button class="text-button direct-start" type="button" :disabled="working" @click="start(false)">词汇已经熟悉，直接对话 →</button>
+        <section v-if="!selectedScene.memoryImage && challenge==='standard'" class="complete-flow-setup"><label><input v-model="fullJourney" type="checkbox"> 按完整流程练习</label><template v-if="fullJourney && workflowPreview"><label v-if="routeOptions.length">选择路线 <select v-model="learningRoute"><option value="">默认完整路线</option><option v-for="item in routeOptions" :key="item.id" :value="item.id">{{ item.label }}</option></select></label><label v-if="routeOptions.length"><input v-model="transferVariation" type="checkbox"> 更换条件复练</label><details><summary>查看 {{workflowPreview.stages.length}} 个阶段与 {{previewActors.length}} 位交谈对象</summary><ol><li v-for="step in workflowPreview.stages" :key="step.id">{{ step.title }}</li></ol></details><p>阶段由 AI 根据实际表达自动推进；也可以手动继续，未核实目标会保留。</p></template><p v-else-if="fullJourney">旧自定义场景可以继续普通对话；重新生成后可使用完整阶段流程。</p></section>
+        <div class="settings-grid"><label>对话难度<select v-model="difficulty" :disabled="working"><option value="beginner">入门 · 短句 + 中文提示</option><option value="intermediate">进阶 · 日常交流</option><option value="advanced">挑战 · 更完整的表达</option></select></label><label>纠错严格度<select v-model="strictness" :disabled="working"><option value="lenient">宽松 · 先把意思说清楚</option><option value="standard">标准 · 兼顾准确和流畅</option><option value="strict">严格 · 适合考试备考</option></select></label><label>对话方式<select v-model="mode" :disabled="working"><option value="free">自由交流 · 延伸话题，深入追问</option><option value="task">任务练习 · 完成目标后复盘</option></select></label><label>本次练习长度<select v-model="maxTurns" :disabled="working"><option v-for="count in [16,32,64,96,160,240]" :key="count" :value="count">{{count}} 轮</option></select></label></div>
+        <p class="note">{{ mode === 'free' ? '不用按顺序完成任务，跟着兴趣聊下去，随时可以结束并复盘。' : '围绕交流目标练习，完成任务后由 AI 引导收尾。' }} 本次先安排 {{plannedTurns}} 轮，可在对话中继续增加。轮数不等于已经覆盖所有问题。</p><button class="btn btn-primary" :disabled="working" :aria-describedby="startError ? 'practice-start-error' : undefined" @click="start(false)">{{ busy ? '正在准备对话…' : needsWordScene ? '用这个情境练所选词 →' : '开始对话 →' }}</button>
+        <button class="text-button direct-start" type="button" :disabled="working" @click="start(true)">先认识本轮情境词汇 →</button>
         <div v-if="startError" id="practice-start-error" ref="startErrorElement" class="start-error" role="alert">
           <strong>{{ startError.code === 'AI_NOT_CONFIGURED' ? '先配置 AI 对话服务' : '对话暂时无法开始' }}</strong>
           <p>{{ startError.message }}</p>
@@ -471,27 +483,27 @@ onUnmounted(() => { disposed = true; sceneRun++; sceneController?.abort(); clear
       </section>
     </template>
     <section v-if="session" class="conversation-shell" aria-label="情境练习">
-      <AiUsage :usage="session.usage" label="本轮对话累计消耗" /><header class="scene-bar"><div class="section-heading"><div><span class="eyebrow">{{ currentScene?.location || '情境对话' }} · {{ activeActor?.name || currentScene?.role || 'AI 伙伴' }}</span><h2>{{ currentScene?.title || '情境练习' }}</h2></div><span class="rounds">{{ session.turnCount }} / {{ session.maxTurns || 8 }} 轮</span></div><p class="task-description">{{ currentScene?.task }}</p>
+      <header class="scene-bar"><div class="section-heading"><div><span class="eyebrow">{{ currentScene?.location || '情境对话' }} · {{ activeActor?.name || currentScene?.role || 'AI 伙伴' }}</span><h2>{{ currentScene?.title || '情境练习' }}</h2></div><span class="rounds">{{ session.turnCount }} / {{ session.maxTurns || 8 }} 轮</span></div><details class="session-task"><summary>本轮任务说明</summary><p>{{currentScene.displayTask || currentScene.task.split(' 按完整流程')[0]}}</p></details>
         <PracticeImage v-if="currentScene?.memoryImage" :image="currentScene.memoryImage" />
         <div class="journey-identity"><NameAvatar :name="learnerName" /><div><small>你的身份固定</small><strong>{{ currentScene.userRole || '学习者' }} · {{ learnerName }}</strong></div></div>
-        <ScenarioWorkflowPanel v-if="talking && session.journey?.flow" :session="session" :busy="working" @action="journeyAction('workflow',$event)" @speak="read" @finish="finish" />
+        
         <div v-if="session.journey && !session.journey.flow" class="goal-progress"><strong>交流目标 · {{ completedGoals }} / {{ session.journey.goals.length }}</strong><ul><li v-for="goal in session.journey.goals" :key="goal.id" :class="{done:goal.completed}"><span>{{ goal.completed?'已完成':'待完成' }}</span> {{ goal.description }}<details v-if="goal.quote"><summary>查看表达依据</summary><q lang="en">{{ goal.quote }}</q></details></li></ul><small>依据本轮表达核对目标，结束对话不会自动视为通关。</small></div>
-        <div v-if="talking && availableActors.length > 1" class="actor-picker" aria-label="选择交谈对象"><button v-for="actor in availableActors" :key="actor.id" :class="{chosen:activeActor?.id===actor.id}" :aria-pressed="activeActor?.id===actor.id" :disabled="working || !talking" @click="journeyAction('actor',{actorId:actor.id})"><NameAvatar :name="actor.englishName" :size="48" /><span><strong>{{ actor.name }}</strong><small>{{ activeActor?.id===actor.id?'正在交谈':'切换交谈对象' }}</small></span></button></div>
+        <div v-if="talking && currentScene.actors?.length > 1" class="actor-picker" aria-label="选择交谈对象"><button v-for="actor in currentScene.actors" :key="actor.id" :class="{chosen:activeActor?.id===actor.id}" :aria-pressed="activeActor?.id===actor.id" :disabled="working || !talking || !availableActors.some(a=>a.id===actor.id)" @click="journeyAction('actor',{actorId:actor.id})"><NameAvatar :name="actor.englishName" :size="48" /><span><strong>{{ actor.name }}</strong><small>{{ activeActor?.id===actor.id?'正在交谈':availableActors.some(a=>a.id===actor.id)?'切换交谈对象':'后续阶段' }}</small></span></button></div>
         <p v-if="talking" class="current-recipient" role="status">你正在对 <strong>{{ activeActor?.name || currentScene.role }}</strong> 说话。</p>
-        <div v-if="talking && session.journey?.handoff" class="handoff-card"><p>{{ session.journey.handoff.reason }}</p><button class="btn btn-secondary" :disabled="working || !talking" @click="journeyAction('actor',{actorId:session.journey.handoff.actorId})">确认转接到 {{ currentScene.actors.find(a=>a.id===session.journey.handoff.actorId)?.name }}</button></div>
-        <div class="target-list"><button v-for="target in targets" :key="target.word + ':' + target.sense" type="button" :class="['target-chip', target.status, { focused: selectedWord === target.word }]" :disabled="working" :aria-pressed="selectedWord === target.word" :title="`${target.word} · ${target.sense || ''} · ${usageLabels[target.status] || '待使用'}`" @click="selectedWord = selectedWord === target.word ? '' : target.word"><strong>{{ ['independent', 'assisted'].includes(target.status) ? '✓ ' : '' }}{{ target.word }}</strong><span>{{ target.sense }}</span><span class="usage-label">{{ usageLabels[target.status] || '待使用' }}</span></button></div>
-        <div class="scene-meta"><span>{{ usedCount }} / {{ targets.length }} 个词已用出 · {{ session.mode === 'free' ? '自由交流' : '任务练习' }} · {{ difficultyLabels[session.difficulty] }} · {{ strictnessLabels[session.strictness] }}纠错</span><label><input v-model="showTranslations" type="checkbox"> 中文提示</label></div>
+        <div v-if="talking && session.journey?.handoff" class="handoff-card"><p>{{ session.journey.handoff.reason }}</p><button class="btn btn-secondary" :disabled="working || !talking || !availableActors.some(a=>a.id===actor.id)" @click="journeyAction('actor',{actorId:session.journey.handoff.actorId})">确认转接到 {{ currentScene.actors.find(a=>a.id===session.journey.handoff.actorId)?.name }}</button></div>
+        <details class="session-vocabulary"><summary>本轮任务词汇 · {{usedCount}} / {{targets.length}} 个已用出</summary><div class="target-list"><button v-for="target in targets" :key="target.word + ':' + target.sense" type="button" :class="['target-chip', target.status, { focused: selectedWord === target.word }]" :disabled="working" :aria-pressed="selectedWord === target.word" :title="`${target.word} · ${target.sense || ''} · ${usageLabels[target.status] || '待使用'}`" @click="selectedWord = selectedWord === target.word ? '' : target.word"><strong>{{ ['independent', 'assisted'].includes(target.status) ? '✓ ' : '' }}{{ target.word }}</strong><span>{{ target.sense }}</span><span class="usage-label">{{ usageLabels[target.status] || '待使用' }}</span></button></div></details>
+        <div class="scene-meta"><span>{{ usedCount }} / {{ targets.length }} 个词已用出 · {{ session.mode === 'free' ? '自由交流' : '任务练习' }} · {{ difficultyLabels[session.difficulty] }} · {{ strictnessLabels[session.strictness] }}纠错</span><label><input v-model="showTranslations" type="checkbox"> 显示中文翻译</label><label>朗读速度 <select v-model.number="playbackRate"><option :value=".85">0.85×</option><option :value="1">1×</option><option :value="1.15">1.15×</option><option :value="1.3">1.3×</option></select></label><label><input v-model="onlyCurrentActor" type="checkbox"> 只看当前对象</label></div>
         <div class="scene-actions"><button class="text-button" :disabled="working || sceneIsSaved" @click="saveScene">{{ sceneIsSaved ? '✓ 场景已收藏' : '＋ 保存场景与词汇' }}</button><button class="text-button" :disabled="working" @click="backToScenes">{{ active ? '稍后继续，返回场景' : '返回场景库' }} →</button></div>
       </header>
       <DialogueQuiz v-if="preparing" :session="session" preparation :busy="working" @submit="journeyAction('prepare',$event)" @begin="journeyAction('begin',{skip:$event})" />
-      <div v-if="!preparing" class="dialogue-layout" :class="{single:currentScene?.memoryImage || !session.journey}"><div class="dialogue-main"><div class="conversation" role="log" aria-label="对话记录" aria-live="polite" aria-relevant="additions"><article v-for="(message, index) in conversationMessages" :key="message.id || `${session.id}-${index}`" :class="['message', message.role === 'user' ? 'from-user' : 'from-ai']"><div class="message-meta"><NameAvatar :name="avatarName(message)" :size="42" /><span>{{ message.role==='user'?'你 · '+learnerName:(message.actorName||currentScene?.role||'AI') }}<small v-if="message.recipientName"> · 对 {{ message.recipientName }} 说</small></span><button v-if="message.role !== 'user'" class="read-button" type="button" :disabled="isRecording || isTranscribing" :aria-label="`朗读第 ${index + 1} 条回复`" @click="read(message.text)">{{ isSpeaking ? '■ 停止' : '◖ 朗读' }}</button><span v-if="message.helpLevel >= 3" class="muted">跟读提示</span></div><div class="bubble"><p v-if="stageTranscriptHidden(message)">先用上方听力任务理解开场；也可主动展开文字。</p><PracticeText v-else :text="message.text" :targets="targets" :corrections="message.role === 'user' ? message.corrections || [] : []" /><p v-if="!stageTranscriptHidden(message) && showTranslations && message.translation" class="translation">{{ message.translation }}</p></div><AiUsage :usage="message.usage" label="本条回复消耗" /></article><div v-if="busy" class="thinking" role="status"><LoadingState>{{ helpGenerating ? 'AI 正在准备接话参考…' : active ? 'AI 正在组织回复…' : '正在保存练习…' }}</LoadingState></div><div ref="conversationEnd"></div></div>
-      <div v-if="talking" class="composer">
+      <div v-if="!preparing" class="dialogue-layout" :class="{single:currentScene?.memoryImage || !session.journey}"><div class="dialogue-main"><ScenarioWorkflowPanel v-if="talking && session.journey?.flow" :session="session" :busy="working" @action="journeyAction('workflow',$event)" @speak="read" @finish="finish" /><div class="conversation" role="log" aria-label="对话记录" aria-live="polite" aria-relevant="additions"><article v-for="(message, index) in conversationMessages" :key="message.id || `${session.id}-${index}`" :class="['message', message.role === 'user' ? 'from-user' : 'from-ai']"><div class="message-meta"><NameAvatar :name="avatarName(message)" :size="42" /><span>{{ message.role==='user'?'你 · '+learnerName:(message.actorName||currentScene?.role||'AI') }}<small v-if="message.recipientName"> · 对 {{ message.recipientName }} 说</small></span><button v-if="message.role !== 'user'" class="read-button" type="button" :disabled="isRecording || isTranscribing" :aria-label="`朗读第 ${index + 1} 条回复`" @click="read(message.text)">{{ isSpeaking ? '■ 停止' : '◖ 朗读' }}</button><span v-if="message.helpLevel >= 3" class="muted">跟读提示</span></div><p v-if="message.transition" class="stage-transition" role="status">✓ {{message.transition.from}} → {{message.transition.to}}</p><div class="bubble"><p v-if="stageTranscriptHidden(message)">先用上方听力任务理解开场；也可主动展开文字。</p><PracticeText v-else :text="message.text" :targets="targets" :corrections="message.role === 'user' ? message.corrections || [] : []" /><p v-if="!stageTranscriptHidden(message) && showTranslations && message.translation" class="translation">{{ message.translation }}</p></div><DialogueRecording v-if="message.role==='user' && message.turn" :user-id="auth.user.id" :session-id="session.id" :turn="message.turn" :revision="audioRevision"/><details v-if="message.usage" class="message-usage"><summary>本条用量</summary><AiUsage :usage="message.usage" label="本条回复消耗" /></details></article><div v-if="busy" class="thinking" role="status"><LoadingState>{{ helpGenerating ? 'AI 正在准备接话参考…' : active ? 'AI 正在组织回复…' : '正在保存练习…' }}</LoadingState></div><div ref="conversationEnd"></div></div>
+      <div v-if="talking" class="composer"><div class="round-budget"><span>已交流 {{session.turnCount}} 轮 · 当前安排 {{session.maxTurns}} 轮</span><button v-if="!currentScene.memoryImage && session.maxTurns<240" class="text-button" :disabled="working" @click="extendRound">再加 {{Math.min(32,240-session.maxTurns)}} 轮</button><p v-if="session.turnCount>=session.maxTurns">本次轮次已用完。可增加轮次继续，或结束并查看小结；未完成阶段会保留。</p></div>
         <p v-if="error" role="alert" class="error-banner">{{ error }} <button type="button" class="text-button" :disabled="working || !draft.trim()" @click="send">重试发送</button> <button type="button" class="text-button" :disabled="working" @click="refreshCurrent">恢复最新进度</button></p>
         <div v-if="session.help" class="help-card" aria-live="polite"><div class="section-heading"><strong>{{ helpLabels[session.help.level] || '接话参考' }}</strong><span class="muted">{{ session.help.word ? `带入 ${session.help.word}` : '自然接话 · 不要求记忆词' }}</span></div><p v-if="session.help.hint" class="help-hint">{{ session.help.hint }}</p><p v-if="session.help.example" class="example">{{ session.help.example }}</p><p v-if="session.help.translation" class="muted">{{ session.help.translation }}</p><AiUsage :usage="session.help.usage" label="本次参考消耗" /><div v-if="session.help.example" class="button-row"><button class="text-button" :disabled="isRecording || isTranscribing" @click="read(session.help.example)">◖ 听一遍</button><button class="text-button" :disabled="working" @click="insertExample">填入输入框，再试着表达</button></div></div>
         <p v-if="waitingHelp && !session.help" class="waiting-hint">慢慢想，没关系。需要时点「不会说？」获取提示。</p>
         <div class="help-options"><label>参考用词 <select v-model="selectedWord" :disabled="working"><option value="">暂时不用记忆词</option><option v-for="target in targets" :key="target.word" :value="target.word">{{ target.word }} · {{ target.sense }}</option></select></label><button v-for="level in [2, 3, 4]" :key="level" type="button" class="text-button" :disabled="working" @click="help(level)">{{ helpLabels[level] }}</button><small>结合当前对话生成 AI 参考，计入本轮用量。</small></div>
-        <form @submit.prevent="send"><label for="practice-expression" class="input-label">你的回答 <span>可以夹中文，也可以用麦克风输入</span></label><textarea id="practice-expression" v-model="draft" rows="3" maxlength="2000" :disabled="busy || isRecording || isTranscribing || isStarting" placeholder="试着用英语回答。不会的部分可以写中文…" @keydown="keyboard"></textarea><div class="composer-controls"><div class="input-tools"><button class="btn mic-button" type="button" :class="{ recording: isRecording }" :disabled="busy || isTranscribing || isStarting || (!isRecording && !voiceAvailable)" :aria-pressed="isRecording" @click="toggleMicrophone">{{ isStarting ? '连接麦克风…' : isTranscribing ? '正在识别…' : isRecording ? `■ 完成录音 ${elapsedSeconds}s` : '♩ 麦克风' }}</button><button v-if="isRecording || isTranscribing || isStarting" class="text-button" type="button" @click="speech.cancel()">取消</button><button class="btn help-button" type="button" :disabled="working" :aria-busy="helpGenerating" @click="help()">{{ helpGenerating ? '正在生成参考…' : '不会说？' }}</button></div><button class="btn btn-primary send-button" type="submit" :disabled="working || !draft.trim()">{{ busy ? '请稍候…' : '发送 ↑' }}</button></div></form>
-        <div class="microphone-settings">
+        <form @submit.prevent="send"><label for="practice-expression" class="input-label">你的回答 <span>可以夹中文，也可以用麦克风输入</span></label><textarea id="practice-expression" v-model="draft" rows="3" maxlength="2000" :disabled="busy || isRecording || isTranscribing || isStarting" placeholder="试着用英语回答。不会的部分可以写中文…" @keydown="keyboard"></textarea><div class="composer-controls"><div class="input-tools"><button class="btn mic-button" type="button" :class="{ recording: isRecording }" :disabled="busy || isTranscribing || isStarting || (!isRecording && !voiceAvailable)" :aria-pressed="isRecording" @click="toggleMicrophone">{{ isStarting ? '连接麦克风…' : isTranscribing ? '正在识别…' : isRecording ? `■ 完成录音 ${elapsedSeconds}s` : '♩ 麦克风' }}</button><button v-if="isRecording || isTranscribing || isStarting" class="text-button" type="button" @click="speech.cancel()">取消</button><button class="btn help-button" type="button" :disabled="working" :aria-busy="helpGenerating" @click="help()">{{ helpGenerating ? '正在生成参考…' : '不会说？' }}</button></div><button class="btn btn-primary send-button" type="submit" :disabled="working || !draft.trim() || session.turnCount>=session.maxTurns">{{ busy ? '请稍候…' : '发送 ↑' }}</button></div></form>
+        <details class="microphone-advanced"><summary>麦克风设置与故障排查</summary><div class="microphone-settings">
           <label for="practice-microphone">录音设备</label>
           <select id="practice-microphone" v-model="selectedMicrophone" :disabled="isRecording || isStarting || isTranscribing">
             <option value="">浏览器默认麦克风</option><option v-for="device in microphones" :key="device.id" :value="device.id">{{ device.label }}</option>
@@ -501,7 +513,7 @@ onUnmounted(() => { disposed = true; sceneRun++; sceneController?.abort(); clear
         </div>
         <p v-if="deviceError" class="note error">{{ deviceError }}</p>
         <p class="note">录音无声时，请选用与你其他语音软件相同的麦克风。首次允许录音后会显示完整设备名称；如果仍无声，可在 Chrome 或 Edge 中打开此页面对比。</p>
-        <div v-if="isRecording" class="microphone-monitor">
+        </details><div v-if="isRecording" class="microphone-monitor">
           <div class="microphone-wave" aria-hidden="true"><span v-for="(level, index) in waveform" :key="index" :style="{ height: `${3 + level * 33}px` }"></span></div>
           <div class="microphone-details"><strong role="status">{{ inputStatus }}</strong><span>{{ microphoneName }} · {{ elapsedSeconds }} / {{ maxSeconds }} 秒</span></div>
         </div>
@@ -605,6 +617,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }button, textarea, input, s
 .microphone-settings select { flex: 1 1 180px; min-width: 0; max-width: 100%; padding: 6px; }
 .microphone-settings label { display: inline-flex; align-items: center; gap: 5px; }
 .microphone-settings input { width: auto; margin: 0; }
+</style>
+
+<style scoped>
+.vocabulary-settings{border:1px solid var(--line);border-radius:12px;padding:16px;margin:18px 0}.vocabulary-settings h3{margin:0 0 12px;font-size:16px}.word-count-presets{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.vocabulary-settings label{display:flex;gap:12px;align-items:center;font-size:13px}.vocabulary-settings small{display:block;color:var(--ink-soft);line-height:1.7;margin-top:8px}.vocab-preview,.complete-flow-setup details,.session-task,.session-vocabulary{margin:12px 0;font-size:13px}.vocab-preview summary,.session-task summary,.session-vocabulary summary{cursor:pointer;color:var(--ink-soft)}.scene-bar{padding:16px}.scene-bar .section-heading{margin-bottom:8px}.scene-bar h2{font-size:22px}.scene-bar .journey-identity{margin:10px 0}.scene-bar .journey-identity :deep(.name-avatar){width:40px!important;height:40px!important}.scene-bar .journey-identity small{display:none}.scene-bar .journey-identity strong{font-size:13px}.scene-meta{gap:12px;flex-wrap:wrap}.scene-meta label{display:flex;align-items:center;gap:5px}.scene-meta select{padding:4px;font-size:12px}.actor-picker{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.actor-picker button{padding:8px;min-width:125px}.actor-picker :deep(.name-avatar){width:34px!important;height:34px!important}.actor-picker button small{font-size:10px}.current-recipient{margin:10px 0!important;font-size:13px!important}.round-budget{font-size:12px;color:var(--ink-soft);display:flex;gap:12px;justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}.round-budget p{width:100%;margin:4px 0;line-height:1.7}.stage-transition{font-size:12px;line-height:1.6;color:var(--accent);padding:9px 12px;background:var(--accent-soft);border-radius:8px}.message-usage{font-size:11px;color:var(--ink-soft);margin-top:6px}.microphone-advanced{margin-top:14px;font-size:12px;color:var(--ink-soft)}.microphone-advanced summary{cursor:pointer}.session-task p{font-size:14px;line-height:1.8;font-weight:400}.dialogue-main{min-width:0}.scene-option.chosen{outline:2px solid var(--accent);outline-offset:2px}.complete-flow-setup p{font-size:12px;line-height:1.7}.scene-description{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.scene-goals{display:none}@media(max-width:900px){.dialogue-layout>aside{grid-row:auto}}@media(max-width:600px){.scene-bar{padding:12px}.actor-picker button{min-width:120px;flex:1}.scene-meta{line-height:1.7}.scene-meta>span{width:100%}.word-count-presets .btn{flex:1;padding:8px}.vocabulary-settings input{max-width:150px}.scene-bar .journey-identity{margin:6px 0}}
 </style>
 
 <style scoped>

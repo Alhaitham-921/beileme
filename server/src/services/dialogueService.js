@@ -22,7 +22,9 @@ import { currentActor, assertRevision, assertConversation, saveChallenge } from 
 import { getWordMemoryImage } from './wordMemoryImageService.js'
 import { buildImageScenarioMessages, validateImageScenario, copiedImageHelp } from './imageDialogueEngine.js'
 import { illustrationContext, queueOpeningIllustration, queueTurnIllustration } from './dialogueIllustrationService.js'
-import { withWorkflow } from './scenarioWorkflow.js'
+import { withWorkflow,autoAdvanceWorkflow } from './scenarioWorkflow.js'
+import {withClassicVocabulary} from '../../../shared/classicLearning.js'
+import {workflowFor} from '../../../shared/scenarioWorkflows.js'
 import { visualUpdate } from './dialogueIllustrationEngine.js'
 
 const reportJobs = new Map()
@@ -32,7 +34,13 @@ const MAX_HELP = 16
 
 function fromRow(row) {
   if (!row) throw notFound('这轮情境对话不存在')
-  return { ...parseJson(row.state, {}), id: Number(row.id), status: row.status, createdAt: row.created_at, updatedAt: row.updated_at }
+  const session={ ...parseJson(row.state, {}), id: Number(row.id), status: row.status, createdAt: row.created_at, updatedAt: row.updated_at }
+  if(session.scene?.workflow){
+    const plan=workflowFor(session.scene,{route:session.scene.workflow.route,transfer:session.scene.workflow.variation==='changed-constraints'})
+    for(const stage of session.scene.workflow.stages){const match=plan?.stages.find(s=>s.id===stage.id&&s.opening===stage.opening);if(!stage.openingTranslation&&match)stage.openingTranslation=match.openingTranslation||''}
+    for(const message of session.messages||[])if(message.role==='assistant'&&message.event==='stage_opening'&&!message.translation)message.translation=session.scene.workflow.stages.find(s=>s.id===message.flowStageId)?.openingTranslation||''
+  }
+  return session
 }
 async function rowFor(userId, id) {
   return queryOne('SELECT * FROM dialogue_sessions WHERE id = ? AND user_id = ?', [id, userId])
@@ -55,7 +63,7 @@ async function resolveScene(userId, sceneId, difficulty, variant) {
     const scene = await savedSceneFor(userId, sceneId)
     return withDifficulty(scene, difficulty)
   }
-  const classic = DIALOGUE_SCENES.find(item => item.id === sceneId)
+  const classic = sceneId==='bank'?sceneFor('bank',difficulty,variant):DIALOGUE_SCENES.find(item => item.id === sceneId)
   if (!classic) throw badRequest('请选择可用的场景')
   if (variant && classic.variants && !classic.variants.some(item => item.id === variant)) throw badRequest('请选择可用的场景版本')
   return { ...sceneFor(sceneId, difficulty, variant), source: 'classic', saved: false }
@@ -137,7 +145,7 @@ async function configuredProvider(userId) {
   return provider
 }
 
-export async function startDialogue(userId, { sceneId, strictness = 'standard', difficulty = 'beginner', variant, mode = 'task', maxTurns = 8, prepareWords = false, challenge = 'standard', fullJourney=false, learningRoute, transfer=false }) {
+export async function startDialogue(userId, { sceneId, strictness = 'standard', difficulty = 'beginner', variant, mode = 'task', maxTurns = 8, prepareWords = false, challenge = 'standard', fullJourney=false, learningRoute, transfer=false, vocabularyCount,flexibleLength=false,autoProgress=true,textSupport=false }) {
   let scene = await resolveScene(userId, sceneId, difficulty, variant)
   if (challenge === 'change_dates') {
     if ((scene.sourceSceneId || scene.id) !== 'hotel') throw badRequest('改期挑战适用于酒店情境')
@@ -145,7 +153,7 @@ export async function startDialogue(userId, { sceneId, strictness = 'standard', 
     scene = hotelChangeScene(scene)
   }
   if (scene.memoryImage) { mode = 'task'; maxTurns = 3 }
-  return createDialogue(userId, scene, { sceneId, strictness, difficulty, variant: scene.variant, mode, maxTurns, prepareWords, fullJourney, learningRoute, transfer })
+  return createDialogue(userId, scene, { sceneId, strictness, difficulty, variant: scene.variant, mode, maxTurns, prepareWords, fullJourney, learningRoute, transfer,vocabularyCount,flexibleLength,autoProgress,textSupport })
 }
 
 export async function startImageDialogue(userId, { wordId, sense, imagePath, difficulty = 'beginner' }) {
@@ -181,18 +189,23 @@ export async function repeatDialogue(userId, id, options = {}) {
   return createDialogue(userId, scene, { sceneId: previous.sceneId, difficulty, variant: previous.variant,
     strictness: options.strictness || previous.strictness || 'standard',
     mode: scene.memoryImage ? 'task' : options.mode || previous.mode || 'task', maxTurns: scene.memoryImage ? 3 : options.maxTurns || previous.maxTurns || 8, prepareWords: options.prepareWords ?? false, fullJourney:options.fullJourney ?? Boolean(previous.scene.workflow),
-    learningRoute:options.learningRoute || previous.scene.workflow?.route,transfer:options.transfer ?? false })
+    learningRoute:options.learningRoute || previous.scene.workflow?.route,transfer:options.transfer ?? false,
+    vocabularyCount:options.vocabularyCount??previous.scene.vocabularyCount,flexibleLength:options.flexibleLength??previous.flexibleLength??false,autoProgress:options.autoProgress??previous.journey?.flow?.autoProgress??true,textSupport:options.textSupport??previous.journey?.flow?.textSupport??false })
 }
 
-async function createDialogue(userId, scene, { sceneId, strictness, difficulty, variant, mode, maxTurns, prepareWords, fullJourney=false, learningRoute, transfer=false }) {
+async function createDialogue(userId, scene, { sceneId, strictness, difficulty, variant, mode, maxTurns, prepareWords, fullJourney=false, learningRoute, transfer=false,vocabularyCount,flexibleLength=false,autoProgress=true,textSupport=false }) {
   if (!prepareWords) await configuredProvider(userId)
+  if(vocabularyCount!=null)scene=withClassicVocabulary(scene,vocabularyCount)
+  if(vocabularyCount!=null&&!fullJourney){const preview=workflowFor(journeyScene(scene,variant),{route:learningRoute,transfer});if(preview?.actors)scene={...scene,actors:preview.actors}}
   scene = withWorkflow(journeyScene(scene, variant),{fullJourney,learningRoute,transfer})
-  if (scene.workflow) maxTurns=Math.max(maxTurns,scene.workflow.stages.length*8)
+  if (scene.workflow&&!flexibleLength) maxTurns=Math.max(maxTurns,scene.workflow.stages.length*8)
   const limits = await resolveLimits(userId)
-  const state = { sceneId, scene: { ...scene, maxTurns }, strictness, difficulty, variant: variant || null, mode, maxTurns, turnCount: 0,
+  const state = { sceneId, scene: { ...scene, maxTurns }, strictness, difficulty, variant: variant || null, mode, maxTurns,flexibleLength, turnCount: 0,
     messages: prepareWords ? [] : [{ role: 'assistant', actorId: scene.workflow?.stages[0].actorId || scene.actors[0].id, actorName: (scene.actors.find(a=>a.id===(scene.workflow?.stages[0].actorId||scene.actors[0].id))).name, flowStageId:scene.workflow?.stages[0].id,event:scene.workflow?'stage_opening':undefined, text: scene.opening, translation: difficulty === 'beginner' && !scene.workflow ? (scene.openingTranslation || scene.task) : '' }],
     journey: initJourney(scene, prepareWords),
     targetUsage: scene.targets.map(t => ({ ...t, status: 'unused', helpLevel: 0 })), help: null, helpEvents: [], report: null, reportAttempts: 0 }
+  if(state.messages[0])state.messages[0].translation=scene.openingTranslation||''
+  if(state.journey?.flow){const flow=state.journey.flow;flow.autoProgress=autoProgress;flow.textSupport=textSupport;if(textSupport)flow.listening[scene.workflow.stages[0].id]={attempts:0,revealed:true}}
   const id = await withTransaction(async conn => {
     await conn.execute('SELECT id FROM users WHERE id = ? FOR UPDATE', [userId])
     const [rows] = await conn.execute('SELECT COUNT(*) n FROM dialogue_sessions WHERE user_id = ? AND created_at >= ?', [userId, businessDayStartUtc(todayKey())])
@@ -337,7 +350,9 @@ export async function addDialogueTurn(userId, id, { text, expectedTurn, expected
     applyGoalEvidence(session, turn, text, helpLevel)
     session.messages.push({ role: 'assistant', flowStageId:session.scene.workflow?.stages[session.journey.flow.index].id, actorId: actor?.id, actorName: actor?.name, text: turn.reply, translation: turn.translation || '', corrections: [], usage })
     if (session.journey) session.journey.revision++
+    session.messages.filter(m=>m.role==='user').at(-1).turn=session.turnCount+1
     session.turnCount += 1
+    if(!turn.mixedLanguage)autoAdvanceWorkflow(session)
     // Chinese assistance is explicitly a demonstration awaiting a separate user turn.
     session.help = turn.mixedLanguage && turn.helpEnglish
       ? { level: 3, word: turn.helpWord || session.scene.targets.find(t => containsWord(turn.helpEnglish, t.word))?.word || null,
@@ -349,7 +364,7 @@ export async function addDialogueTurn(userId, id, { text, expectedTurn, expected
         ? { ...t, helpLevel: Math.max(t.helpLevel || 0, 3), weak: true, status: t.status === 'unused' ? 'weak' : t.status, tags: [...new Set([...(t.tags || []), 'chinese_help'])] } : t)
     }
     const goalsComplete = session.journey?.goals?.every(goal => goal.completed)
-    const done = session.turnCount >= session.maxTurns || (!session.scene.memoryImage && session.mode !== 'free' && (goalsComplete || (!session.scene.workflow && session.turnCount >= 6 && turn.taskComplete)))
+    const done = !session.flexibleLength && (session.turnCount >= session.maxTurns || (!session.scene.memoryImage && session.mode !== 'free' && (goalsComplete || (!session.scene.workflow && session.turnCount >= 6 && turn.taskComplete))))
     await saveClaimed(session, token, done ? 'analyzing' : 'active')
     await queueTurnIllustration(userId, session, turn.visualUpdate)
     if (done) scheduleReport(userId, id)

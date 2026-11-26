@@ -59,7 +59,7 @@ export async function beginConversation(userId, id, { expectedRevision, skip = f
     session.journey.phase = 'conversation'
     const actor = currentActor(session)
     session.messages.push({ role: 'assistant', actorId: actor.id, actorName: actor.name, flowStageId:session.scene.workflow?.stages[0].id,event:session.scene.workflow?'stage_opening':undefined, text: session.scene.opening,
-      translation: session.difficulty === 'beginner' && !session.scene.workflow ? session.scene.openingTranslation || '' : '' })
+      translation: session.scene.workflow?.stages[0].openingTranslation || session.scene.openingTranslation || '' })
   })
 }
 
@@ -150,4 +150,13 @@ export function actWorkflow(userId,id,input) {
     assertConversation(session); assertRevision(session,input.expectedRevision)
     try { applyWorkflowAction(session,input) } catch(error) { throw badRequest(error.message) }
   })
+}
+
+export function extendDialogue(userId,id,{maxTurns,expectedRevision}){
+ return mutate(userId,id,['active'],session=>{
+  assertRevision(session,expectedRevision)
+  if(session.scene.memoryImage)throw badRequest('看图三轮请结束后开始新一轮')
+  if(maxTurns<=session.maxTurns||maxTurns<=session.turnCount)throw badRequest('新的练习长度应大于当前长度和已进行轮次')
+  session.maxTurns=maxTurns;session.scene.maxTurns=maxTurns;session.flexibleLength=true
+ })
 }

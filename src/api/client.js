@@ -186,10 +186,11 @@ export async function request(method, path, options = {}) {
 }
 
 async function performRequest(method, path, options = {}) {
-  const { body, query, auth = true, retryOn401 = true, timeoutMs, signal, onUploadComplete, timeoutMessage, responseType } = options
+  const { body, rawBody, query, auth = true, retryOn401 = true, timeoutMs, signal, onUploadComplete, timeoutMessage, responseType } = options
 
   const headers = {}
   if (body !== undefined) headers['Content-Type'] = 'application/json'
+  if(rawBody!==undefined)headers['Content-Type']=rawBody.type||'application/octet-stream'
   if (auth && tokens?.accessToken) headers.Authorization = `Bearer ${tokens.accessToken}`
 
   let response
@@ -198,7 +199,7 @@ async function performRequest(method, path, options = {}) {
     response = await send(buildUrl(path, query), {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: rawBody!==undefined ? rawBody : body === undefined ? undefined : JSON.stringify(body),
       signal: mergeSignals([signal, timeoutMs ? AbortSignal.timeout(timeoutMs) : null]),
       ...(onUploadComplete ? {onUploadComplete} : {}),
     })

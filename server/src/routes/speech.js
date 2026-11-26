@@ -1,4 +1,5 @@
-import { Router, json } from 'express'
+import { Router, json,raw } from 'express'
+import {config} from '../config.js'
 import { requireAuth } from '../middleware/auth.js'
 import { isAdmin, requireAdmin } from '../middleware/admin.js'
 import { speechSettingsService } from '../services/speechSettings.js'
@@ -24,6 +25,11 @@ export function createSpeechRouter({ authenticate = requireAuth, service = speec
     } finally {
       res.off('close', abort)
     }
+  }))
+  router.post('/transcribe-audio',raw({type:['audio/*','application/octet-stream'],limit:config.speech.maxBytes}),asyncHandler(async(req,res)=>{
+    const controller=new AbortController(),abort=()=>{if(!res.writableEnded)controller.abort()}
+    res.on('close',abort)
+    try{const result=await service.transcribe(req.user.id,{audioBytes:req.body,mimeType:req.get('Content-Type'),durationMs:Number(req.query.durationMs)},{signal:controller.signal});if(!res.destroyed)ok(res,result)}finally{res.off('close',abort)}
   }))
   return router
 }

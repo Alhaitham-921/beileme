@@ -47,13 +47,13 @@ export function hotelChangeScene(scene) {
 
 function meaningQuestions(targets, prefix) {
   return targets.map((target, index) => {
-    const distractors = [...new Set([...targets.filter(t => t.sense !== target.sense).map(t => t.sense), '一种交通工具', '一种天气现象', '一种运动项目', '一种食物'])]
-      .filter(sense => sense !== target.sense).slice(0, 3)
+    const distractors = [...new Set(target.otherSenses||[])].filter(sense => normalized(sense)!==normalized(target.sense)).slice(0,3)
+    if(!distractors.length)distractors.push('当前语境无法确定含义')
     const options = [target.sense, ...distractors]
     const offset = index % options.length
     const rotated = [...options.slice(offset), ...options.slice(0, offset)]
     return { id: `${prefix}-${index}`, type: 'meaning', word: target.word, sense: target.sense,
-      prompt: `${target.word} 在本次情境中是什么意思？`, options: rotated, answer: target.sense, correctIndex: rotated.indexOf(target.sense) }
+      prompt: `${target.word} 在这句话中是什么意思？`, context:target.example, options: rotated, answer: target.sense, correctIndex: rotated.indexOf(target.sense) }
   })
 }
 
@@ -85,12 +85,19 @@ export function applyGoalEvidence(session, raw, text, helpLevel) {
     if (!evidence || typeof evidence !== 'object') continue
     const goal = journey.goals.find(goal => goal.id === evidence.goalId)
     const quote = typeof evidence.quote === 'string' ? evidence.quote.trim() : ''
-    // Completion is a model assessment with a verifiable excerpt, not a keyword or turn-count score.
-    if ((activeWorkflowStage(session) && goal?.stageId !== activeWorkflowStage(session).id) || !goal || evidence.completed !== true || quote.length < 5 || !/[A-Za-z]/.test(quote) || !text.includes(quote) || /\p{Script=Han}/u.test(text)) continue
-    if (session.messages.at(-1)?.role === 'user' && session.messages.at(-1)?.corrections?.some(c => c.original && quote.includes(c.original))) continue
-    const independent = helpLevel < 2 && !journey.flow?.references.includes(activeWorkflowStage(session)?.id)
+    const stage=activeWorkflowStage(session)
+    if ((stage && goal?.stageId!==stage.id)||!goal||evidence.completed!==true)continue
+    const quotes=[...new Set([quote,...(Array.isArray(evidence.quotes)?evidence.quotes:[])])].filter(q=>typeof q==='string'&&q.trim()).slice(0,6)
+    const source=(session.messages||[]).filter(m=>m.role==='user'&&(!stage||m.flowStageId===stage.id))
+    source.push({text,helpLevel,corrections:session.messages?.at(-1)?.corrections||[]})
+    const grounded=quotes.map(q=>source.find(m=>typeof m.text==='string'&&q.length>=2&&/[A-Za-z]/.test(q)&&!/[\p{Script=Han}]/u.test(m.text)&&m.text.includes(q)))
+    if(!quotes.length||grounded.some(m=>!m))continue
+    // Minor grammar can communicate information; a wrong meaning cannot. All
+    // excerpts must belong to the current stage, never future-stage guesses.
+    if(grounded.some((m,i)=>m.corrections?.some(c=>(!stage||['sense_misuse','word_usage'].includes(c.type))&&c.original&&quotes[i].includes(c.original))))continue
+    const independent = grounded.every(m=>(m.helpLevel||0)<2) && !journey.flow?.references.includes(stage?.id)
     if (goal.completed && (goal.independent || !independent)) continue
-    Object.assign(goal, { completed: true, independent, quote, actorId: journey.activeActorId, turn: session.turnCount + 1 })
+    Object.assign(goal, { completed: true, independent, quote:quotes[0], evidenceQuotes:quotes, actorId: journey.activeActorId, turn: session.turnCount + 1 })
   }
   const handoff = raw.handoff
   const currentStage=activeWorkflowStage(session)

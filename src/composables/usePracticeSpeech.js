@@ -48,6 +48,7 @@ export function usePracticeSpeech() {
   const detectedSound = ref(false)
   const microphoneName = ref('麦克风')
   const recordingUrl = ref('')
+  let binaryUpload=false
   const microphones = ref([])
   const selectedMicrophone = ref('')
   const rawAudio = ref(true)
@@ -180,6 +181,7 @@ export function usePracticeSpeech() {
       const status = await http.get('/speech/status', { timeoutMs: 8000 })
       if (disposed) return null
       configured.value = Boolean(status?.configured)
+      binaryUpload=Boolean(status?.binaryUpload)
       maxSeconds.value = status.maxSeconds || 60
       maxBytes.value = status.maxBytes || 2097152
       remaining.value = status.remaining ?? 0
@@ -214,10 +216,10 @@ export function usePracticeSpeech() {
     const controller=transcribeController
     isTranscribing.value=true;phase.value='preparing'
     try {
-      const audioBase64=await readBase64(lastRecording.blob)
       if(token!==generation || disposed)return
       phase.value='uploading'
-      const result=await http.post('/speech/transcribe',{body:{audioBase64,mimeType:lastRecording.mimeType,durationMs:lastRecording.durationMs},signal:controller.signal,onUploadComplete:()=>{if(token===generation)phase.value='recognizing'},timeoutMs:45000,timeoutMessage:'识别等待超时，录音已保留，可以回放后重试。'})
+      const upload=binaryUpload?{rawBody:lastRecording.blob,query:{durationMs:lastRecording.durationMs}}:{body:{audioBase64:await readBase64(lastRecording.blob),mimeType:lastRecording.mimeType,durationMs:lastRecording.durationMs}}
+      const result=await http.post(binaryUpload?'/speech/transcribe-audio':'/speech/transcribe',{...upload,signal:controller.signal,onUploadComplete:()=>{if(token===generation)phase.value='recognizing'},timeoutMs:45000,timeoutMessage:'识别等待超时，录音已保留，可以回放后重试。'})
       if(token!==generation || disposed)return
       if(!result?.text?.trim())throw new Error('未识别出文字，请回放录音后重试。')
       transcript.value=result.text.trim();remaining.value=result.remaining ?? Math.max(0,remaining.value-1)
@@ -252,7 +254,7 @@ export function usePracticeSpeech() {
     stopSpeaking()
     const token = ++generation
     try {
-      const audio = { echoCancellation: !rawAudio.value, noiseSuppression: !rawAudio.value, autoGainControl: !rawAudio.value }
+      const audio = {channelCount:{ideal:1},sampleRate:{ideal:16000}, echoCancellation: !rawAudio.value, noiseSuppression: !rawAudio.value, autoGainControl: !rawAudio.value }
       if (selectedMicrophone.value) audio.deviceId = { exact: selectedMicrophone.value }
       const acquired = await navigator.mediaDevices.getUserMedia({ audio, video: false })
       // A permission prompt can outlive navigation or cancellation.
@@ -266,7 +268,7 @@ export function usePracticeSpeech() {
       startMeter()
       const mimeType = RECORDER_TYPES.find((type) => MediaRecorder.isTypeSupported(type))
       if (!mimeType) throw new Error('此浏览器没有受支持的录音格式，请更换新版浏览器或继续打字。')
-      const activeRecorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 64000 })
+      const activeRecorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 32000 })
       recorder = activeRecorder
       const chunks = []
       let bytes = 0
@@ -334,7 +336,8 @@ export function usePracticeSpeech() {
 
   function speak(text, { rate = 1 } = {}) {
     if (isRecording.value || isStarting.value) return
-    if (nativeSpeech.isSupported()) {
+    const localVoice=typeof window!=='undefined'&&window.speechSynthesis?.getVoices().find(v=>v.localService&&/^en([-_]|$)/i.test(v.lang))
+    if (!localVoice&&nativeSpeech.isSupported()) {
       stopSpeaking()
       error.value = ''
       const token = speechGeneration
@@ -357,7 +360,7 @@ export function usePracticeSpeech() {
     message.lang = 'en-US'
     message.rate = Math.max(0.5, Math.min(1.5, Number(rate) || 1))
     const voices = window.speechSynthesis.getVoices()
-    message.voice = voices.find((voice) => voice.lang === 'en-US') || voices.find((voice) => voice.lang.startsWith('en')) || null
+    message.voice = localVoice || voices.find((voice) => voice.lang === 'en-US') || voices.find((voice) => voice.lang.startsWith('en')) || null
     message.onstart = () => { if (utterance === message) isSpeaking.value = true }
     message.onend = message.onerror = () => { if (utterance === message) isSpeaking.value = false }
     window.speechSynthesis.speak(message)
@@ -394,5 +397,6 @@ export function usePracticeSpeech() {
   return { phase, canRetry, retryTranscription, isPreparingSpeech, supported, available, configured, statusLoading, statusReason, isStarting, isRecording, isTranscribing,
     inputLevel, waveform, meterReady, detectedSound, microphoneName, recordingUrl, inputStatus,
     microphones, selectedMicrophone, rawAudio, deviceError, isRefreshingMicrophones, refreshMicrophones,
+    getRecording:()=>lastRecording?{...lastRecording}:null,discardRecording:clearPreview,
     error, transcript, elapsedSeconds, maxSeconds, remaining, refreshStatus, start, stop, cancel, speak, stopSpeaking, isSpeaking }
 }
