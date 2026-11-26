@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { LISTENING_LESSONS, EXTERNAL_RESOURCES } from '../../data/listeningLessons.js'
 import { findLibraryProgress,saveLibraryProgress,recordListeningAttempt } from '../repositories/libraryProgressRepository.js'
 import { notFound, badRequest } from '../utils/errors.js'
+import {listUserReadingBooks,findUserReadingBook} from '../repositories/userReadingBooksRepository.js'
 import { parseJson } from '../utils/json.js'
 import { loadLearningContext } from './learningContextService.js'
 import { resolveWordbookForUser } from './wordService.js'
@@ -12,18 +13,21 @@ const audioLocation=new URL('../../data/listening-audio/',import.meta.url)
 const audioManifest=JSON.parse(await readFile(new URL('manifest.json',audioLocation),'utf8'))
 const audioCache=new Map()
 const books=new Map()
+let bookLoading
 async function allBooks() {
-  if(!books.size)for(const file of await readdir(location)) {
-    if(!/^[a-z-]+\.json$/.test(file))continue
-    const book=JSON.parse(await readFile(new URL(file,location),'utf8'));books.set(book.id,book)
-  }
-  return [...books.values()]
+  if(!bookLoading)bookLoading=(async()=>{
+    const loaded=await Promise.all((await readdir(location)).filter(name=>/^[a-z-]+\.json$/.test(name)).map(async name=>JSON.parse(await readFile(new URL(name,location),'utf8'))))
+    for(const book of loaded)books.set(book.id,book)
+    return loaded
+  })().catch(error=>{bookLoading=null;throw error})
+  return bookLoading
 }
-async function bookFor(id) {
+async function bookFor(userId,id) {
+  if(id.startsWith('personal-')){const row=await findUserReadingBook(userId,id);if(!row)throw notFound('这本书暂不可用');return parseJson(row.document,{})}
   await allBooks();const book=books.get(id);if(!book)throw notFound('这本书暂不可用');return book
 }
 export async function libraryOverview(userId) {
-  const items=await allBooks()
+  const items=await allBooks(),personal=await listUserReadingBooks(userId)
   let learning=null
   const book=await resolveWordbookForUser(userId)
   if(book) {
@@ -31,6 +35,7 @@ export async function libraryOverview(userId) {
     learning=(await loadLearningContext({userId,bookId:book.id,since,until})).learning
   }
   return {books:items.map(({chapters,notice,...metadata})=>({...metadata,chapterCount:chapters.length})),
+    personalBooks:personal.map(row=>({id:row.id,title:row.title,titleZh:'',author:row.author,chapterCount:Number(row.chapter_count),sourceFormat:row.source_format,sourceName:'个人导入',level:'仅自己可见',personal:true})),
     lessons:LISTENING_LESSONS.map(({transcript,questions,...lesson})=>({...lesson,questionCount:questions.length,source:'平台原创 · Kokoro 合成朗读'})),
     resources:EXTERNAL_RESOURCES,learning}
 }
@@ -61,7 +66,7 @@ export async function checkListening(userId,id,{answers,transcriptShown}) {
   return {...progress,attemptId}
 }
 export async function getReading(userId,id,chapterId) {
-  const book=await bookFor(id)
+  const book=await bookFor(userId,id)
   const saved=await findLibraryProgress(userId,'reading',id)
   const progress=parseJson(saved?.position,{})
   const chosen=chapterId||progress.chapterId||book.chapters[0].id
@@ -70,9 +75,9 @@ export async function getReading(userId,id,chapterId) {
   const {chapters,notice,...metadata}=book
   return {book:metadata,chapters:chapters.map(({paragraphs,...c})=>c),chapter,progress}
 }
-export async function readingNotice(id) {return (await bookFor(id)).notice}
+export async function readingNotice(userId,id) {return (await bookFor(userId,id)).notice}
 export async function saveReading(userId,id,{chapterId,paragraph,offset=0}) {
-  const book=await bookFor(id),chapter=book.chapters.find(c=>c.id===chapterId)
+  const book=await bookFor(userId,id),chapter=book.chapters.find(c=>c.id===chapterId)
   if(!chapter||paragraph>=chapter.paragraphs.length||offset>chapter.paragraphs[paragraph].length)throw badRequest('阅读位置无效')
   await saveLibraryProgress(userId,'reading',id,{chapterId,paragraph,offset})
   return {saved:true}

@@ -1,4 +1,5 @@
-import { Router } from 'express'
+import { Router,json } from 'express'
+import {importReadingBook,removeReadingBook} from '../services/readingBookImportService.js'
 import { z } from 'zod'
 import { requireAuth } from '../middleware/auth.js'
 import { validate } from '../middleware/validate.js'
@@ -8,9 +9,11 @@ import {libraryPreferences,setLibraryPreferences,explainReadingPage,analyseReadi
 
 export function createLibraryRouter({authenticate=requireAuth,service={libraryOverview,listeningLesson,listeningAudio,checkListening,getReading,saveReading,readingNotice}}={}) {
   const router=Router();router.use(authenticate)
-  const params=z.object({id:z.string().regex(/^[a-z][a-z-]{0,63}$/)})
+  const params=z.object({id:z.string().regex(/^[a-z][a-z0-9-]{0,63}$/)})
   const range=z.object({startParagraph:z.number().int().min(0),startOffset:z.number().int().min(0),endParagraph:z.number().int().min(0),endOffset:z.number().int().min(0)})
   const readingBody=z.object({chapterId:z.string().regex(/^\d{1,3}$/),range})
+  router.post('/books/import',json({limit:'12mb'}),validate({body:z.object({filename:z.string().trim().min(1).max(240),contentBase64:z.string().min(1).max(11184812),title:z.string().trim().max(160).optional(),author:z.string().trim().max(120).optional()})}),asyncHandler(async(req,res)=>ok(res,await importReadingBook(req.user.id,req.valid.body),201)))
+  router.delete('/books/:id',validate({params}),asyncHandler(async(req,res)=>ok(res,await removeReadingBook(req.user.id,req.valid.params.id))))
   router.get('/preferences',asyncHandler(async(req,res)=>ok(res,await libraryPreferences(req.user.id))))
   router.put('/preferences',validate({body:z.object({showChinese:z.boolean()})}),asyncHandler(async(req,res)=>ok(res,await setLibraryPreferences(req.user.id,req.valid.body.showChinese))))
   router.post('/books/:id/explain-page',validate({params,body:readingBody}),asyncHandler(async(req,res)=>ok(res,await explainReadingPage(req.user.id,req.valid.params.id,req.valid.body))))
@@ -26,7 +29,7 @@ export function createLibraryRouter({authenticate=requireAuth,service={libraryOv
   router.get('/books/:id',validate({params,query:z.object({chapter:z.string().regex(/^\d{1,3}$/).optional()})}),
     asyncHandler(async(req,res)=>ok(res,await service.getReading(req.user.id,req.valid.params.id,req.valid.query.chapter))))
   router.get('/books/:id/notice',validate({params}),asyncHandler(async(req,res)=>{
-    ok(res,{notice:await service.readingNotice(req.valid.params.id)})
+    ok(res,{notice:await service.readingNotice(req.user.id,req.valid.params.id)})
   }))
   router.put('/books/:id/progress',validate({params,body:z.object({chapterId:z.string().regex(/^\d{1,3}$/),paragraph:z.number().int().min(0).max(100000),offset:z.number().int().min(0).max(100000).optional()})}),
     asyncHandler(async(req,res)=>ok(res,await service.saveReading(req.user.id,req.valid.params.id,req.valid.body))))

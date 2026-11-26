@@ -10,7 +10,13 @@ test('library serves complete sourced texts, preserves notices and isolates read
   assert.equal((await client.get('/api/v1/library')).status,401)
   const catalog=await client.get('/api/v1/library',auth)
   assert.equal(catalog.status,200,JSON.stringify(catalog.raw))
-  assert.deepEqual(catalog.data.books.map(b=>b.chapterCount).sort((a,b)=>a-b),[12,61])
+  assert.ok(catalog.data.books.length>=14)
+  for(const id of ['alice','pride-prejudice','little-women','jane-eyre','great-gatsby','christmas-carol','around-world','robinson-crusoe','tom-sawyer','hound-baskervilles','treasure-island','secret-garden','sherlock-holmes','wizard-of-oz']){
+    const item=catalog.data.books.find(b=>b.id===id);assert.ok(item,id);assert.ok(item.chapterCount>0);assert.match(item.sourceSha256,/^[a-f0-9]{64}$/);assert.ok(item.sourceCommit);assert.match(item.sourceUrl,/standardebooks\.org/);
+    const first=await client.get('/api/v1/library/books/'+id,auth);assert.equal(first.status,200,id);assert.ok(first.data.chapter.paragraphs.length>0,id)
+  }
+  assert.equal(catalog.data.books.find(b=>b.id==='alice').chapterCount,12)
+  assert.equal(catalog.data.books.find(b=>b.id==='pride-prejudice').chapterCount,61)
   assert.equal(catalog.data.lessons.length,5)
   const book=await client.get('/api/v1/library/books/alice',auth)
   assert.equal(book.data.chapter.id,'1');assert.ok(book.data.chapter.paragraphs.join(' ').includes('Alice'))

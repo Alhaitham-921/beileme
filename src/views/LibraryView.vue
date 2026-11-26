@@ -1,9 +1,16 @@
 <script setup>
 import { onMounted,onBeforeUnmount,ref,computed,watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute,useRouter } from 'vue-router'
 import { library } from '../api/index.js'
 import LibraryAiResult from '../components/LibraryAiResult.vue'
-const route=useRoute()
+import ReadingBookImportDialog from '../components/ReadingBookImportDialog.vue'
+const route=useRoute(),router=useRouter()
+const importOpen=ref(false),bookSearch=ref(''),removeCandidate=ref(null),removing=ref(false)
+const matches=book=>[book.title,book.titleZh,book.author].join(' ').toLowerCase().includes(bookSearch.value.trim().toLowerCase())
+const classicBooks=computed(()=>data.value?.books.filter(matches)||[])
+const personalBooks=computed(()=>data.value?.personalBooks?.filter(matches)||[])
+function imported(result){importOpen.value=false;void router.push('/library/read/'+result.id)}
+async function removeBook(){if(!removeCandidate.value||removing.value)return;const id=removeCandidate.value.id;removing.value=true;error.value='';try{await library.removeBook(id);data.value.personalBooks=data.value.personalBooks.filter(book=>book.id!==id);removeCandidate.value=null}catch(e){error.value=e.message}finally{removing.value=false}}
 const data=ref(null),error=ref(''),busy=ref(false),tab=ref(route.query.tab==='reading'?'reading':'listening'),lesson=ref(null),answers=ref([]),feedback=ref(null)
 const transcriptShown=ref(false),playing=ref(false),rate=ref(1),audioUrl=ref(''),audioPlayer=ref(null)
 const ready=computed(()=>lesson.value&&answers.value.length===lesson.value.questions.length&&answers.value.every(Number.isInteger))
@@ -38,7 +45,7 @@ onMounted(load);onBeforeUnmount(()=>{disposed=true;run++;clearAi();releaseAudio(
 <template>
   <main class="library-page">
     <header><p class="eyebrow">听懂 · 阅读 · 带到交流中使用</p><h1 class="section-title">听读空间</h1><p class="section-sub">先听大意，再核对细节；读适合自己的原文，把表达带回真实任务。</p></header>
-    <nav class="library-tabs" aria-label="学习材料类型"><button v-for="item in [{id:'listening',name:'情境精听'},{id:'reading',name:'英语名著'},{id:'sources',name:'官方课程与播客'}]" :key="item.id" class="btn" :class="tab===item.id?'btn-primary':'btn-ghost'" @click="tab=item.id">{{ item.name }}</button></nav>
+    <nav class="library-tabs" aria-label="学习材料类型"><button v-for="item in [{id:'listening',name:'情境精听'},{id:'reading',name:'英文书籍'},{id:'sources',name:'官方课程与播客'}]" :key="item.id" class="btn" :class="tab===item.id?'btn-primary':'btn-ghost'" @click="tab=item.id">{{ item.name }}</button></nav>
     <p v-if="error" role="alert">{{ error }} <button v-if="!data" class="text-button" @click="load">重试</button></p>
     <p v-if="!data&&!error"><LoadingState>正在读取听读材料…</LoadingState></p>
     <template v-if="data">
@@ -55,13 +62,24 @@ onMounted(load);onBeforeUnmount(()=>{disposed=true;run++;clearAi();releaseAudio(
         </div>
 
       </template>
-      <section v-else-if="tab==='reading'" class="reading-shelf"><article v-for="book in data.books" :key="book.id" class="card reading-book"><small>{{ book.level }} · {{ book.chapterCount }} 章</small><h2>{{ book.titleZh }}</h2><p lang="en">{{ book.title }}</p><p>{{ book.author }}</p><p class="source-line">{{ book.sourceName }} · 完整原文</p><router-link class="btn btn-primary" :to="'/library/read/'+book.id">开始或继续阅读</router-link><p><a :href="book.sourceUrl" target="_blank" rel="noopener noreferrer">原始来源与版本</a></p></article></section>
+      <section v-else-if="tab==='reading'" class="reading-library">
+        <div class="shelf-tools"><div><h2>英语书架</h2><p class="source-line">经典原文和你的个人书籍，随时开始或继续阅读。</p></div><button class="btn btn-primary" @click="importOpen=true">＋ 添加书籍</button></div>
+        <label class="book-search">查找书籍<input v-model="bookSearch" type="search" placeholder="搜索书名或作者"></label>
+        <h3>英文小说与名著 <small>{{data.books.length}} 本</small></h3>
+        <div class="reading-shelf"><article v-for="book in classicBooks" :key="book.id" class="card reading-book"><small>{{book.level}} · {{book.chapterCount}} 节</small><h2>{{book.titleZh||book.title}}</h2><p lang="en">{{book.title}}</p><p>{{book.author}}</p><p class="source-line">{{book.sourceName}} · {{book.translator?'完整英文译本':'完整原文'}}</p><router-link class="btn btn-primary" :to="'/library/read/'+book.id">开始或继续阅读</router-link><p><a :href="book.sourceUrl" target="_blank" rel="noopener noreferrer">原始来源与版本</a></p></article></div>
+        <h3 class="personal-heading">我的书籍 <small>{{data.personalBooks?.length||0}} / 20 本 · 仅自己可见</small></h3>
+        <div v-if="personalBooks.length" class="reading-shelf"><article v-for="book in personalBooks" :key="book.id" class="card reading-book"><small>{{book.sourceFormat.toUpperCase()}} · {{book.chapterCount}} 节</small><h2>{{book.title}}</h2><p>{{book.author}}</p><div class="personal-book-actions"><router-link class="btn btn-primary" :to="'/library/read/'+book.id">开始或继续阅读</router-link><button class="text-button" @click="removeCandidate=book">移除</button></div></article></div>
+        <p v-else class="source-line">{{bookSearch?'没有匹配的个人书籍。':'还没有个人书籍，点击“添加书籍”导入 TXT 或 EPUB。'}}</p>
+        <p v-if="bookSearch&&!classicBooks.length&&!personalBooks.length" role="status">未找到匹配书籍，请换个名称试试。</p>
+        <div v-if="removeCandidate" class="card remove-book-confirm" role="alert"><p>移除《{{removeCandidate.title}}》及其阅读位置？本机原文件会保留。</p><button class="btn btn-secondary" :disabled="removing" @click="removeCandidate=null">保留书籍</button><button class="btn btn-ghost" :disabled="removing" @click="removeBook">{{removing?'正在移除…':'确认移除'}}</button></div>
+      </section>
       <section v-else class="source-list"><article v-for="item in data.resources" :key="item.id" class="card"><small>{{ item.source }} · {{ item.type }} · {{ item.level }}</small><h2>{{ item.title }}</h2><p>{{ item.note }}</p><a class="btn btn-primary" :href="item.url" target="_blank" rel="noopener noreferrer">前往官方学习</a><p class="source-line">{{ item.license }} <a :href="item.licenseUrl" target="_blank" rel="noopener noreferrer">使用说明</a></p></article></section>
     </template>
+    <ReadingBookImportDialog v-if="importOpen" @close="importOpen=false" @imported="imported"/>
   </main>
 </template>
 <style scoped>
-.library-page{max-width:1100px;margin:auto}.library-tabs,.audio-tools{display:flex;gap:12px;flex-wrap:wrap;margin:22px 0}.lesson-layout{display:grid;grid-template-columns:300px minmax(0,1fr);gap:22px}.lesson-list{display:grid;align-content:start;gap:8px}.lesson-list button{text-align:left;border:1px solid var(--line);background:var(--bg-card);color:var(--ink);padding:16px;border-radius:10px;font:inherit}.lesson-list strong,.lesson-list small{display:block}.lesson-list small,.source-line{font-size:12px;color:var(--ink-soft);line-height:1.8}.lesson-list .chosen{border-color:var(--accent)}.listening-detail h2,.source-feature h2{font-size:21px}.listening-detail p,.listening-intro li,.source-list p{line-height:1.9}.listening-detail fieldset{border:1px solid var(--line);padding:15px;margin:18px 0}.listening-detail fieldset label{display:block;padding:9px 0}.listening-feedback{margin:20px 0;padding:16px;background:var(--accent-soft);border-radius:10px}.transcript{font-size:18px;line-height:1.9}.transcript-toggle{display:block;margin:22px 0}.reading-shelf,.source-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.reading-book h2{font-size:27px}.reading-book p{line-height:1.8}.source-feature{margin-top:24px}.source-feature audio{width:100%;margin-top:12px}.audio-tools label{align-self:center}.audio-tools select{padding:7px;background:var(--bg-card);color:var(--ink);border:1px solid var(--line)}@media(max-width:760px){.lesson-layout{grid-template-columns:1fr}.lesson-list{grid-template-columns:repeat(2,minmax(0,1fr))}.reading-shelf,.source-list{grid-template-columns:1fr}.lesson-list button{padding:12px;font-size:13px}}
+.shelf-tools,.personal-book-actions{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}.shelf-tools h2{margin:0}.book-search{display:flex;align-items:center;gap:12px;margin:20px 0;font-size:13px}.book-search input{flex:1;max-width:420px;min-width:0;padding:10px;border:1px solid var(--line);border-radius:8px;color:var(--ink);background:var(--bg-card);font:inherit}.reading-library h3{font-size:18px}.reading-library h3 small{font-size:12px;color:var(--ink-soft);font-weight:400}.personal-heading{margin-top:30px}.remove-book-confirm{margin-top:18px;padding:18px}.remove-book-confirm p{line-height:1.8}.remove-book-confirm .btn{margin:5px 10px 0 0}.library-page{max-width:1100px;margin:auto}.library-tabs,.audio-tools{display:flex;gap:12px;flex-wrap:wrap;margin:22px 0}.lesson-layout{display:grid;grid-template-columns:300px minmax(0,1fr);gap:22px}.lesson-list{display:grid;align-content:start;gap:8px}.lesson-list button{text-align:left;border:1px solid var(--line);background:var(--bg-card);color:var(--ink);padding:16px;border-radius:10px;font:inherit}.lesson-list strong,.lesson-list small{display:block}.lesson-list small,.source-line{font-size:12px;color:var(--ink-soft);line-height:1.8}.lesson-list .chosen{border-color:var(--accent)}.listening-detail h2,.source-feature h2{font-size:21px}.listening-detail p,.listening-intro li,.source-list p{line-height:1.9}.listening-detail fieldset{border:1px solid var(--line);padding:15px;margin:18px 0}.listening-detail fieldset label{display:block;padding:9px 0}.listening-feedback{margin:20px 0;padding:16px;background:var(--accent-soft);border-radius:10px}.transcript{font-size:18px;line-height:1.9}.transcript-toggle{display:block;margin:22px 0}.reading-shelf,.source-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.reading-book h2{font-size:27px}.reading-book p{line-height:1.8}.source-feature{margin-top:24px}.source-feature audio{width:100%;margin-top:12px}.audio-tools label{align-self:center}.audio-tools select{padding:7px;background:var(--bg-card);color:var(--ink);border:1px solid var(--line)}@media(max-width:760px){.lesson-layout{grid-template-columns:1fr}.lesson-list{grid-template-columns:repeat(2,minmax(0,1fr))}.reading-shelf,.source-list{grid-template-columns:1fr}.lesson-list button{padding:12px;font-size:13px}}
 </style>
 
 <style scoped>.listening-detail>audio{width:100%;margin-top:15px}</style>

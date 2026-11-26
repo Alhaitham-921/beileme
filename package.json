@@ -3,7 +3,9 @@
   "version": "0.2.17",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -36,10 +38,12 @@
     "@capacitor/share": "^8.0.3",
     "cors": "^2.8.6",
     "express": "^5.2.1",
+    "fflate": "0.8.3",
     "jsonwebtoken": "^9.0.3",
     "mysql2": "^3.24.4",
     "nodemailer": "^10.3.1",
     "pinia": "^2.3.0",
+    "saxes": "6.0.0",
     "sharp": "^0.35.5",
     "ts-fsrs": "^6.0.0",
     "undici": "^8.12.4",

@@ -111,14 +111,14 @@ onBeforeUnmount(()=>{disposed=true;serial++;lookupSerial++;pageRun++;analysisRun
 </script>
 <template>
  <main class="reader-page">
-  <header class="reader-top"><router-link class="btn btn-secondary reader-back" to="/library?tab=reading">← 返回听读空间</router-link><span v-if="data">{{data.book.titleZh}} · {{chapterIndex+1}} / {{data.chapters.length}} 章</span></header>
+  <header class="reader-top"><router-link class="btn btn-secondary reader-back" to="/library?tab=reading">← 返回听读空间</router-link><span v-if="data">{{data.book.titleZh||data.book.title}} · {{chapterIndex+1}} / {{data.chapters.length}} 节</span></header>
   <p v-if="error" role="alert">{{error}} <button class="text-button" @click="load">重试</button></p>
   <p v-if="loading" role="status">正在准备阅读页面…</p>
   <template v-if="data&&!loading">
    <h1 class="chapter-title">{{data.chapter.title}}</h1>
    <div class="reader-controls"><label>章节 <select :value="data.chapter.id" @change="chapter($event.target.value)"><option v-for="item in data.chapters" :key="item.id" :value="item.id">{{item.title}}</option></select></label><label>字号 <input v-model.number="fontSize" type="range" min="17" max="29" aria-label="阅读字号"></label><label><input type="checkbox" :checked="showChinese" :disabled="!prefsLoaded||prefsBusy" @change="changeChinese"> 中文解释</label></div>
-   <div class="reading-modes" role="group" aria-label="原文操作方式"><button class="btn" :class="mode==='lookup'?'btn-primary':'btn-ghost'" @click="mode='lookup'">查词 · 长按 2 秒</button><button class="btn" :class="mode==='selection'?'btn-primary':'btn-ghost'" @click="mode='selection'">选句分析 · 拖动选择</button><button class="text-button" @click="flush">保存位置</button></div>
-   <p class="reader-note">{{mode==='selection'?'像复制文字一样选取英文，再点击“AI 分析选句”；手机可拖动原生选择手柄。':'长按单词 2 秒查词；电脑可拖动选句，手机选句时先切换“选句分析”。'}} <span role="status">{{saved}}</span></p>
+   <div class="reading-modes" role="group" aria-label="原文操作方式"><button class="btn" :class="mode==='lookup'?'btn-primary':'btn-ghost'" @click="mode='lookup'">查词 · 长按 2 秒</button><button class="btn" :class="mode==='selection'?'btn-primary':'btn-ghost'" @click="mode='selection'">选句分析</button><button class="text-button" @click="flush">保存位置</button></div>
+   <p class="reader-note" role="status">{{saved}}</p>
    <p v-if="prefsError" role="alert">{{prefsError}} <button class="text-button" @click="loadPrefs">重读偏好</button></p>
    <div class="leaf-frame" @pointerdown="pointerStart" @pointerup="pointerEnd" @pointercancel="swipe=null">
     <div ref="leaf" class="reading-leaf" :style="{height:pageHeight+'px'}">
@@ -127,10 +127,10 @@ onBeforeUnmount(()=>{disposed=true;serial++;lookupSerial++;pageRun++;analysisRun
     <div ref="probe" class="reader-text reader-probe" :style="{fontSize:fontSize+'px'}" aria-hidden="true"></div>
    </div>
    <nav class="page-navigation" aria-label="阅读翻页"><button class="btn btn-secondary" :disabled="pageIndex===0&&chapterIndex===0" @click="turnPage(-1)">← 上一页</button><label>本章 <select v-model.number="pageIndex" aria-label="跳转本章页码"><option v-for="(_,i) in pages" :key="i" :value="i">{{i+1}} / {{pages.length}} 页</option></select></label><button class="btn btn-primary" :disabled="pageIndex===pages.length-1&&chapterIndex===data.chapters.length-1" @click="turnPage(1)">下一页 →</button></nav>
-   <p class="reader-note">页码随屏幕和字号调整，保存的是原文位置。电脑可用左右方向键，手机也可在查词模式横滑翻页。</p>
+   <p class="reader-note">页码随屏幕和字号调整，保存的是原文位置。</p>
    <section v-if="showChinese" class="page-chinese card" aria-label="本页中文解释"><h2>本页中文解释</h2><p class="reader-note">按当前页调用已接入的文字 AI；已生成内容会保存复用，非出版译文。</p><p v-if="pageAiBusy" role="status">正在解释本页原文，翻页和英文阅读不受影响…</p><p v-if="pageAiError" role="alert">{{pageAiError}} <button class="text-button" :disabled="pageAiBusy" @click="explainPage">重试生成</button> <router-link to="/settings">文字 AI 设置</router-link></p><LibraryAiResult :result="pageExplanation" kind="page"/></section>
    <details v-if="data.chapter.audioUrl" class="chapter-audio"><summary>本章真人朗读 · {{data.book.audio.source}}</summary><audio :key="data.chapter.id" controls preload="none" :src="data.chapter.audioUrl" @error="audioError='外部音频暂不可用，可打开来源或继续阅读。'"/><p>{{data.book.audio.note}} <a :href="data.book.audio.sourceUrl" target="_blank" rel="noopener noreferrer">音频来源</a></p><p v-if="audioError">{{audioError}}</p></details>
-   <details class="reader-license"><summary>书籍来源与授权</summary><p>{{data.book.title}} · {{data.book.author}}</p><p>{{data.book.licenseLabel}}</p><a :href="data.book.sourceUrl" target="_blank" rel="noopener noreferrer">原文来源</a> · <a :href="data.book.licenseUrl" target="_blank" rel="noopener noreferrer">授权说明</a> · <button class="text-button" @click="showNotice">查看保留声明</button><pre v-if="notice">{{notice}}</pre></details>
+   <details class="reader-license"><summary>书籍来源与授权</summary><p>{{data.book.title}} · {{data.book.author}}</p><p>{{data.book.licenseLabel}}</p><a v-if="data.book.sourceUrl" :href="data.book.sourceUrl" target="_blank" rel="noopener noreferrer">原文来源</a> · <a v-if="data.book.licenseUrl" :href="data.book.licenseUrl" target="_blank" rel="noopener noreferrer">授权说明</a> · <button class="text-button" @click="showNotice">查看保留声明</button><pre v-if="notice">{{notice}}</pre></details>
   </template>
   <aside v-if="selection&&!analysisOpen" class="selection-toolbar" role="region" aria-label="选句操作"><span>已选择 {{selection.length}} 个字符</span><button class="btn btn-primary" @pointerdown.prevent @click="analyse">AI 分析选句</button><button class="text-button" @click="clearSelection">取消</button></aside>
   <aside v-if="analysisOpen" class="reader-panel selection-analysis" role="dialog" aria-label="句式和单词用法分析"><header><strong>选句分析</strong><button class="text-button" @click="clearSelection">关闭</button></header><blockquote lang="en">{{selection}}</blockquote><p v-if="analysing" role="status">正在分析句式和词语用法…</p><p v-if="analysisError" role="alert">{{analysisError}} <button class="text-button" :disabled="analysing" @click="analyse">重试</button> <router-link to="/settings">文字 AI 设置</router-link></p><LibraryAiResult :result="selectionResult" kind="selection"/></aside>
