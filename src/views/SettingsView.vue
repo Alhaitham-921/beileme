@@ -11,6 +11,7 @@ import { readAutoPronounce, saveAutoPronounce } from '../utils/wordAudio.js'
 
 const ai = useAiStore()
 const settingsSection = ref('appearance')
+import { spellingSoundEnabled as soundEnabled, tone, styles } from '../stores/spellingSound.js'
 const autoPronounce = ref(readAutoPronounce())
 watch(autoPronounce, saveAutoPronounce)
 
@@ -286,18 +287,20 @@ const typeLabels = { dialogue: '情境对话（含复盘与重试）',
     <p class="section-sub">给学习，留一个喜欢的空间。所有环境设置都在这里。</p>
     <div class="settings-sections" role="group" aria-label="设置分组">
       <button :class="{ active: settingsSection === 'appearance' }" :aria-pressed="settingsSection === 'appearance'" @click="settingsSection = 'appearance'">学习环境 <span>外观与个性化</span></button>
-      <button :class="{ active: settingsSection === 'ai' }" :aria-pressed="settingsSection === 'ai'" @click="settingsSection = 'ai'">AI 服务 <span>连接与用量</span></button>
       <button :class="{ active: settingsSection === 'wordbooks' }" :aria-pressed="settingsSection === 'wordbooks'" @click="settingsSection = 'wordbooks'">词书 <span>选择与导入</span></button>
+      <button :class="{ active: settingsSection === 'ai' }" :aria-pressed="settingsSection === 'ai'" @click="settingsSection = 'ai'">AI 服务 <span>连接与用量</span></button>
       <button :class="{ active: settingsSection === 'speech' }" :aria-pressed="settingsSection === 'speech'" @click="settingsSection = 'speech'">语音服务 <span>共享语音输入</span></button>
     </div>
-    <EmailRecoveryPanel v-if="settingsSection === 'account'" />
     <WordbookSettings v-if="settingsSection === 'wordbooks'" />
+    <EmailRecoveryPanel v-if="settingsSection === 'account'" />
     <button class="btn btn-ghost" @click="settingsSection = 'account'">账号安全 · 邮箱验证</button>
     <AvatarSettings v-if="settingsSection === 'appearance'" />
     <ThemePicker v-show="settingsSection === 'appearance'" />
     <section v-if="settingsSection === 'appearance'" class="card word-audio-settings" aria-label="背词设置">
       <label><input v-model="autoPronounce" type="checkbox" /> 单词自动发音</label>
       <p class="muted">背单词时自动播放新出现的单词。此设置保存在当前设备。</p>
+      <label><input v-model="soundEnabled" type="checkbox" /> 拼写键音与答题反馈音</label>
+      <label>打字音色 <select v-model="tone" :disabled="!soundEnabled"><option v-for="(name,id) in styles" :key="id" :value="id">{{ name }}</option></select></label>
     </section>
     <SpeechSettingsPanel v-if="settingsSection === 'speech'" />
     <NavigationSettings v-if="settingsSection === 'appearance'" />

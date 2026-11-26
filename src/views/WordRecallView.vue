@@ -1,4 +1,9 @@
 <script setup>
+import { spellingSoundEnabled as soundEnabled, tone } from '../stores/spellingSound.js'
+import { onUnmounted as onRecallUnmount } from 'vue'
+import { createTypingSound } from '../utils/spellingPractice.js'
+const typingSound = createTypingSound()
+onRecallUnmount(() => typingSound.close())
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { recall, spelling } from '../api'
@@ -175,6 +180,7 @@ async function submit(answer) {
   try {
     session.value = await recall.answer(session.value.id, question.value.wordId, answer)
     showFeedback.value = true
+    if (soundEnabled.value && session.value.feedback) typingSound.play(session.value.feedback.result === 'needs-practice' ? 'error' : true)
     input.value = ''
   } catch (error) { message.value = error.message }
   finally { busy.value = false }
@@ -298,7 +304,7 @@ onMounted(load)
       <p v-if="question.letterCount" class="muted">重点词 · {{ question.letterCount }} 个字符</p>
       <p v-if="question.hint" role="status">首字母 · <strong lang="en">{{ question.hint }}</strong></p>
       <form @submit.prevent="input.trim() && submit(input)">
-        <input id="recall-answer" ref="answerField" aria-label="输入英文" placeholder="输入英文" v-model="input" @keydown="answerKey" maxlength="100" autocapitalize="none" autocomplete="off" spellcheck="false" :disabled="busy" />
+        <input id="recall-answer" @input="soundEnabled && !$event.isComposing && typingSound.play(false,tone)" ref="answerField" aria-label="输入英文" placeholder="输入英文" v-model="input" @keydown="answerKey" maxlength="100" autocapitalize="none" autocomplete="off" spellcheck="false" :disabled="busy" />
         <div class="recall-actions">
           <button type="submit" class="btn btn-primary" :disabled="busy || !input.trim()">{{ busy ? '处理中…' : '提交' }} <kbd>Enter</kbd></button>
           <button type="button" class="btn btn-secondary" aria-keyshortcuts="F2" :disabled="busy || Boolean(question.hint)" @click="hint">看首字母 <kbd>F2</kbd></button>

@@ -144,6 +144,13 @@ async function materializeItems(queueItems) {
  * @param {number} userId
  * @param {{ kind?: 'daily'|'extra' }} options
  */
+export async function previewWords(userId, previewOffset = 0) {
+  const book = await resolveWordbookForUser(userId)
+  const profile = await queryOne('SELECT study_start_level FROM user_profiles WHERE user_id=?', [userId])
+  const rows = await listFreshWords(userId, book.id, { limit: 10, previewOffset, studyStartLevel: profile?.study_start_level })
+  return rows.map(mapWordRow)
+}
+
 export async function createSession(userId, { kind = 'daily', studyMode = 'review-first', budgetMinutes = null } = {}) {
   if (!['daily', 'extra'].includes(kind)) throw badRequest('kind 只能是 daily 或 extra')
 

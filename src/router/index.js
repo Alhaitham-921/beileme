@@ -3,6 +3,7 @@ import { useAuthStore } from '../stores/auth'
 import { navigating } from '../stores/activity.js'
 
 const routes = [
+  { path: '/study/preview', name: 'study-preview', component: () => import('../views/StudyPreview.vue'), meta: { title: '预习单词' } },
   { path: '/recall/spelling/:id', name: 'spelling', component: () => import('../views/SpellingView.vue'), meta: { title: '错词专项 · 拼写练习' } },
   { path: '/practice/image', name: 'image-practice', component: () => import('../views/ImagePracticeView.vue'), meta: { title: '看图聊三轮' } },
   { path: '/notebooks', name: 'notebooks', component: () => import('../views/NotebookLibraryView.vue') },
