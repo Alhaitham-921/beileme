@@ -12,12 +12,14 @@ import {
   SELF_LEVELS,
   MEMORY_PREFS,
 } from '../services/profileService.js'
-import { resolveWordbookForGoal, listWordbooks } from '../services/wordService.js'
+import { resolveWordbookForGoal, resolveWordbookForUser, listWordbooks } from '../services/wordService.js'
 import { getOrCreateDailyPlan } from '../services/planService.js'
 import { queryOne } from '../db/pool.js'
 import { START_LEVELS } from '../services/placementService.js'
 import { saveAvatar, removeAvatar, readAvatar } from '../services/avatarService.js'
 import { consumeWindow } from '../services/platform/rateLimit.js'
+
+import { importWordbook, selectWordbook } from '../services/userWordbookService.js'
 
 const router = Router()
 
@@ -116,9 +118,30 @@ router.post(
 // GET /api/v1/profile/wordbooks —— 可选词书列表（供引导页与设置页展示）
 router.get(
   '/wordbooks',
-  asyncHandler(async (_req, res) => {
-    return ok(res, { items: await listWordbooks() })
+  asyncHandler(async (req, res) => {
+    const items = await listWordbooks(req.user.id)
+    const current = await resolveWordbookForUser(req.user.id).catch(error => {
+      if (error.status !== 404) throw error
+      return null
+    })
+    return ok(res, { items, currentId: current?.id ?? null })
   })
 )
+
+router.post('/wordbooks', validate({ body: z.object({
+  name: z.string().trim().min(1).max(96),
+  text: z.string().min(1).max(900000),
+}) }), asyncHandler(async (req, res) => {
+  await consumeWindow('wordbook-import:' + req.user.id, 30, 3600)
+  return ok(res, { book: await importWordbook(req.user.id, req.valid.body) }, 201)
+}))
+
+router.put('/wordbooks/current', validate({ body: z.object({
+  wordbookId: z.number().int().positive().safe(),
+}) }), asyncHandler(async (req, res) => {
+  await getProfile(req.user.id)
+  await selectWordbook(req.user.id, req.valid.body.wordbookId)
+  return ok(res, { currentId: req.valid.body.wordbookId })
+}))
 
 export default router

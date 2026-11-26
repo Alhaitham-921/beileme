@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { validate } from '../middleware/validate.js'
-import { requireAuth } from '../middleware/auth.js'
+import { requireAuth, optionalAuth } from '../middleware/auth.js'
 import { asyncHandler, ok, paginated, readPagination } from '../utils/http.js'
 import {
   listWordbooks,
@@ -37,17 +37,19 @@ const listQuery = z.object({
 // GET /api/v1/words/books
 router.get(
   '/books',
-  asyncHandler(async (_req, res) => {
-    return ok(res, { items: await listWordbooks() })
+  optionalAuth,
+  asyncHandler(async (req, res) => {
+    return ok(res, { items: await listWordbooks(req.user?.id) })
   })
 )
 
 // GET /api/v1/words/books/:code/words
 router.get(
   '/books/:code/words',
+  optionalAuth,
   validate({ params: codeParam, query: listQuery }),
   asyncHandler(async (req, res) => {
-    const book = await getWordbookByCode(req.valid.params.code)
+    const book = await getWordbookByCode(req.valid.params.code, req.user?.id)
     const { page, size } = readPagination(req.valid.query, { defaultSize: 20 })
     const { items, total } = await listWords({
       wordbookId: book.id,
@@ -124,7 +126,7 @@ router.delete('/:id/favorite', requireAuth, validate({ params: wordIdParam, quer
 }))
 
 router.get('/lookup', requireAuth, validate({ query: lookupInput }), asyncHandler(async (req, res) => {
-  return ok(res, await lookupInWordbooks(req.valid.query.q))
+  return ok(res, await lookupInWordbooks(req.valid.query.q, req.user.id))
 }))
 router.post('/lookup/ai', requireAuth, validate({ body: lookupInput }), asyncHandler(async (req, res) => {
   return ok(res, await lookupWithAi(req.user.id, req.valid.body.q))
@@ -160,21 +162,23 @@ router.get('/memory-images/examples/:exampleKey/:revision', requireAuth, validat
 
 router.get(
   '/:id',
+  optionalAuth,
   validate({ params: wordIdParam }),
   asyncHandler(async (req, res) => {
-    return ok(res, { word: await getWordById(req.valid.params.id) })
+    return ok(res, { word: await getWordById(req.valid.params.id, req.user?.id) })
   })
 )
 
 // GET /api/v1/words/:id/related —— 形近词 / 近义词列表
 router.get(
   '/:id/related',
+  optionalAuth,
   validate({
     params: wordIdParam,
     query: z.object({ limit: z.coerce.number().int().min(1).max(50).optional() }),
   }),
   asyncHandler(async (req, res) => {
-    const word = await getWordById(req.valid.params.id)
+    const word = await getWordById(req.valid.params.id, req.user?.id)
     const items = await getRelatedWords(word.id, { limit: req.valid.query.limit || 6 })
     return ok(res, { word, items })
   })
@@ -186,8 +190,10 @@ router.get(
  */
 router.get(
   '/:id/contrast',
+  optionalAuth,
   validate({ params: wordIdParam }),
   asyncHandler(async (req, res) => {
+    await getWordById(req.valid.params.id, req.user?.id)
     const card = await buildConfusableCard(req.valid.params.id)
     return ok(res, { card })
   })

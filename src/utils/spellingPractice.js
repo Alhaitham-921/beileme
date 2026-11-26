@@ -16,16 +16,41 @@ export function createPracticeClock(now = () => performance.now()) {
   }
 }
 export function createTypingSound() {
-  let context
+  let context, click, lastTone
   return {
-    play(success = false) {
+    play(success = false, tone = 'mechanical') {
       try {
         const AudioContext = window.AudioContext || window.webkitAudioContext
         if (!AudioContext) return
-        context ||= new AudioContext(); void context.resume()
+        context ||= new AudioContext()
+        if (context.state === 'suspended') void context.resume().catch(() => {})
+        if (!success) {
+          // A sharp switch click followed by the lower thock of the key bottoming out.
+          const rate = context.sampleRate
+          if (!click || lastTone !== tone) {
+            lastTone = tone
+            const pitch = tone === 'deep' ? 135 : tone === 'soft' ? 340 : 235
+            const volume = tone === 'soft' ? .015 : tone === 'deep' ? .05 : .14
+            click = context.createBuffer(1, Math.ceil(rate * .055), rate)
+            const samples = click.getChannelData(0)
+            for (let i = 0; i < samples.length; i++) {
+              const t = i / rate
+              const noise = (Math.random() * 2 - 1) * Math.exp(-t * 750)
+              const impact = t < .005 ? 0 : Math.sin(2 * Math.PI * pitch * (t - .005)) * Math.exp(-(t - .005) * 120)
+              samples[i] = volume * noise + .085 * impact
+            }
+          }
+          const source = context.createBufferSource()
+          source.buffer = click
+          source.playbackRate.value = .94 + Math.random() * .12
+          source.connect(context.destination)
+          source.onended = () => source.disconnect()
+          source.start()
+          return
+        }
         const oscillator = context.createOscillator(), gain = context.createGain(), time = context.currentTime
-        oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(success ? 720 : 220, time)
-        if (success) oscillator.frequency.linearRampToValueAtTime(960, time + .08)
+        oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(success === 'error' ? 315 : 720, time)
+        if (success) oscillator.frequency.linearRampToValueAtTime(success === 'error' ? 165 : 960, time + .08)
         gain.gain.setValueAtTime(.025, time); gain.gain.exponentialRampToValueAtTime(.001, time + (success ? .15 : .035))
         oscillator.connect(gain); gain.connect(context.destination); oscillator.start(); oscillator.stop(time + (success ? .16 : .04))
         oscillator.onended = () => { oscillator.disconnect(); gain.disconnect() }

@@ -83,7 +83,7 @@ export async function startCollocations(userId, { wordId = null, mode = 'practic
   if (wordId && mode === 'practice') {
     const card = await getWordLearningCard(userId, wordId)
     candidates = buildCollocationQuestions(card.collocations, card.spelling).map(item => ({ ...item, wordId, spelling: card.spelling, key: collocationKey(item) }))
-  } else if (wordId) await getWordById(wordId)
+  } else if (wordId) await getWordById(wordId, userId)
   return withTransaction(async conn => {
     await conn.execute('SELECT id FROM users WHERE id=? FOR UPDATE', [userId])
     const [[active]] = await conn.execute('SELECT * FROM collocation_sessions WHERE user_id=? AND word_id <=> ? AND completed_at IS NULL ORDER BY id DESC LIMIT 1 FOR UPDATE', [userId, wordId])

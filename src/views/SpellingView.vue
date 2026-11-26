@@ -8,7 +8,8 @@ import { createPracticeClock, createTypingSound, spellingDraftKey, readSpellingD
 
 const route = useRoute(), auth = useAuthStore(), session = ref(null), loading = ref(true), busy = ref(false), error = ref('')
 const input = ref(''), errors = ref(0), paused = ref(false), notice = ref(''), composing = ref(false), inputRef = ref(null), continueRef = ref(null)
-const soundEnabled = ref(false), clock = createPracticeClock(), sound = createTypingSound()
+import { spellingSoundEnabled as soundEnabled, tone } from '../stores/spellingSound.js'
+const clock = createPracticeClock(), sound = createTypingSound()
 const question = computed(() => session.value?.question)
 const letters = computed(() => spellingLetters(input.value, question.value?.spelling || ''))
 const canSave = computed(() => question.value && matchesSpelling(input.value, question.value.spelling))
@@ -71,7 +72,7 @@ function type(event) {
     notice.value = '有字母没拼对，先退格修正再继续。'
     clearTimeout(noticeTimer); noticeTimer = setTimeout(() => { notice.value = '' }, 1600)
   }
-  if (soundEnabled.value && !result.blocked) sound.play()
+  if (soundEnabled.value) sound.play(result.errors || result.blocked ? 'error' : false, tone.value)
   syncClock(); saveDraft()
   if (canSave.value && !result.blocked) void act('answer')
 }
@@ -109,7 +110,7 @@ onUnmounted(() => {
     <section v-if="error" class="spell-error" role="alert"><p>{{ error }}</p><button class="text-button" @click="load" :disabled="busy">重新读取进度</button></section>
     <section v-if="loading" class="card spell-loading"><LoadingState>正在读取所选词与拼写进度…</LoadingState></section>
     <template v-else-if="session">
-      <div class="spell-toolbar"><span>第 {{ session.group }} / {{ session.groupCount }} 组 <strong>{{ session.phase==='retry' ? '错词回练' : '看中文盲拼' }}</strong></span><div><label><input v-model="soundEnabled" type="checkbox">键音与提示音</label><button v-if="question" class="text-button" @click="togglePause" :disabled="busy">{{ paused ? '继续练习' : '暂停' }}</button></div></div>
+      <div class="spell-toolbar"><span>第 {{ session.group }} / {{ session.groupCount }} 组 <strong>{{ session.phase==='retry' ? '错词回练' : '看中文盲拼' }}</strong></span><div><label><input v-model="soundEnabled" type="checkbox">机械键盘音效与完成提示音</label><button v-if="question" class="text-button" @click="togglePause" :disabled="busy">{{ paused ? '继续练习' : '暂停' }}</button></div></div>
       <div class="spell-progress"><span>{{ session.phase==='retry' ? '本组回练' : '本组首轮' }} {{ session.index }} / {{ session.queueLength }}</span><span>首次无错 {{ session.independentCount }} 词 · 当前连对 {{ session.streak }}</span><progress :max="session.total" :value="session.completed" :aria-label="`已练 ${session.completed} / ${session.total} 个所选词`"></progress><small>共选 {{ session.total }} 词 · 首轮已练 {{ session.completed }} 词</small></div>
       <section v-if="paused && question" class="card spell-pause"><span aria-hidden="true">Ⅱ</span><h2>休息一下，再继续</h2><p>暂停期间不计时，输入和错误状态已保留。</p><button class="btn btn-primary" @click="togglePause">继续拼写</button></section>
       <section v-else-if="question" class="card spell-workspace" :aria-busy="busy">

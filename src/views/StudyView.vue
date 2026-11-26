@@ -1,4 +1,13 @@
 <script setup>
+import PageTime from '../components/PageTime.vue'
+import { useAuthStore } from '../stores/auth'
+const auth = useAuthStore()
+
+import { spellingSoundEnabled } from '../stores/spellingSound.js'
+import { createTypingSound } from '../utils/spellingPractice.js'
+const answerSound = createTypingSound()
+import MistakeRounds from '../components/MistakeRounds.vue'
+const retryItems = ref([])
 import WordLearningCard from '../components/WordLearningCard.vue'
 import { readAutoPronounce, wordAudioIdentity } from '../utils/wordAudio.js'
 import PracticeFollowups from '../components/PracticeFollowups.vue'
@@ -89,7 +98,7 @@ const showAnswerCard = computed(() => isAndroid && status.value === 'answered')
 const answerCard = ref(null)
 watch(showAnswerCard, visible => {
   if (visible) {
-    window.scrollTo({ top: 0, behavior: 'instant' })
+
     answerCard.value?.focus({ preventScroll: true })
   }
 }, { flush: 'post' })
@@ -136,9 +145,12 @@ async function boot() {
 }
 
 function onKey(event) {
-  if (event.target?.closest?.('.word-learning-card, .speak-btn')) return
+  if (retryItems.value.length || event.target?.closest?.('.word-learning-card, .speak-btn')) return
   const key = studyKey(event)
   if (key === null || advancing.value) return
+  if (key === 'next' && status.value === 'finished' && !(selectedReview.value && !app.reviewBatch.hasMore)) {
+    event.preventDefault(); startExtra(); return
+  }
   if (key === 'next' && (status.value === 'answered' || app.loading.answering)) {
     event.preventDefault()
     if (app.loading.answering) continueRequested.value = true
@@ -148,7 +160,7 @@ function onKey(event) {
   }
 }
 onMounted(() => { boot(); window.addEventListener('keydown', onKey); document.addEventListener('visibilitychange', onVisibilityChange); document.addEventListener('beileme:app-activity', onNativeActivity) })
-onUnmounted(() => { mounted = false; window.removeEventListener('keydown', onKey); document.removeEventListener('visibilitychange', onVisibilityChange); document.removeEventListener('beileme:app-activity', onNativeActivity); if(generating.value)cancelCards(); stopSpeaking(); if (isAndroid) nativeSpeech.cancelPreload() })
+onUnmounted(() => { answerSound.close(); mounted = false; window.removeEventListener('keydown', onKey); document.removeEventListener('visibilitychange', onVisibilityChange); document.removeEventListener('beileme:app-activity', onNativeActivity); if(generating.value)cancelCards(); stopSpeaking(); if (isAndroid) nativeSpeech.cancelPreload() })
 
 // 每翻到新题都重置计时起点，犹豫时长才有意义
 watch(
@@ -198,6 +210,7 @@ function choose(index) {
     hesitationMs: Math.max(0, Math.min(600000, Date.now() - cardShownAt.value)),
     recall: uncertain.value ? 'hard' : 'normal',
   }
+  if (spellingSoundEnabled.value && index !== null && answer.value) answerSound.play(answer.value.isCorrect ? true : 'error')
   void saveAnswer()
 }
 
@@ -255,13 +268,17 @@ function requestAdvance() {
   void advance()
 }
 
-async function advance() {
+async function advance(retried = false) {
   if (advancing.value || pendingAnswer.value || app.loading.answering) return
   advancing.value = true
   navigationNotice.value = ''
   try {
     if (app.isLastItem) {
       if (app.allAnswered) {
+        if (!retried) {
+          const wrong = app.items.filter(entry => entry.correct === false)
+          if (wrong.length) { retryItems.value = wrong; stopSpeaking(); return }
+        }
         const wasReview = reviewOnly.value && !selectedReview.value
         await app.finishSession()
         if (wasReview && app.sessionSummary?.remainingDueCount === 0 && app.plan?.newDone < app.plan?.newTarget) {
@@ -280,15 +297,12 @@ async function advance() {
     } else {
       app.nextQuestion()
     }
-    await revealWord()
+
   } catch (error) { bootError.value = error.message }
   finally { advancing.value = false }
 }
 
-async function revealWord() {
-  await nextTick()
-  wordCard.value?.scrollIntoView({ block: 'start', behavior: 'instant' })
-}
+
 
 async function previous() {
   if (advancing.value || pendingAnswer.value || app.loading.answering) return
@@ -297,7 +311,7 @@ async function previous() {
     navigationNotice.value = '已经是本组第一个单词。'
     return
   }
-  await revealWord()
+
 }
 
 function startSwipe(event) {
@@ -462,12 +476,11 @@ function changeMode() { stopSpeaking(); router.push('/') }
 
 <template>
   <div class="study" :class="{ 'android-study': isAndroid, 'study-answer': showAnswerCard }" @touchstart.passive="startSwipe" @touchmove.passive="moveSwipe" @touchend="endSwipe" @touchcancel="swipe = null">
-    <header v-if="!isAndroid" class="focus-header">
-      <router-link to="/" class="back-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m14 6-6 6 6 6" /></svg> 返回首页</router-link>
-      <span class="focus-label"><span></span> 专注学习</span>
-    </header>
+
     <!-- 加载中 -->
-    <div v-if="status === 'loading'" class="card result-card">
+    <PageTime :storage-key="auth.user?.id + route.path" :paused="!retryItems.length && !['question','answered'].includes(status)" />
+    <MistakeRounds v-if="retryItems.length" :items="retryItems" @done="retryItems = []; advance(true)" />
+    <div v-else-if="status === 'loading'" class="card result-card">
       <span class="state-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M12 6c-3-3-7-3-10-2v15c4-1 7 0 10 2 3-2 6-3 10-2V4c-3-1-7-1-10 2Zm0 0v15" /></svg></span>
       <LoadingState skeleton>正在准备今天的单词…</LoadingState>
     </div>
@@ -709,7 +722,7 @@ function changeMode() { stopSpeaking(); router.push('/') }
       <p v-if="selectedReview" class="result-sub" role="status">所选 {{app.reviewBatch.totalCount}} 词，已完成 {{app.reviewBatch.completedCount}} 词，剩余 {{app.reviewBatch.remainingCount}} 词。</p>
       <p v-else-if="reviewOnly && remainingDueCount !== null" class="result-sub" role="status">{{ remainingDueCount > 0 ? '还有 ' + remainingDueCount + ' 个待复习词，可以继续下一组。' : '当前待复习词已学完。' }}</p>
       <div class="result-actions">
-        <button class="btn btn-primary" :disabled="selectedReview && !app.reviewBatch.hasMore" @click="startExtra">{{ selectedReview ? '继续复习所选词' : reviewOnly && remainingDueCount !== 0 ? '继续复习下一组' : '再学一组新词' }}</button>
+        <button class="btn btn-primary" :disabled="selectedReview && !app.reviewBatch.hasMore" @click="startExtra">空格 · {{ selectedReview ? '继续复习所选词' : reviewOnly && remainingDueCount !== 0 ? '继续复习下一组' : '再学一组新词' }}</button>
         <button class="btn btn-ghost" @click="router.push('/')">返回首页</button>
       </div>
     </div>

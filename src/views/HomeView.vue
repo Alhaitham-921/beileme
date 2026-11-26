@@ -146,8 +146,9 @@ function reload() {
           </div>
 
           <div class="todo-actions">
-            <button class="btn btn-primary btn-lg start-btn" :disabled="starting" :aria-busy="starting" @click="start('review-only')">复习旧词</button>
-            <button class="btn btn-ghost btn-lg start-btn" :disabled="starting" @click="start('new-only')">学习新词</button>
+            <router-link class="btn btn-ghost start-btn" to="/study/preview">预习单词</router-link>
+            <button class="btn btn-ghost start-btn" :disabled="starting" :aria-busy="starting" @click="start('review-only')">复习旧词</button>
+            <button class="btn btn-primary btn-lg start-btn" :disabled="starting" @click="start('new-only')">背单词</button>
             <p class="action-note">{{ app.allDoneToday ? '今日计划已完成，继续保持好奇。' : '专注当下，按自己的节奏前进。' }}</p>
           </div>
           <p v-if="studyNotice" class="study-notice" role="status">{{ studyNotice }}</p>

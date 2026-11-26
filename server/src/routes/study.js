@@ -7,6 +7,7 @@ import { requireAuth } from '../middleware/auth.js'
 import { asyncHandler, ok, created } from '../utils/http.js'
 import {
   createSession,
+  previewWords,
   createReviewSession,
   getTodayReview,
   getSession,
@@ -22,6 +23,7 @@ import { getRelatedWords } from '../services/wordService.js'
 const router = Router()
 
 router.use(requireAuth)
+router.get('/preview', asyncHandler(async (req,res) => ok(res,{words:await previewWords(req.user.id, req.query.offset ?? 0)})))
 router.get('/workload',asyncHandler(async(req,res)=>ok(res,await studyWorkload(req.user.id))))
 router.get('/paused-session', asyncHandler(async (req, res) => {
   const row = await queryOne(`SELECT id,status,paused_at,planned_count,answered_count FROM study_sessions

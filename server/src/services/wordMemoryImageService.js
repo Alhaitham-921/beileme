@@ -35,7 +35,7 @@ const stateSql = `CASE WHEN lease_until > UTC_TIMESTAMP(3) THEN 'pending'
   WHEN image_revision IS NOT NULL THEN 'ready' ELSE 'failed' END AS status`
 
 export async function getWordMemoryImage(userId, wordId, requestedSense) {
-  const word = await getWordById(wordId)
+  const word = await getWordById(wordId, userId)
   const senses = [...new Set(word.definitions.filter(sense => typeof sense === 'string' && sense.trim()))]
   const rows = await query(`SELECT sense_hash, image_revision, explanation, generation_error, ${stateSql}
     FROM word_memory_images WHERE user_id=? AND word_id=?`, [userId, wordId])
@@ -186,7 +186,7 @@ async function finishGeneration(target, word, sense, token, provider, sceneOptio
 }
 
 export async function startWordMemoryImage(userId, wordId, sense, { sessionId, regenerate, learnerCue } = {}) {
-  const word = await getWordById(wordId)
+  const word = await getWordById(wordId, userId)
   if (!word.definitions.includes(sense)) throw badRequest('请选择词库中的一条释义。')
   if (!(await hasMistake(userId, wordId))) throw forbidden('只有答错过的单词可以生成记忆图。')
   const [provider, wrongChoice] = await Promise.all([resolveProvider(userId), getWrongChoice(userId, wordId, sessionId)])

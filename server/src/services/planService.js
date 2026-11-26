@@ -93,7 +93,7 @@ export async function listLearnedWords(userId, { limit = 50 } = {}) {
 }
 
 /** 尚未学过的新词，按词频优先、组内乱序（避免按字母顺序背词） */
-export async function listFreshWords(userId, wordbookId, { limit = 20, studyStartLevel } = {}) {
+export async function listFreshWords(userId, wordbookId, { limit = 20, studyStartLevel, previewOffset = null } = {}) {
   const preferred = { foundation: [1, 2], standard: [2, 3], challenge: [4, 5] }[studyStartLevel]
   const order = preferred ? 'CASE WHEN w.difficulty BETWEEN ? AND ? THEN 0 ELSE 1 END, ' : ''
   const cap = clamp(Number.parseInt(limit, 10) || 20, 1, 100)
@@ -103,8 +103,8 @@ export async function listFreshWords(userId, wordbookId, { limit = 20, studyStar
         AND NOT EXISTS (
           SELECT 1 FROM user_word_progress p WHERE p.user_id = ? AND p.word_id = w.id
         )
-      ORDER BY ${order}FIELD(w.freq, 'high', 'med', 'low'), w.difficulty ASC, RAND()
-      LIMIT ${cap}`,
+      ORDER BY ${order}FIELD(w.freq, 'high', 'med', 'low'), w.difficulty ASC, ${previewOffset === null ? 'RAND()' : 'w.id'}
+      LIMIT ${cap} OFFSET ${Math.max(0,Math.min(1000000,parseInt(previewOffset,10)||0))}`,
     [wordbookId, userId, ...(preferred || [])]
   )
   return rows
