@@ -151,7 +151,8 @@ test('image status never generates; explicit requests deduplicate, enforce quota
     textCalls++
     assert.match(body.messages[0].content,/不把未做出的用户选择/)
     const input=JSON.parse(body.messages[1].content)
-    return {scene:'One hotel receptionist hands a blank key card to a guest, with a breakfast tray nearby.',cues:input.targets.map(target=>({...target,kind:'context',visual:'A hotel desk with blank key cards and a breakfast tray.'})),limitations:'抽象义由酒店情境间接提示，图片不能验证掌握。'}
+    assert.equal(input.activeActor.name,'酒店前台')
+    return {scene:'One hotel receptionist shows a blank booking card to a guest at a hotel desk.',cues:input.targets.map(target=>({...target,kind:'context',visual:'A hotel desk with blank booking cards.'})),description:'你在酒店前台核对入住信息。柜台上的预订卡对应 reservation。'}
   })
   const textFetch=globalThis.fetch
   t.mock.method(globalThis,'fetch',async(url,options)=>{
@@ -170,6 +171,8 @@ test('image status never generates; explicit requests deduplicate, enforce quota
   let status
   for(let i=0;i<100;i++){status=(await f.get(path)).data;if(status.status!=='pending')break;await delay(15)}
   assert.equal(status.status,'ready',JSON.stringify(status));assert.equal(textCalls,1)
+  assert.match(status.description,/柜台上的预订卡/)
+  assert.equal(status.limitations,undefined)
   const url=f.server.baseUrl+'/api/v1'+status.imagePath
   assert.equal((await fetch(url)).status,401)
   assert.equal((await fetch(url,{headers:{Authorization:`Bearer ${f.other.token}`}})).status,404)
@@ -179,6 +182,71 @@ test('image status never generates; explicit requests deduplicate, enforce quota
   assert.equal((await f.post(path)).data.status,'ready');assert.equal(imageCalls,1)
   assert.equal((await f.post(path,{regenerate:true})).status,429)
   assert.equal((await f.client.get(path,{token:f.other.token})).status,404)
+})
+
+test('scene hints follow the active partner even when the previous picture finishes after a switch', async t => {
+  const f = await fixture(), old = {...config.wordImages}
+  t.after(() => Object.assign(config.wordImages, old))
+  Object.assign(config.wordImages, { apiKey: 'mock-key', model: 'mock', baseUrl: 'https://scene-images.example.test/v1', dailyQuota: 2, siliconFlow: false })
+  const actors = []
+  mockText(t, body => {
+    const { activeActor, targets } = JSON.parse(body.messages[1].content)
+    actors.push(activeActor.name)
+    return {
+      scene: 'At a hotel, a staff member holds a blank booking card at a desk.',
+      cues: targets.map(target => ({ ...target, kind: 'object', visual: 'A blank booking card on the desk.' })),
+      description: `你正在和${activeActor.name}核对预订。`,
+    }
+  })
+  const bytes = await sharp({create:{width:640,height:640,channels:3,background:'#eee'}}).webp().toBuffer()
+  const imageResponse = () => Response.json({ data: [{ b64_json: bytes.toString('base64') }] })
+  const firstImage = Promise.withResolvers()
+  const textFetch = globalThis.fetch
+  let imageCalls = 0
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (String(url) !== 'https://scene-images.example.test/v1/images/generations') return textFetch(url, options)
+    return ++imageCalls === 1 ? firstImage.promise : imageResponse()
+  })
+
+  let s = (await f.post('/api/v1/practice/sessions', { sceneId: 'hotel' })).data
+  s.scene.actors = hotelChangeScene(s.scene).actors
+  await execute('UPDATE dialogue_sessions SET state=? WHERE id=?', [JSON.stringify(s), s.id])
+  const base = `/api/v1/practice/sessions/${s.id}`, path = base + '/scene-image'
+  async function switchTo(actorId) {
+    const result = await f.post(base + '/actor', { actorId, expectedTurn: 0, expectedRevision: s.journey.revision })
+    assert.equal(result.status, 200, JSON.stringify(result.raw))
+    s = result.data
+  }
+  async function waitFor(expected) {
+    for (let i = 0; i < 100; i++) {
+      const { data } = await f.get(path)
+      if (data.status === expected) return data
+      await delay(15)
+    }
+    assert.fail(`Expected image status ${expected}`)
+  }
+
+  assert.equal((await f.post(path, { actorId: 'frontdesk' })).data.status, 'pending')
+  await switchTo('manager')
+  assert.equal((await f.get(path)).data.imagePath, null)
+  assert.equal((await f.post(path, { actorId: 'frontdesk' })).status, 409)
+  assert.equal((await f.post(path, { actorId: 'manager' })).error.details.reason, 'image_generation_pending')
+  firstImage.resolve(imageResponse())
+  await switchTo('frontdesk')
+  const frontdesk = await waitFor('ready')
+  await switchTo('manager')
+  assert.equal((await f.get(path)).data.status, 'empty')
+  const started = await f.post(path, { actorId: 'manager' })
+  assert.equal(started.status, 200, JSON.stringify(started.raw))
+  const manager = await waitFor('ready')
+  assert.equal(manager.actorId, 'manager')
+  assert.match(manager.description, /值班经理/)
+  assert.notEqual(manager.imagePath, frontdesk.imagePath)
+  assert.deepEqual(actors, ['酒店前台', '值班经理'])
+  await switchTo('frontdesk')
+  assert.equal((await f.post(path, { actorId: 'frontdesk' })).data.imagePath, frontdesk.imagePath)
+  assert.equal(imageCalls, 2)
+  assert.equal((await f.post(path, { actorId: 'frontdesk', regenerate: true })).status, 429)
 })
 
 test('cross-day reward requires a prior independent different-context task with the same exact meaning',async()=>{

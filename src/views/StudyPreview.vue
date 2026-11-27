@@ -1,8 +1,4 @@
 <script setup>
-import PageTime from '../components/PageTime.vue'
-import { useAuthStore } from '../stores/auth'
-const auth = useAuthStore()
-
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { http } from '../api/client.js'
 import WordLearningCard from '../components/WordLearningCard.vue'
@@ -137,13 +133,10 @@ onUnmounted(() => { window.removeEventListener('keydown',groupKey); stopAudio();
 <template>
   <section class="preview">
     <header><router-link to="/">← 主页</router-link><h1>预习单词</h1></header>
-    <div class="summary" :class="{ settled }">
+    <div v-if="settled || attempts" class="summary" :class="{ settled }">
       <h2 v-if="settled">{{ exhausted ? '当前词书没有更多待预习的新词' : '这组词已预习完' }}</h2>
-      <div class="metrics">
-        <div v-if="attempts"><span>拼写正确率</span><strong>{{ Math.round(100*hits/attempts) }}%</strong></div>
-        <PageTime :storage-key="auth.user?.id + '/study/preview'" :paused="!word || loading || !!error" v-slot="{ label }">
-          <div><span>本页学习时长</span><strong>{{ label }}</strong></div>
-        </PageTime>
+      <div v-if="attempts" class="metrics">
+        <div><span>拼写正确率</span><strong>{{ Math.round(100*hits/attempts) }}%</strong></div>
       </div>
       <div v-if="settled" class="actions">
         <button v-if="!exhausted" class="btn btn-secondary" @click="nextGroup">预习下一组 <kbd>空格</kbd></button>

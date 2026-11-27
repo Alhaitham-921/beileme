@@ -120,6 +120,43 @@ describe('创建学习会话', () => {
     }
   })
 
+  test('出题排除共用义项和措辞近似的选项，候选不足时用内置词书补齐', async () => {
+    const user = await createOnboardedUser(client)
+    const imported = await client.post('/api/v1/profile/wordbooks', {
+      token: user.token,
+      body: {
+        name: '选项区分测试',
+        text: [
+          'abandon\t丢弃，放弃；离弃家园',
+          'discard\t抛弃，丢弃',
+          'relinquish\t放弃（所有权）',
+          'desert\t离开家园',
+          'grip\t紧紧握住',
+          'grasp\t紧紧抓住',
+        ].join('\n'),
+      },
+    })
+    assert.equal(imported.status, 201)
+    const target = await queryOne('SELECT id FROM words WHERE wordbook_id = ? AND spelling = ?', [
+      imported.data.book.id, 'abandon',
+    ])
+    const response = await client.post('/api/v1/study/review-sessions', {
+      token: user.token,
+      body: { wordIds: [Number(target.id)] },
+    })
+
+    assert.equal(response.status, 201)
+    const [item] = response.data.items
+    assert.equal(item.options.length, 4)
+    assert.equal(item.options[item.correctOptionIndex].text, '丢弃，放弃；离弃家园')
+
+    const texts = item.options.map(option => option.text)
+    for (const text of ['抛弃，丢弃', '放弃（所有权）', '离开家园']) {
+      assert.ok(!texts.includes(text), `同题不应出现「${text}」`)
+    }
+    assert.equal(texts.filter(text => text === '紧紧握住' || text === '紧紧抓住').length, 1)
+  })
+
   test('每日新词量受 onboarding 结果约束', async () => {
     const user = await createOnboardedUser(client, { dailyTime: '5-10' })
     const response = await client.post('/api/v1/study/sessions', {

@@ -89,7 +89,7 @@ router.post('/sessions/:id/workflow', validate({params:sessionId,body:z.object({
 router.put('/sessions/:id/length',validate({params:sessionId,body:z.object({maxTurns,expectedRevision:z.number().int().nonnegative()})}),asyncHandler(async(req,res)=>ok(res,await extendDialogue(req.user.id,req.valid.params.id,req.valid.body))))
 router.get('/sessions/:id', validate({ params: sessionId }), asyncHandler(async (req, res) => ok(res, await getDialogue(req.user.id, req.valid.params.id))))
 router.get('/sessions/:id/scene-image',validate({params:sessionId}),asyncHandler(async(req,res)=>ok(res,await sceneHintStatus(req.user.id,req.valid.params.id))))
-router.post('/sessions/:id/scene-image',validate({params:sessionId,body:z.object({regenerate:z.boolean().default(false)}).strict()}),asyncHandler(async(req,res)=>ok(res,await startSceneHint(req.user.id,req.valid.params.id,req.valid.body))))
+router.post('/sessions/:id/scene-image',validate({params:sessionId,body:z.object({regenerate:z.boolean().default(false),actorId:z.string().min(1).max(32).optional()}).strict()}),asyncHandler(async(req,res)=>ok(res,await startSceneHint(req.user.id,req.valid.params.id,req.valid.body))))
 router.get('/sessions/:id/scene-image/:revision',validate({params:sessionId.extend({revision:z.string().regex(/^[0-9a-f]{32}$/)})}),asyncHandler(async(req,res)=>{
   const bytes=await sceneHintBytes(req.user.id,req.valid.params.id,req.valid.params.revision)
   res.set('Cache-Control','private, max-age=3600').vary('Authorization').type('image/webp').send(bytes)

@@ -40,14 +40,18 @@ test('private answer keys are removed, old sessions survive, different task fact
   const prompt=buildTurnMessages(changed,'Can you change the date?')[0].content
   assert.match(prompt,/前台不能直接批准/);assert.match(prompt,/用户确认后才切换/);assert.match(prompt,/不强制凑轮数/)
 })
-test('scene hint plans require exact senses and disclose indirect visual limitations',()=>{
+test('scene hint plans require exact senses and keep only learner-facing descriptions',()=>{
   const scene={targets:[{word:'reservation',sense:'预订'}]}
-  const raw={scene:'One guest gestures toward a key held by a hotel receptionist.',cues:[{word:'reservation',sense:'预订',kind:'context',visual:'A guest presents a blank booking card.'}],limitations:'预订是抽象概念，画面仅提示酒店预订情境。'}
-  assert.equal(validateSceneHint(raw,scene).cues.length,1)
+  const raw={scene:'One guest shows a blank booking card to a hotel receptionist.',cues:[{word:'reservation',sense:'预订',kind:'context',visual:'A guest presents a blank booking card.'}],description:'你把预订卡递给酒店前台。卡片对应 reservation，也就是你提前订下的房间。',limitations:'旧版局限说明'}
+  const plan=validateSceneHint(raw,scene)
+  assert.equal(plan.description,raw.description)
+  assert.equal(plan.limitations,undefined)
   assert.throws(()=>validateSceneHint({...raw,cues:[{...raw.cues[0],sense:'保留地'}]},scene))
-  assert.throws(()=>validateSceneHint({...raw,limitations:''},scene))
+  assert.equal(validateSceneHint({...raw,description:undefined},scene).description,'')
+  assert.equal(validateSceneHint({...raw,description:'英文'.repeat(100)},scene).description,'')
   assert.throws(()=>validateSceneHint({...raw,cues:[...raw.cues,...raw.cues]},scene))
   assert.match(SCENE_HINT_RULES,/最多2个人、5件/);assert.match(SCENE_HINT_RULES,/最终费用/);assert.match(SCENE_HINT_RULES,/禁止绘制可读文字/)
+  assert.match(SCENE_HINT_RULES,/当前交谈对象是画面重点/)
 })
 
 

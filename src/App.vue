@@ -4,7 +4,6 @@ import { Capacitor } from '@capacitor/core'
 import { App as NativeApp } from '@capacitor/app'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
-import PageTime from './components/PageTime.vue'
 import AppIcon from './components/AppIcon.vue'
 import UserAvatar from './components/UserAvatar.vue'
 import AiUsage from './components/AiUsage.vue'
@@ -154,7 +153,6 @@ function focusMain() { document.getElementById('main-content')?.focus() }
     </template>
     <main id="main-content" class="main" :class="{ 'public-main': !showChrome }" :inert="menuOpen || undefined" tabindex="-1">
       <div v-if="!route.matched.length" class="card"><LoadingState skeleton>正在打开学习空间…</LoadingState></div>
-      <PageTime v-if="showChrome && !['study', 'study-preview'].includes(route.name)" :key="auth.user?.id + route.path" :storage-key="auth.user?.id + route.path" />
       <router-view v-slot="{ Component }"><Transition name="page" mode="out-in"><div v-if="Component" :key="route.path" class="route-page"><component :is="Component" /></div></Transition></router-view>
       <AiUsage v-if="showChrome && route.name !== 'collocations'" :usage="latestAiUsage" :label="`${latestAiUsage?.label || 'AI'}最近一次消耗${latestAiUsage?.failed ? '（生成失败）' : ''}`" />
     </main>

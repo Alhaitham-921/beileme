@@ -486,7 +486,7 @@ function changeMode() { stopSpeaking(); router.push('/') }
   <div class="study" :class="{ 'android-study': isAndroid, 'study-answer': showAnswerCard }" @touchstart.passive="startSwipe" @touchmove.passive="moveSwipe" @touchend="endSwipe" @touchcancel="swipe = null">
 
     <!-- 加载中 -->
-    <PageTime :storage-key="auth.user?.id + route.path" :paused="!retryItems.length && !['question','answered'].includes(status)" />
+    <PageTime v-if="!reviewOnly" :storage-key="auth.user?.id + route.path" :paused="!retryItems.length && !['question','answered'].includes(status)" />
     <MistakeRounds v-if="retryItems.length" :items="retryItems" :favorite-overrides="favoriteOverrides" @favorite="updateOptionFavorite" @done="finishMistakeReview" />
     <div v-else-if="status === 'loading'" class="card result-card">
       <span class="state-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M12 6c-3-3-7-3-10-2v15c4-1 7 0 10 2 3-2 6-3 10-2V4c-3-1-7-1-10 2Zm0 0v15" /></svg></span>

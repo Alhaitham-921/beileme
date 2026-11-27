@@ -1,6 +1,8 @@
 import { query, queryOne } from '../db/pool.js'
 import { parseJson } from '../utils/json.js'
 import { notFound } from '../utils/errors.js'
+import { levenshtein } from './wordRelations.js'
+import { extractPos } from './wordlist/parse.js'
 import { GOAL_TO_BOOK, FALLBACK_BOOK_CODE } from './wordlist/sources.js'
 import { getMorphology } from '../../../src/data/morphology.js'
 
@@ -232,9 +234,29 @@ export async function getRelationBetween(wordId, relatedWordId) {
   return row ? { relationType: row.relation_type, score: Number(row.score) } : null
 }
 
+function optionSenses(text) {
+  const normalized = text.normalize('NFKC').toLowerCase()
+  const withoutNotes = normalized.replace(/\([^()]*\)|\[[^\[\]]*\]|【[^】]*】|〔[^〕]*〕/g, '')
+  const { rest } = extractPos(withoutNotes.trim() || normalized)
+  return [...new Set(rest.split(/[;,、/|]/u)
+    .map(sense => sense.replace(/[\p{P}\s]/gu, '').replace(/(?<=.{2})的$/u, ''))
+    .filter(Boolean))]
+}
+
+function similarSense(a, b) {
+  if (a === b) return true
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a]
+  // 两字释义不能仅凭共享一个字判为近似。
+  if (shorter.length >= 2 && longer.length === shorter.length + 1 && longer.startsWith(shorter)) return true
+  // 自定义词书可以导入长段落，限制逐字比对的开销。
+  if (shorter.length < 3 || longer.length > 48) return false
+  const tolerance = Math.max(1, Math.floor(longer.length / 5))
+  return longer.length - shorter.length <= tolerance && levenshtein(shorter, longer) <= tolerance
+}
+
 /**
  * 生成选择题选项：1 个正确释义 + 若干个干扰项。
- * 干扰项优先取形近/近义词（更有训练价值），不足时用同词书其他词随机补齐。
+ * 按关系分数选取与本题已有选项可区分的释义，必要时从内置词书补齐。
  *
  * 选项文本用**完整释义**（`丢弃；放弃，抛弃`）而不是只取第一条：
  * 只给两个字的选项会让题目退化成「认字形」，看不出用户是否真的理解词义。
@@ -245,7 +267,6 @@ export async function getRelationBetween(wordId, relatedWordId) {
 export async function buildOptionsFor(word, { count = 4 } = {}) {
   const optionCount = Math.max(2, Math.min(6, count))
   const fullText = (definitions) => (definitions || []).join('；')
-  const correctText = fullText(word.definitions)
 
   const rows = await query(
     `SELECT w.id, w.definitions, w.pos, COALESCE(r.score, 0) AS relation_score
@@ -257,27 +278,34 @@ export async function buildOptionsFor(word, { count = 4 } = {}) {
     [word.id, word.wordbookId, word.id]
   )
 
-  const seen = new Set([correctText])
-  const related = []
-  const others = []
+  const correctText = fullText(word.definitions)
+  const options = [{ text: correctText, primary: word.definitions[0] || '', pos: word.pos || '', correct: true, wordId: word.id }]
+  const usedSenses = optionSenses(correctText)
+  const addDistractors = (candidates) => {
+    for (const row of candidates) {
+      if (options.length >= optionCount) break
+      const definitions = parseJson(row.definitions, [])
+      const text = fullText(definitions)
+      const senses = optionSenses(text)
+      if (!senses.length || senses.some(sense => usedSenses.some(used => similarSense(sense, used)))) continue
 
-  for (const row of rows) {
-    const definitions = parseJson(row.definitions, [])
-    const text = fullText(definitions)
-    if (!text || seen.has(text)) continue
-    seen.add(text)
-
-    const option = { text, primary: definitions[0] || '', pos: row.pos || '', correct: false, wordId: Number(row.id) }
-    if (Number(row.relation_score) > 0 && related.length < optionCount - 1) related.push(option)
-    else others.push(option)
+      options.push({ text, primary: definitions[0] || '', pos: row.pos || '', correct: false, wordId: Number(row.id) })
+      usedSenses.push(...senses)
+    }
   }
+  addDistractors(rows)
 
-  const distractors = [...related, ...others].slice(0, optionCount - 1)
-
-  return shuffle([
-    { text: correctText, primary: word.definitions[0] || '', pos: word.pos || '', correct: true, wordId: word.id },
-    ...distractors,
-  ])
+  if (options.length < optionCount) {
+    const fallbackRows = await query(
+      `SELECT w.id, w.definitions, w.pos
+         FROM words w JOIN wordbooks b ON b.id = w.wordbook_id
+        WHERE b.is_builtin = 1 AND b.owner_user_id IS NULL AND w.spelling_norm <> ?
+        ORDER BY RAND() LIMIT 40`,
+      [word.spelling.toLowerCase()]
+    )
+    addDistractors(fallbackRows)
+  }
+  return shuffle(options)
 }
 
 /**
