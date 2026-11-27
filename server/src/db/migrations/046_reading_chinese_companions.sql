@@ -1,0 +1,13 @@
+CREATE TABLE library_chinese_companions (
+ user_id BIGINT UNSIGNED NOT NULL,
+ book_id VARCHAR(64) NOT NULL,
+ title VARCHAR(160) NOT NULL,
+ author VARCHAR(120) NOT NULL,
+ text_bytes INT UNSIGNED NOT NULL,
+ source_sha256 CHAR(64) NOT NULL,
+ document JSON NOT NULL,
+ mappings JSON NOT NULL,
+ updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+ PRIMARY KEY(user_id,book_id),
+ FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

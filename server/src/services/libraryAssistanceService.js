@@ -1,7 +1,7 @@
 import {createHash,randomUUID} from 'node:crypto'
 import {z} from 'zod'
 import {getReading} from './libraryService.js'
-import {LISTENING_LESSONS} from '../../data/listeningLessons.js'
+import {findListeningLesson} from '../../data/listeningLessons.js'
 import {libraryPreferences,setLibraryPreferences,findExplanation,claimExplanation,finishExplanation,ownListeningAttempt} from '../repositories/libraryAssistanceRepository.js'
 import {resolveProvider} from './ai/apiKeyService.js'
 import {resolveLimits} from './ai/aiSettingsService.js'
@@ -95,11 +95,11 @@ export async function analyseReadingSelection(userId,id,{chapterId,range,text}){
   '分析selection中实际选取的句子或片段：用中文说明主干、从句/短语作用、句式关系、选句中重要单词和搭配在本句的意思与用法。片段不完整时如实说明，不补造缺失主语，不改写原句后冒充原文。结构和单词的quote均须逐字引用selection连续片段，word填写quote中实际出现的英文词形或短语。返回 {translation:中文释义,overview:句式总说明,structure:[{quote,explanation}],words:[{word,quote,meaning:本句义,usage:词性搭配和用法}]}。')
 }
 export async function explainListeningAttempt(userId,id,attemptId){
- const attempt=await ownListeningAttempt(userId,attemptId,id),lesson=LISTENING_LESSONS.find(l=>l.id===id)
+ const attempt=await ownListeningAttempt(userId,attemptId,id),lesson=findListeningLesson(id)
  if(!attempt||!lesson)throw notFound('这次听力作答不存在')
  const answers=parseJson(attempt.answers,[])
  const questions=lesson.questions.map((q,i)=>({index:i,question:q.question,choices:q.choices,selectedIndex:answers[i],selected:q.choices[answers[i]],correctIndex:q.answer,correctAnswer:q.choices[q.answer],correct:answers[i]===q.answer}))
- const result=await generate(userId,'listening',{lessonId:id,attemptId,transcript:lesson.transcript,transcriptShown:Boolean(attempt.transcript_shown),questions},lesson.transcript,
-  '根据服务端提供的questions判分及用户选择逐题解释。用原文证据说明所选项与正确选项的区别；答对也解释依据。possibleConfusion只说明可能的数字、词义、否定、时间或指代混淆，明确它是可能原因；不能断定用户没听清、粗心、注意力、水平或发音。不更改服务端判分，不把看文本后的理解说成独立听懂。quote逐字引用transcript中支持答案的连续英文。nextStep给出一次可执行的重听验证方法。返回 {items:[{questionIndex:从0开始的题号,quote,explanation:依据分析,possibleConfusion:可能混淆与不确定性,nextStep:重听建议}]}。',questions.length)
+ const result=await generate(userId,'listening',{lessonId:id,attemptId,transcript:lesson.transcript,transcriptShown:Boolean(attempt.transcript_shown),questions:questions.map(({selected,correctAnswer,...q})=>q)},lesson.transcript,
+  '根据服务端提供的questions判分及用户选择逐题解释。用原文证据说明所选项与正确选项的区别；答对也解释依据。possibleConfusion只说明可能的数字、词义、否定、时间或指代混淆，明确它是可能原因；不能断定用户没听清、粗心、注意力、水平或发音。不更改服务端判分，不把看文本后的理解说成独立听懂。quote逐字引用transcript中支持答案的连续英文。nextStep给出一次可执行的重听验证方法。每个中文字段尽量控制在80字以内，quote只引用支持答案的一小段。返回 {items:[{questionIndex:从0开始的题号,quote,explanation:依据分析,possibleConfusion:可能混淆与不确定性,nextStep:重听建议}]}。',questions.length)
  return {...result,attemptId,questions}
 }

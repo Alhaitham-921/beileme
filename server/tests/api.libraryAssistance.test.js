@@ -81,6 +81,6 @@ test('listening AI explains the owned submitted choices, preserves verdicts and 
  const invalid=await client.post(path+'/attempts/'+next.attemptId+'/explain',auth)
  assert.equal(invalid.status,502);assert.equal(calls,3)
  const saved=await queryOne('SELECT correct_count,answers FROM library_listening_attempts WHERE id=?',[next.attemptId])
- assert.equal(Number(saved.correct_count),1)
+ assert.equal(Number(saved.correct_count),lesson.questions.length-1)
  assert.equal(Number((await queryOne('SELECT COUNT(*) n FROM library_ai_explanations WHERE user_id=? AND response IS NOT NULL',[owner.userId])).n),1)
 })

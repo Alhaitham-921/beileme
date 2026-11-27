@@ -93,21 +93,24 @@ function txt(bytes){
  })
  return {title:'',author:'',chapters}
 }
-export function parseImportedBook(filename,bytes){
+export function parseImportedBook(filename,bytes,{requireEnglish=true}={}){
  if(!bytes.length||bytes.length>MAX_FILE)throw badRequest('书籍文件需为 8 MB 以内的 TXT 或 EPUB')
  const format=filename.toLowerCase().endsWith('.epub')?'epub':filename.toLowerCase().endsWith('.txt')?'txt':null
  if(!format)throw badRequest('目前支持 TXT 和未加密 EPUB；PDF、扫描件请先转换为文本')
  const parsed=format==='epub'?epub(bytes):txt(bytes)
  const text=parsed.chapters.flatMap(c=>c.paragraphs).join('\n\n'),textBytes=Buffer.byteLength(text,'utf8')
  if(!parsed.chapters.length||parsed.chapters.length>999||textBytes<20||textBytes>MAX_TEXT)throw badRequest('正文需为 20 字节至 2 MB、最多 999 节，请分卷导入较大的书籍')
- if((text.match(/[A-Za-z]/g)||[]).length<20)throw badRequest('未找到足够的英文正文，请确认导入的是英文书籍')
+ if(requireEnglish&&(text.match(/[A-Za-z]/g)||[]).length<20)throw badRequest('未找到足够的英文正文，请确认导入的是英文书籍')
  return {...parsed,format,textBytes,sourceSha256:createHash('sha256').update(JSON.stringify(parsed.chapters)).digest('hex')}
 }
-export async function importReadingBook(userId,{filename,contentBase64,title,author}){
+export function decodeBookUpload(contentBase64){
  if(contentBase64.length>Math.ceil(MAX_FILE/3)*4||/[^A-Za-z0-9+/=]/.test(contentBase64))throw badRequest('书籍文件编码无效或超过 8 MB')
  const bytes=Buffer.from(contentBase64,'base64')
  if(bytes.toString('base64')!==contentBase64)throw badRequest('书籍文件编码无效')
- const parsed=parseImportedBook(filename,bytes)
+ return bytes
+}
+export async function importReadingBook(userId,{filename,contentBase64,title,author}){
+ const parsed=parseImportedBook(filename,decodeBookUpload(contentBase64))
  const book={id:'personal-'+randomUUID(),title:squash(title||parsed.title||filename.replace(/\.[^.]+$/,'')).slice(0,160),author:squash(author||parsed.author||'未填写作者').slice(0,120),
   personal:true,titleZh:'',level:'个人书籍 · 原文阅读',sourceName:'个人导入',sourceFormat:parsed.format,
   sourceSha256:parsed.sourceSha256,licenseLabel:'个人导入，仅当前账号可见',notice:'个人导入的文本仅保存在当前账号。请导入你有权使用的书籍。AI 功能只在你主动开启或点击时将当前页或选句发送到你配置的文字接口。',chapters:parsed.chapters}

@@ -1,6 +1,6 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
-import { LISTENING_LESSONS, EXTERNAL_RESOURCES } from '../../data/listeningLessons.js'
+import { LISTENING_LESSONS, EXTERNAL_RESOURCES, findListeningLesson } from '../../data/listeningLessons.js'
 import { findLibraryProgress,saveLibraryProgress,recordListeningAttempt } from '../repositories/libraryProgressRepository.js'
 import { notFound, badRequest } from '../utils/errors.js'
 import {listUserReadingBooks,findUserReadingBook} from '../repositories/userReadingBooksRepository.js'
@@ -36,17 +36,18 @@ export async function libraryOverview(userId) {
   }
   return {books:items.map(({chapters,notice,...metadata})=>({...metadata,chapterCount:chapters.length})),
     personalBooks:personal.map(row=>({id:row.id,title:row.title,titleZh:'',author:row.author,chapterCount:Number(row.chapter_count),sourceFormat:row.source_format,sourceName:'个人导入',level:'仅自己可见',personal:true})),
-    lessons:LISTENING_LESSONS.map(({transcript,questions,...lesson})=>({...lesson,questionCount:questions.length,source:'平台原创 · Kokoro 合成朗读'})),
+    lessons:LISTENING_LESSONS.map(({transcript,questions,turns,...lesson})=>({...lesson,questionCount:questions.length,durationSeconds:audioManifest.lessons[lesson.id]?.durationSeconds||0,source:'平台原创 · Kokoro 合成朗读'})),
     resources:EXTERNAL_RESOURCES,learning}
 }
 export function listeningLesson(id) {
-  const lesson=LISTENING_LESSONS.find(l=>l.id===id)
+  const lesson=findListeningLesson(id)
   if(!lesson)throw notFound('听力材料不存在')
   return {...lesson,questions:lesson.questions.map(({answer,...q})=>q),source:'平台原创 · 合成朗读',
-    audioRevision:audioManifest.lessons[id]?.audioSha256,baseRate:audioManifest.baseRate}
+    audioRevision:audioManifest.lessons[id]?.audioSha256,durationSeconds:audioManifest.lessons[id]?.durationSeconds||0,baseRate:audioManifest.lessons[id]?.baseRate||audioManifest.baseRate}
 }
+export function listeningAudioMime(id){return audioManifest.lessons[id]?.mimeType||'audio/wav'}
 export async function listeningAudio(id) {
-  const lesson=LISTENING_LESSONS.find(l=>l.id===id),asset=audioManifest.lessons[id]
+  const lesson=findListeningLesson(id),asset=audioManifest.lessons[id]
   if(!lesson||!asset)throw notFound('听力音频不存在')
   if(createHash('sha256').update(lesson.transcript).digest('hex')!==asset.transcriptSha256)throw notFound('这段材料的音频正在更新，请稍后重试')
   if(!audioCache.has(id)) {
@@ -57,7 +58,7 @@ export async function listeningAudio(id) {
   return audioCache.get(id)
 }
 export async function checkListening(userId,id,{answers,transcriptShown}) {
-  const lesson=LISTENING_LESSONS.find(l=>l.id===id)
+  const lesson=findListeningLesson(id)
   if(!lesson)throw notFound('听力材料不存在')
   if(answers.length!==lesson.questions.length||answers.some((a,i)=>!Number.isInteger(a)||!lesson.questions[i].choices[a]))throw badRequest('请完成全部听力问题')
   const results=answers.map((answer,i)=>({correct:answer===lesson.questions[i].answer,answer:lesson.questions[i].choices[lesson.questions[i].answer]}))

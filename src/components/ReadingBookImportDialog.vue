@@ -1,6 +1,7 @@
 <script setup>
 import {ref,onMounted,onBeforeUnmount,nextTick} from 'vue'
 import {library} from '../api/index.js'
+const props=defineProps({translationMode:Boolean,bookId:String})
 const emit=defineEmits(['close','imported'])
 const dialog=ref(null),fileInput=ref(null),file=ref(null),title=ref(''),author=ref(''),busy=ref(false),error=ref('')
 let disposed=false
@@ -16,23 +17,24 @@ async function submit(){
   const input=file.value
   const contentBase64=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(new Error('文件读取失败，请重新选择'));reader.readAsDataURL(input)})
   if(disposed)return
-  const result=await library.importBook({filename:input.name,contentBase64,title:title.value.trim(),author:author.value.trim()})
+  const payload={filename:input.name,contentBase64,title:title.value.trim(),author:author.value.trim()}
+  const result=props.translationMode?await library.importCompanion(props.bookId,payload):await library.importBook(payload)
   if(!disposed)emit('imported',result)
  }catch(e){if(!disposed)error.value=e.message}finally{busy.value=false}
 }
 </script>
 <template>
  <dialog ref="dialog" class="reading-import" aria-labelledby="reading-import-title" @cancel.prevent="!busy&&emit('close')" @click="$event.target===dialog&&!busy&&emit('close')">
-  <header><h2 id="reading-import-title">添加英文书籍</h2><button class="text-button" :disabled="busy" @click="emit('close')">关闭</button></header>
+  <header><h2 id="reading-import-title">{{translationMode?'导入中文对照':'添加英文书籍'}}</h2><button class="text-button" :disabled="busy" @click="emit('close')">关闭</button></header>
   <form @submit.prevent="submit">
-   <p>把自己的英文书放进个人书架，继续翻页阅读、查词和选句分析。</p>
+   <p>{{translationMode?'导入你有权使用的中文译本，手动选择与英文对应的章节。中文对照不调用 AI，不假设不同版本逐页一致。':'把自己的英文书放进个人书架，继续翻页阅读、查词和选句分析。'}}</p>
    <label>选择书籍<input ref="fileInput" type="file" accept=".txt,.epub,text/plain,application/epub+zip" :disabled="busy" @change="choose"></label>
    <small>支持 TXT、未加密 EPUB，文件不超过 8 MB，提取的正文不超过 2 MB。PDF、扫描件请先转换为文本。</small>
    <label>书名（可选）<input v-model="title" maxlength="160" :disabled="busy" placeholder="留空时读取书籍信息或文件名"></label>
-   <label>作者（可选）<input v-model="author" maxlength="120" :disabled="busy" placeholder="EPUB 可自动读取作者"></label>
-   <p class="privacy-note">仅你的账号可见，导入不会调用 AI。使用中文解释或选句分析时，相关原文才会发送到你已配置的文字接口。请导入有权使用的书籍。</p>
+   <label>{{translationMode?'译者':'作者'}}（可选）<input v-model="author" maxlength="120" :disabled="busy" placeholder="EPUB 可自动读取作者"></label>
+   <p class="privacy-note">{{translationMode?'中文译本只保存至当前账号，不会送给 AI。请导入有权使用的译本。':'仅你的账号可见，导入不会调用 AI。主动生成解释时，相关英文才会发送到你配置的文字接口。请导入有权使用的书籍。'}}</p>
    <p v-if="error" role="alert" class="import-error">{{error}}</p>
-   <button class="btn btn-primary" :disabled="!file||busy">{{busy?'正在导入并整理章节…':'导入并开始阅读'}}</button>
+   <button class="btn btn-primary" :disabled="!file||busy">{{busy?'正在导入并整理章节…':translationMode?'导入中文对照':'导入并开始阅读'}}</button>
   </form>
  </dialog>
 </template>

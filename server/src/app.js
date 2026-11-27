@@ -35,6 +35,7 @@ export function createApp({ includeArchivedIELTS = false } = {}) {
     // 语音转写和个人书籍导入允许较大 JSON；由语音路由在登录校验后解析，其他接口仍保持 1 MB。
     if (req.method === 'POST' && /^\/api\/v1\/speech\/transcribe\/?$/i.test(req.path)) return next()
     if (req.method === 'POST' && /^\/api\/v1\/library\/books\/import\/?$/i.test(req.path)) return next()
+    if (req.method === 'PUT' && /^\/api\/v1\/library\/books\/[a-z][a-z0-9-]{0,63}\/translation\/?$/i.test(req.path)) return next()
     return generalJson(req, res, next)
   })
   app.use(express.urlencoded({ extended: false, limit: '1mb' }))

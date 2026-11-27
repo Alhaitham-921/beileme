@@ -2,7 +2,9 @@ import express from 'express'
 import { once } from 'node:events'
 import { mkdir,writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { LISTENING_LESSONS } from '../server/data/listeningLessons.js'
+// Short archived scripts verify the runtime TTS route; extended packaged assets
+// are generated and duration-checked by generate-listening-assets.py.
+import { LEGACY_LISTENING_LESSONS as LISTENING_LESSONS } from '../server/data/listeningLessonsLegacy.js'
 import { errorHandler } from '../server/src/middleware/errorHandler.js'
 
 const target=process.env.VERIFY_AUDIO_URL||'http://127.0.0.1:30031/synthesize'

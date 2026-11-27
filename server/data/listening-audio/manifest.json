@@ -1,38 +1,202 @@
 {
-  "source": "平台原创脚本，由本地 Kokoro ONNX 合成，不含用户录音",
+  "source": "平台原创情境脚本，本地 Kokoro ONNX 双声线合成，不含用户录音",
   "voice": "af_heart",
-  "baseRate": 0.85,
+  "baseRate": 0.84,
   "createdOn": "2026-11-26",
   "lessons": {
     "hotel-arrival": {
       "file": "hotel-arrival.wav",
       "transcriptSha256": "5cff9ac82f98db2472f2e572e41a95063d222033c3b735588967381e0da8265d",
       "audioSha256": "7d49476f3352f62dd94b4c13a1f2d24554c4c8d6ac8e05010526011cdb8f25ae",
-      "bytes": 988588
+      "bytes": 988588,
+      "durationSeconds": 20.59,
+      "mimeType": "audio/wav",
+      "baseRate": 0.85,
+      "voices": [
+        "af_heart"
+      ]
     },
     "hotel-room": {
       "file": "hotel-room.wav",
       "transcriptSha256": "f4ad9bfe4e33c94087e79278b4e51d6c2b979a88f9784747641010c77d42407d",
       "audioSha256": "5b193de2b8021a387b141bab5802e6826ae985204c049086d06067dfc6a737c7",
-      "bytes": 746058
+      "bytes": 746058,
+      "durationSeconds": 15.54,
+      "mimeType": "audio/wav",
+      "baseRate": 0.85,
+      "voices": [
+        "af_heart"
+      ]
     },
     "coffee-order": {
       "file": "coffee-order.wav",
       "transcriptSha256": "141f9a54fbcc9f7360ee02d91e1e7dbafbf1eceb9543bb1700ec273d81eb1a25",
       "audioSha256": "120cb92be91962cad6902e589b33504434a0dcfcfbdb9ee36661f5c61ae874f4",
-      "bytes": 834986
+      "bytes": 834986,
+      "durationSeconds": 17.39,
+      "mimeType": "audio/wav",
+      "baseRate": 0.85,
+      "voices": [
+        "af_heart"
+      ]
     },
     "clarification": {
       "file": "clarification.wav",
       "transcriptSha256": "2f1e1fc928d18f12356bbfa68a1129c50d52ef9b5cbb303782222258fa27bf72",
       "audioSha256": "5b1490371344e87d832bb512b57bafd8126e8b1c8d24e93621ed568f28c6c9cf",
-      "bytes": 1009260
+      "bytes": 1009260,
+      "durationSeconds": 21.03,
+      "mimeType": "audio/wav",
+      "baseRate": 0.85,
+      "voices": [
+        "af_heart"
+      ]
     },
     "checkout-bill": {
       "file": "checkout-bill.wav",
       "transcriptSha256": "3488dd1e4d51ce93c7220b3d7dc32dc4578c05f4e4511dfb654c6575c0a37234",
       "audioSha256": "5a69ab0cd27a190c1928284a757277d3ded8a101698bf43b7910390dc8577083",
-      "bytes": 944972
+      "bytes": 944972,
+      "durationSeconds": 19.69,
+      "mimeType": "audio/wav",
+      "baseRate": 0.85,
+      "voices": [
+        "af_heart"
+      ]
+    },
+    "hotel-arrival-v2": {
+      "file": "hotel-arrival-v2.mp3",
+      "mimeType": "audio/mpeg",
+      "transcriptSha256": "82b47363d03ea28e3602519bf065ef05f4936bce6cf881c379693442310d2db2",
+      "audioSha256": "5366e32fdbbe990ac0df792339fc109ad256bbb2360958689641a19190114b57",
+      "bytes": 804960,
+      "durationSeconds": 134.16,
+      "voices": [
+        "af_heart",
+        "am_michael"
+      ],
+      "baseRate": 0.84
+    },
+    "hotel-room-v2": {
+      "file": "hotel-room-v2.mp3",
+      "mimeType": "audio/mpeg",
+      "transcriptSha256": "e17733322432a7060215c52f333edf1387eb5c24894a3de5404e93a57bdd8be8",
+      "audioSha256": "fbe71b75bc5b8569bf20df9a45953e237053bfb059df83ea283e71ed9b31ebaf",
+      "bytes": 774576,
+      "durationSeconds": 129.1,
+      "voices": [
+        "af_heart",
+        "am_michael"
+      ],
+      "baseRate": 0.84
+    },
+    "coffee-order-v2": {
+      "file": "coffee-order-v2.mp3",
+      "mimeType": "audio/mpeg",
+      "transcriptSha256": "55c8936e91fe2c37792e35e8398fdda7c9e92b1d6e93bbab32a845e329e8fef8",
+      "audioSha256": "b47f68bd0b8ecad7676d4fb12d60f2c796b25c31345e60451fce25b5a8d417ac",
+      "bytes": 791856,
+      "durationSeconds": 131.98,
+      "voices": [
+        "af_heart",
+        "am_michael"
+      ],
+      "baseRate": 0.84
+    },
+    "city-museum-v2": {
+      "file": "city-museum-v2.mp3",
+      "mimeType": "audio/mpeg",
+      "transcriptSha256": "3beccd2d3845c6e9906b3e7bb86ea189714b7e71d83af5b3ba4970949dc0d9a4",
+      "audioSha256": "17104136c67969fad0eaac7a017a5c4a5067ecd032a0fd2beea7ec51bc49365b",
+      "bytes": 785088,
+      "durationSeconds": 130.85,
+      "voices": [
+        "af_heart",
+        "am_michael"
+      ],
+      "baseRate": 0.84
+    },
+    "checkout-bill-v2": {
+      "file": "checkout-bill-v2.mp3",
+      "mimeType": "audio/mpeg",
+      "transcriptSha256": "c73a3770df4c4e661438bb5994d2814c09f6333fc250d13ec713857679ba8940",
+      "audioSha256": "97f0206d473328cd91680e8e2b169a58e244e8eaef75711d27f4323bef58c73d",
+      "bytes": 861840,
+      "durationSeconds": 143.64,
+      "voices": [
+        "af_heart",
+        "am_michael"
+      ],
+      "baseRate": 0.84
+    },
+    "restaurant-dinner-v2": {
+      "file": "restaurant-dinner-v2.mp3",
+      "mimeType": "audio/mpeg",
+      "transcriptSha256": "d19a658984bc9297ebe165f944d9de2f30b897fc763f50fe552be8031f8d8c8d",
+      "audioSha256": "0531e87f6b4e041c0f73968e40cfd74f7695ef7083b38edc2b60ba5a44d739c9",
+      "bytes": 871776,
+      "durationSeconds": 145.3,
+      "voices": [
+        "af_heart",
+        "am_michael"
+      ],
+      "baseRate": 0.84
+    },
+    "airport-departure-v2": {
+      "file": "airport-departure-v2.mp3",
+      "mimeType": "audio/mpeg",
+      "transcriptSha256": "ee18db6bf5e07a24ae2f1320ea42e81523d0d7f90747a39edd7148aca029ddb9",
+      "audioSha256": "3feb97082f724dd8c00906eaf3a34a93ec402aee804b8eff41f0a8c85b503eaf",
+      "bytes": 861552,
+      "durationSeconds": 143.59,
+      "voices": [
+        "af_heart",
+        "am_michael"
+      ],
+      "baseRate": 0.84
+    },
+    "shopping-return-v2": {
+      "file": "shopping-return-v2.mp3",
+      "mimeType": "audio/mpeg",
+      "transcriptSha256": "79f32eeb3d0fb76030636d9c638f5ca8f157a2cc56074fbeed9198bbe1ea391c",
+      "audioSha256": "1e16f5dea894cd3e0dc9107d7f68c88b95c044d0c989f24e81da4f02b0656748",
+      "bytes": 845712,
+      "durationSeconds": 140.95,
+      "voices": [
+        "af_heart",
+        "am_michael"
+      ],
+      "baseRate": 0.84
+    },
+    "library-borrow-v2": {
+      "file": "library-borrow-v2.mp3",
+      "mimeType": "audio/mpeg",
+      "transcriptSha256": "b8248cc45c7fccce4ce3aadf33f34fc07183feb1d99bee9e6e7d586bd0a633cb",
+      "audioSha256": "7a6d875d4df97c05e6cb76bb8d6de6da8d2b5fb135f7e4baae43e8d0b2df125d",
+      "bytes": 837504,
+      "durationSeconds": 139.58,
+      "voices": [
+        "af_heart",
+        "am_michael"
+      ],
+      "baseRate": 0.84
+    },
+    "campus-project-v2": {
+      "file": "campus-project-v2.mp3",
+      "mimeType": "audio/mpeg",
+      "transcriptSha256": "c3ca60a76a336d1ba774639dcff769c68d04ea5b746284598123900e76cafdb0",
+      "audioSha256": "b3615d8a31ae990d9508c54e2bb4765d86fa49e64a0de14eb7daecef89a5b5df",
+      "bytes": 906048,
+      "durationSeconds": 151.01,
+      "voices": [
+        "af_heart",
+        "am_michael"
+      ],
+      "baseRate": 0.84
     }
-  }
+  },
+  "voices": [
+    "af_heart",
+    "am_michael"
+  ]
 }

@@ -26,6 +26,7 @@ export function deleteUserReadingBook(userId,id){
   const [result]=await conn.execute('DELETE FROM library_user_books WHERE id=? AND user_id=?',[id,userId])
   if(!result.affectedRows)return false
   await conn.execute("DELETE FROM library_progress WHERE user_id=? AND kind='reading' AND content_id=?",[userId,id])
+  await conn.execute('DELETE FROM library_chinese_companions WHERE user_id=? AND book_id=?',[userId,id])
   return true
  })
 }

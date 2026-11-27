@@ -1,27 +1,8 @@
-// Original scripts, not copied from an external course. Kokoro audio is labelled synthetic.
-const quiz=(question,choices,answer)=>({question,choices,answer})
-export const LISTENING_LESSONS=[
-  {id:'hotel-arrival',title:'酒店入住：听懂证件与早餐信息',level:'A2',scene:'hotel',
-    transcript:'Receptionist: Welcome to Green Hotel. Do you have a reservation? Guest: Yes, under Alex Lee. Receptionist: Thank you. May I see your ID? Breakfast is included and is served from seven to ten. Check-out is at eleven. Guest: Thank you. Could I have two key cards, please?',
-    questions:[quiz('早餐是否包含？',['包含','不包含','没有提及'],0),quiz('退房时间是？',['十点','十一点','十二点'],1)],
-    task:'不看文本，复述早餐时间和退房时间，再进入酒店完整任务。'},
-  {id:'hotel-room',title:'客房用品：听懂处理安排',level:'A2–B1',scene:'hotel',
-    transcript:'Guest: There is only one towel in the room. Could I have another one? Housekeeping: Certainly. We can bring two clean towels in ten minutes. Will you be in the room? Guest: Yes. Room two hundred and three. Thank you for checking.',
-    questions:[quiz('住客最初提出什么问题？',['缺少毛巾','早餐收费','房卡丢失'],0),quiz('多久送到？',['两分钟','十分钟','一小时'],1)],
-    task:'换成缺少吹风机的情况，用自己的话请求帮助并确认时间。'},
-  {id:'coffee-order',title:'咖啡店：规格、口味与价格',level:'A1–A2',scene:'cafe',
-    transcript:'Barista: What can I get for you? Customer: Could I have a medium coffee with oat milk, please? No sugar. Barista: For here or to take away? Customer: To take away. Barista: That will be three pounds. Please collect it at the counter.',
-    questions:[quiz('顾客选择了什么奶？',['普通牛奶','燕麦奶','没有提到'],1),quiz('订单是堂食还是外带？',['堂食','外带','没有确定'],1)],
-    task:'换一种礼貌说法点同一杯饮品，再尝试更改杯型和奶类。'},
-  {id:'clarification',title:'没听懂时：请求澄清',level:'A2',scene:'directions',
-    transcript:'Visitor: Excuse me, how do I get to the museum? Local: Take the second left after the bank. Visitor: Sorry, could you say that a little more slowly? Local: Of course. Walk past the bank, then take the second left. Visitor: The second left after the bank. Is that right? Local: Exactly.',
-    questions:[quiz('应在银行之后的哪里转弯？',['第一个右转','第二个左转','直接返回'],1),quiz('游客如何处理没听懂？',['请求说慢些并复述确认','不再询问','随便猜测'],0)],
-    task:'练习 Could you repeat that?、Did you say…? 和复述确认。'},
-  {id:'checkout-bill',title:'退房：核对不明收费',level:'B1',scene:'hotel',
-    transcript:'Guest: I would like to check out. Could you explain this charge on my bill? Receptionist: That is for breakfast yesterday. Guest: I thought breakfast was included in my booking. Could you check the confirmation? Receptionist: You are right. I will remove the charge and print a new receipt.',
-    questions:[quiz('住客对哪项收费有疑问？',['房卡','早餐','行李寄存'],1),quiz('前台最后怎样处理？',['删除收费并重打收据','拒绝查询','要求重新预订'],0)],
-    task:'不用照抄文本，说明“预订包含早餐”，请求核对并确认新账单。'},
-]
+// Original extended scripts. Immutable lesson IDs preserve historical attempt meaning.
+import lessons from './listeningLessonsLong.json' with {type:'json'}
+import {LEGACY_LISTENING_LESSONS} from './listeningLessonsLegacy.js'
+export const LISTENING_LESSONS=lessons
+export const findListeningLesson=id=>LISTENING_LESSONS.find(l=>l.id===id)||LEGACY_LISTENING_LESSONS.find(l=>l.id===id)
 export const EXTERNAL_RESOURCES=[
   {id:'voa-course',title:'VOA Let’s Learn English',type:'课程与播客',level:'入门–进阶',
     url:'https://learningenglish.voanews.com/p/5644.html',source:'VOA Learning English',

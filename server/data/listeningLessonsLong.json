@@ -1,0 +1,1062 @@
+[
+  {
+    "id": "hotel-arrival-v2",
+    "title": "酒店入住：确认预订与入住安排",
+    "level": "A2–B1",
+    "scene": "hotel",
+    "turns": [
+      {
+        "speaker": "Receptionist",
+        "text": "Good afternoon, and welcome to Green Hotel. You must be tired after your journey. Before we begin, could you tell me the name on your reservation and how many nights you are staying?"
+      },
+      {
+        "speaker": "Guest",
+        "text": "My name is Alex Lee. I booked a double room online for two nights, starting today. Here is the confirmation on my phone. I asked for a quiet room because I have an early meeting tomorrow."
+      },
+      {
+        "speaker": "Receptionist",
+        "text": "Thank you. Your reservation is here, and the quiet room is ready. May I see a photo ID, please? We only need to check it against the booking. Your room has already been paid for."
+      },
+      {
+        "speaker": "Guest",
+        "text": "Here you are. Does the booking include breakfast? The confirmation says breakfast for one person, but my friend will join me for breakfast on Saturday morning. Could you explain the extra charge?"
+      },
+      {
+        "speaker": "Receptionist",
+        "text": "Your breakfast is included on both mornings. Your friend can buy breakfast for eight pounds. We serve it on the ground floor from seven until ten, but on Saturday we finish at half past ten."
+      },
+      {
+        "speaker": "Guest",
+        "text": "That is helpful. My meeting is at nine tomorrow, so I can eat early. Could I also have two key cards? My friend will arrive this evening, and I would rather not wait downstairs."
+      },
+      {
+        "speaker": "Receptionist",
+        "text": "Certainly. Your room is three hundred and twelve, on the third floor. The lift is beside the restaurant. Please keep the cards away from your phone, and bring them back when you leave."
+      },
+      {
+        "speaker": "Guest",
+        "text": "What time do we need to check out? Our train is not until the afternoon. We might want to leave our bags here while we visit the park across the road."
+      },
+      {
+        "speaker": "Receptionist",
+        "text": "Check-out is at eleven. A later check-out costs fifteen pounds, but you can leave your bags at reception free of charge. We will give you a numbered ticket for each bag."
+      },
+      {
+        "speaker": "Guest",
+        "text": "I will use the luggage service instead. Thank you for explaining everything. I will check the room now and call reception if anything is missing. Could you point me towards the lift once more?"
+      }
+    ],
+    "transcript": "Receptionist: Good afternoon, and welcome to Green Hotel. You must be tired after your journey. Before we begin, could you tell me the name on your reservation and how many nights you are staying?\nGuest: My name is Alex Lee. I booked a double room online for two nights, starting today. Here is the confirmation on my phone. I asked for a quiet room because I have an early meeting tomorrow.\nReceptionist: Thank you. Your reservation is here, and the quiet room is ready. May I see a photo ID, please? We only need to check it against the booking. Your room has already been paid for.\nGuest: Here you are. Does the booking include breakfast? The confirmation says breakfast for one person, but my friend will join me for breakfast on Saturday morning. Could you explain the extra charge?\nReceptionist: Your breakfast is included on both mornings. Your friend can buy breakfast for eight pounds. We serve it on the ground floor from seven until ten, but on Saturday we finish at half past ten.\nGuest: That is helpful. My meeting is at nine tomorrow, so I can eat early. Could I also have two key cards? My friend will arrive this evening, and I would rather not wait downstairs.\nReceptionist: Certainly. Your room is three hundred and twelve, on the third floor. The lift is beside the restaurant. Please keep the cards away from your phone, and bring them back when you leave.\nGuest: What time do we need to check out? Our train is not until the afternoon. We might want to leave our bags here while we visit the park across the road.\nReceptionist: Check-out is at eleven. A later check-out costs fifteen pounds, but you can leave your bags at reception free of charge. We will give you a numbered ticket for each bag.\nGuest: I will use the luggage service instead. Thank you for explaining everything. I will check the room now and call reception if anything is missing. Could you point me towards the lift once more?",
+    "questions": [
+      {
+        "question": "How many nights has Alex booked?",
+        "choices": [
+          "One night",
+          "Two nights",
+          "Three nights"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "What does the receptionist ask Alex to show?",
+        "choices": [
+          "A photo ID",
+          "A train ticket",
+          "A friend's payment card"
+        ],
+        "answer": 0
+      },
+      {
+        "question": "How much will Alex's friend pay for breakfast?",
+        "choices": [
+          "Eight pounds",
+          "Fifteen pounds",
+          "Nothing"
+        ],
+        "answer": 0
+      },
+      {
+        "question": "When does breakfast finish on Saturday?",
+        "choices": [
+          "At ten o'clock",
+          "At half past ten",
+          "At eleven o'clock"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "Which floor is the room on?",
+        "choices": [
+          "The first floor",
+          "The third floor",
+          "The twelfth floor"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "What does Alex decide to do on the last day?",
+        "choices": [
+          "Pay for a later check-out",
+          "Cancel breakfast",
+          "Check out at eleven and store the bags for free"
+        ],
+        "answer": 2
+      }
+    ],
+    "task": "口头复述预订、早餐与行李安排，再换一个入住日期进行酒店任务。"
+  },
+  {
+    "id": "hotel-room-v2",
+    "title": "酒店客房：报修与更换房间",
+    "level": "A2–B1",
+    "scene": "hotel",
+    "turns": [
+      {
+        "speaker": "Guest",
+        "text": "Hello, this is Maya in room two hundred and three. I have just arrived, and I would like to report two things. The desk lamp does not work, and there is only one clean towel."
+      },
+      {
+        "speaker": "Receptionist",
+        "text": "I am sorry about that. Thank you for checking the room before you unpack. Is the lamp plugged in at the wall? Sometimes the switch beside the bed also controls the desk light."
+      },
+      {
+        "speaker": "Guest",
+        "text": "Yes, I tried both switches, but it is still dark. The other lights work normally. I need to finish a presentation this evening, so it is important to have enough light at the desk."
+      },
+      {
+        "speaker": "Receptionist",
+        "text": "I understand. I can send someone to check the lamp in about twenty minutes. Housekeeping can bring two fresh towels at the same time. Will you be in the room then?"
+      },
+      {
+        "speaker": "Guest",
+        "text": "I can wait for twenty minutes. I also noticed that the room faces a busy road. I requested a quiet room when I booked. Is there another room away from the traffic?"
+      },
+      {
+        "speaker": "Receptionist",
+        "text": "Let me check. There is a room facing the garden, but it is not ready yet. It will be available at four o'clock. There is no additional charge because it is the same room type."
+      },
+      {
+        "speaker": "Guest",
+        "text": "It is only three now, so I could work in the lounge until then. If I move, will I need to carry everything to reception first, or can someone help me with my suitcase?"
+      },
+      {
+        "speaker": "Receptionist",
+        "text": "You can keep your current room until the new one is ready. We will call you at four, and a member of staff will help with your suitcase. Please do not leave valuables unattended."
+      },
+      {
+        "speaker": "Guest",
+        "text": "That sounds good. Could you still bring the towels now? I would like to freshen up before I start working. There is no need to repair the lamp if I will move in an hour."
+      },
+      {
+        "speaker": "Receptionist",
+        "text": "Of course. I will send housekeeping with the towels and cancel the lamp repair. You will move to a garden-facing room at four without paying extra. Please return your old key card after the move."
+      }
+    ],
+    "transcript": "Guest: Hello, this is Maya in room two hundred and three. I have just arrived, and I would like to report two things. The desk lamp does not work, and there is only one clean towel.\nReceptionist: I am sorry about that. Thank you for checking the room before you unpack. Is the lamp plugged in at the wall? Sometimes the switch beside the bed also controls the desk light.\nGuest: Yes, I tried both switches, but it is still dark. The other lights work normally. I need to finish a presentation this evening, so it is important to have enough light at the desk.\nReceptionist: I understand. I can send someone to check the lamp in about twenty minutes. Housekeeping can bring two fresh towels at the same time. Will you be in the room then?\nGuest: I can wait for twenty minutes. I also noticed that the room faces a busy road. I requested a quiet room when I booked. Is there another room away from the traffic?\nReceptionist: Let me check. There is a room facing the garden, but it is not ready yet. It will be available at four o'clock. There is no additional charge because it is the same room type.\nGuest: It is only three now, so I could work in the lounge until then. If I move, will I need to carry everything to reception first, or can someone help me with my suitcase?\nReceptionist: You can keep your current room until the new one is ready. We will call you at four, and a member of staff will help with your suitcase. Please do not leave valuables unattended.\nGuest: That sounds good. Could you still bring the towels now? I would like to freshen up before I start working. There is no need to repair the lamp if I will move in an hour.\nReceptionist: Of course. I will send housekeeping with the towels and cancel the lamp repair. You will move to a garden-facing room at four without paying extra. Please return your old key card after the move.",
+    "questions": [
+      {
+        "question": "Which two problems does the guest report first?",
+        "choices": [
+          "There are not enough towels and the desk lamp does not work",
+          "The air conditioning and door lock do not work",
+          "Breakfast is missing and the bill is wrong"
+        ],
+        "answer": 0
+      },
+      {
+        "question": "How soon was someone originally going to check the lamp?",
+        "choices": [
+          "In ten minutes",
+          "In twenty minutes",
+          "In one hour"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "What will the new room face?",
+        "choices": [
+          "The garden",
+          "The busy road",
+          "The car park"
+        ],
+        "answer": 0
+      },
+      {
+        "question": "When will the new room be ready?",
+        "choices": [
+          "At three o'clock",
+          "At twenty past three",
+          "At four o'clock"
+        ],
+        "answer": 2
+      },
+      {
+        "question": "Will the guest have to pay extra to change rooms?",
+        "choices": [
+          "Yes",
+          "No",
+          "The price has not been confirmed"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "Which arrangement is cancelled at the end?",
+        "choices": [
+          "Bringing fresh towels",
+          "Helping with the suitcase",
+          "Repairing the desk lamp"
+        ],
+        "answer": 2
+      }
+    ],
+    "task": "按“说明问题—提出需求—确认处理时间”复述本次报修。"
+  },
+  {
+    "id": "coffee-order-v2",
+    "title": "咖啡店：点单、改口味与取餐",
+    "level": "A2–B1",
+    "scene": "cafe",
+    "turns": [
+      {
+        "speaker": "Barista",
+        "text": "Hello! Welcome to Corner Coffee. The menu is above the counter, and the sandwiches are in the glass case. Are you ready to order, or would you like a minute to decide?"
+      },
+      {
+        "speaker": "Customer",
+        "text": "I am almost ready. I usually order a medium latte, but I would like to try something less sweet today. Could you tell me whether the iced coffee comes with sugar already added?"
+      },
+      {
+        "speaker": "Barista",
+        "text": "The plain iced coffee has no sugar. You can add syrup if you want, but you do not have to. A medium one is three pounds, and a large one is three pounds fifty."
+      },
+      {
+        "speaker": "Customer",
+        "text": "I will have a medium iced coffee with oat milk and no syrup, please. I would also like a cheese sandwich. Does that sandwich contain nuts? My friend needs to avoid them."
+      },
+      {
+        "speaker": "Barista",
+        "text": "There are no nuts in the cheese sandwich, but we prepare all our food in the same kitchen. I cannot guarantee that it has not touched traces of nuts. Please check with your friend before buying it."
+      },
+      {
+        "speaker": "Customer",
+        "text": "Thank you for explaining. I will leave out the sandwich and ask my friend first. I will just take the coffee for now. Could I have it in a reusable cup that I brought with me?"
+      },
+      {
+        "speaker": "Barista",
+        "text": "Yes. We give a twenty-pence discount when customers bring a clean reusable cup. There is no extra charge for oat milk. Will you be staying here, or taking your drink away?"
+      },
+      {
+        "speaker": "Customer",
+        "text": "I am taking it away because I need to catch a bus. How long is the wait? I can see several people near the collection counter, and my bus leaves in twelve minutes."
+      },
+      {
+        "speaker": "Barista",
+        "text": "Your drink should be ready in about five minutes. Please wait at the counter by the window. I will call the name Sam when it is ready. The total after your cup discount is two pounds eighty."
+      },
+      {
+        "speaker": "Customer",
+        "text": "Great, I will pay by card. Before I go, could you confirm that it is iced, with oat milk and no syrup? I once collected a hot drink by mistake, so I want to check the order."
+      }
+    ],
+    "transcript": "Barista: Hello! Welcome to Corner Coffee. The menu is above the counter, and the sandwiches are in the glass case. Are you ready to order, or would you like a minute to decide?\nCustomer: I am almost ready. I usually order a medium latte, but I would like to try something less sweet today. Could you tell me whether the iced coffee comes with sugar already added?\nBarista: The plain iced coffee has no sugar. You can add syrup if you want, but you do not have to. A medium one is three pounds, and a large one is three pounds fifty.\nCustomer: I will have a medium iced coffee with oat milk and no syrup, please. I would also like a cheese sandwich. Does that sandwich contain nuts? My friend needs to avoid them.\nBarista: There are no nuts in the cheese sandwich, but we prepare all our food in the same kitchen. I cannot guarantee that it has not touched traces of nuts. Please check with your friend before buying it.\nCustomer: Thank you for explaining. I will leave out the sandwich and ask my friend first. I will just take the coffee for now. Could I have it in a reusable cup that I brought with me?\nBarista: Yes. We give a twenty-pence discount when customers bring a clean reusable cup. There is no extra charge for oat milk. Will you be staying here, or taking your drink away?\nCustomer: I am taking it away because I need to catch a bus. How long is the wait? I can see several people near the collection counter, and my bus leaves in twelve minutes.\nBarista: Your drink should be ready in about five minutes. Please wait at the counter by the window. I will call the name Sam when it is ready. The total after your cup discount is two pounds eighty.\nCustomer: Great, I will pay by card. Before I go, could you confirm that it is iced, with oat milk and no syrup? I once collected a hot drink by mistake, so I want to check the order.",
+    "questions": [
+      {
+        "question": "Which drink does the customer finally order?",
+        "choices": [
+          "A medium iced coffee",
+          "A large hot coffee",
+          "A medium sweet latte"
+        ],
+        "answer": 0
+      },
+      {
+        "question": "Which milk does the customer choose?",
+        "choices": [
+          "Regular milk",
+          "Oat milk",
+          "No milk"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "Why does the customer decide not to buy the sandwich?",
+        "choices": [
+          "It has sold out",
+          "It is too expensive",
+          "They need to check with their friend about possible traces of nuts"
+        ],
+        "answer": 2
+      },
+      {
+        "question": "How much is the reusable-cup discount?",
+        "choices": [
+          "Twenty pence",
+          "Fifty pence",
+          "One pound"
+        ],
+        "answer": 0
+      },
+      {
+        "question": "How long should the customer wait for the drink?",
+        "choices": [
+          "About five minutes",
+          "About twelve minutes",
+          "About twenty minutes"
+        ],
+        "answer": 0
+      },
+      {
+        "question": "What is the final price?",
+        "choices": [
+          "Three pounds",
+          "Two pounds eighty",
+          "Three pounds fifty"
+        ],
+        "answer": 1
+      }
+    ],
+    "task": "不看文本重新点单，并确认规格、奶类、甜度及取餐位置。"
+  },
+  {
+    "id": "city-museum-v2",
+    "title": "城市出行：问路、购票与开放时间",
+    "level": "A2–B1",
+    "scene": "directions",
+    "turns": [
+      {
+        "speaker": "Visitor",
+        "text": "Excuse me, I am trying to get to the City Museum. The map on my phone is not loading. Could you tell me whether it is close enough to walk from this station?"
+      },
+      {
+        "speaker": "Local",
+        "text": "Certainly. It takes about fifteen minutes on foot, or five minutes by bus. I would walk today because the road beside the river is closed, and the bus is following a longer route."
+      },
+      {
+        "speaker": "Visitor",
+        "text": "Walking sounds better. I have a ticket for the exhibition at two o'clock, so I would like to arrive a little early. Which way should I go when I leave the station?"
+      },
+      {
+        "speaker": "Local",
+        "text": "Use the north exit, then walk straight along Market Street. You will pass a bank on your right. Take the second left after the bank, not the first one, and continue towards the library."
+      },
+      {
+        "speaker": "Visitor",
+        "text": "Let me check that. I leave by the north exit, pass the bank, and take the second left. Is the museum next to the library, or do I need to cross another road?"
+      },
+      {
+        "speaker": "Local",
+        "text": "It is opposite the library. Cross at the pedestrian lights, and you will see the museum entrance beside a small bookshop. The main entrance faces the square, but the side entrance is closed today."
+      },
+      {
+        "speaker": "Visitor",
+        "text": "Thank you. Is there anywhere nearby to get lunch? I have not eaten, but I do not want to spend too long in a restaurant and miss the exhibition time on my ticket."
+      },
+      {
+        "speaker": "Local",
+        "text": "There is a cafe inside the museum. It sells soup and sandwiches, and you do not need a separate ticket to use it. It can get busy after one, so collect your exhibition ticket first."
+      },
+      {
+        "speaker": "Visitor",
+        "text": "Do I still need to collect a ticket if I booked online? I have the confirmation email, but I have not printed it. I also want to know when the museum closes this afternoon."
+      },
+      {
+        "speaker": "Local",
+        "text": "Show the code in your email at the information desk. You do not need a printed copy. The building closes at six, but the last entry to the special exhibition is at half past four. Enjoy your visit!"
+      }
+    ],
+    "transcript": "Visitor: Excuse me, I am trying to get to the City Museum. The map on my phone is not loading. Could you tell me whether it is close enough to walk from this station?\nLocal: Certainly. It takes about fifteen minutes on foot, or five minutes by bus. I would walk today because the road beside the river is closed, and the bus is following a longer route.\nVisitor: Walking sounds better. I have a ticket for the exhibition at two o'clock, so I would like to arrive a little early. Which way should I go when I leave the station?\nLocal: Use the north exit, then walk straight along Market Street. You will pass a bank on your right. Take the second left after the bank, not the first one, and continue towards the library.\nVisitor: Let me check that. I leave by the north exit, pass the bank, and take the second left. Is the museum next to the library, or do I need to cross another road?\nLocal: It is opposite the library. Cross at the pedestrian lights, and you will see the museum entrance beside a small bookshop. The main entrance faces the square, but the side entrance is closed today.\nVisitor: Thank you. Is there anywhere nearby to get lunch? I have not eaten, but I do not want to spend too long in a restaurant and miss the exhibition time on my ticket.\nLocal: There is a cafe inside the museum. It sells soup and sandwiches, and you do not need a separate ticket to use it. It can get busy after one, so collect your exhibition ticket first.\nVisitor: Do I still need to collect a ticket if I booked online? I have the confirmation email, but I have not printed it. I also want to know when the museum closes this afternoon.\nLocal: Show the code in your email at the information desk. You do not need a printed copy. The building closes at six, but the last entry to the special exhibition is at half past four. Enjoy your visit!",
+    "questions": [
+      {
+        "question": "Why does the local recommend walking?",
+        "choices": [
+          "The museum is only two minutes away",
+          "The riverside road is closed and the bus is taking a longer route",
+          "All buses have stopped running today"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "Which station exit should the visitor use?",
+        "choices": [
+          "The north exit",
+          "The south exit",
+          "The east exit"
+        ],
+        "answer": 0
+      },
+      {
+        "question": "Where should the visitor turn after passing the bank?",
+        "choices": [
+          "At the first right",
+          "At the first left",
+          "At the second left"
+        ],
+        "answer": 2
+      },
+      {
+        "question": "Where is the museum in relation to the library?",
+        "choices": [
+          "Inside the library",
+          "Opposite the library",
+          "Ten kilometres behind the library"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "What should an online ticket holder show at the information desk?",
+        "choices": [
+          "A printed ticket only",
+          "The code in the confirmation email",
+          "A student card"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "What is the last entry time for the special exhibition?",
+        "choices": [
+          "Half past four in the afternoon",
+          "Six o'clock in the evening",
+          "Two o'clock in the afternoon"
+        ],
+        "answer": 0
+      }
+    ],
+    "task": "用自己的话复述路线和入场手续，再尝试换一个目的地问路。"
+  },
+  {
+    "id": "checkout-bill-v2",
+    "title": "酒店退房：核对账单与寄存行李",
+    "level": "A2–B1",
+    "scene": "hotel",
+    "turns": [
+      {
+        "speaker": "Guest",
+        "text": "Good morning. I would like to check out of room four hundred and eight. Here are both key cards. Could I have an itemised bill before I pay the remaining balance, please?"
+      },
+      {
+        "speaker": "Receptionist",
+        "text": "Of course. You stayed for three nights. The room was paid in advance, so this bill only includes breakfast, one laundry service, and a late check-out charge. Please take a moment to look through it."
+      },
+      {
+        "speaker": "Guest",
+        "text": "I recognise the laundry charge, but I have questions about the other two items. My confirmation says breakfast was included for every morning. We also returned to reception before eleven, so we are not checking out late."
+      },
+      {
+        "speaker": "Receptionist",
+        "text": "Thank you for pointing that out. May I see the confirmation email? I will check the booking and the time recorded by the system. There may have been a mistake when the room was updated."
+      },
+      {
+        "speaker": "Guest",
+        "text": "Here is the email. It says breakfast for two people for three mornings. The room number changed after we arrived because the first room was noisy. Perhaps the original booking details did not move with it."
+      },
+      {
+        "speaker": "Receptionist",
+        "text": "You are right. The breakfast charge is incorrect, and I can see that the late check-out charge was added automatically to the old room. I will remove both items. The laundry service is twelve pounds."
+      },
+      {
+        "speaker": "Guest",
+        "text": "That is clear. Please print the corrected receipt with my name on it. I need it for my travel records. I will pay the twelve pounds by card, using the same card as before."
+      },
+      {
+        "speaker": "Receptionist",
+        "text": "Certainly. Please check the amount on the card machine before you enter your PIN. Here is the corrected receipt. Would you like an electronic copy as well? I can send it to the email on your booking."
+      },
+      {
+        "speaker": "Guest",
+        "text": "Yes, please. Our train leaves at four this afternoon. Could we leave two suitcases here and collect them at half past two? We would like to visit the park without carrying our bags."
+      },
+      {
+        "speaker": "Receptionist",
+        "text": "You can leave them free of charge. Please keep these two luggage tickets and show them when you return. The storage room closes at eight this evening, so collecting the bags at half past two will be fine."
+      }
+    ],
+    "transcript": "Guest: Good morning. I would like to check out of room four hundred and eight. Here are both key cards. Could I have an itemised bill before I pay the remaining balance, please?\nReceptionist: Of course. You stayed for three nights. The room was paid in advance, so this bill only includes breakfast, one laundry service, and a late check-out charge. Please take a moment to look through it.\nGuest: I recognise the laundry charge, but I have questions about the other two items. My confirmation says breakfast was included for every morning. We also returned to reception before eleven, so we are not checking out late.\nReceptionist: Thank you for pointing that out. May I see the confirmation email? I will check the booking and the time recorded by the system. There may have been a mistake when the room was updated.\nGuest: Here is the email. It says breakfast for two people for three mornings. The room number changed after we arrived because the first room was noisy. Perhaps the original booking details did not move with it.\nReceptionist: You are right. The breakfast charge is incorrect, and I can see that the late check-out charge was added automatically to the old room. I will remove both items. The laundry service is twelve pounds.\nGuest: That is clear. Please print the corrected receipt with my name on it. I need it for my travel records. I will pay the twelve pounds by card, using the same card as before.\nReceptionist: Certainly. Please check the amount on the card machine before you enter your PIN. Here is the corrected receipt. Would you like an electronic copy as well? I can send it to the email on your booking.\nGuest: Yes, please. Our train leaves at four this afternoon. Could we leave two suitcases here and collect them at half past two? We would like to visit the park without carrying our bags.\nReceptionist: You can leave them free of charge. Please keep these two luggage tickets and show them when you return. The storage room closes at eight this evening, so collecting the bags at half past two will be fine.",
+    "questions": [
+      {
+        "question": "How many nights did the guest stay?",
+        "choices": [
+          "Two nights",
+          "Three nights",
+          "Four nights"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "Which two charges does the guest question?",
+        "choices": [
+          "Breakfast and late check-out",
+          "The room and laundry",
+          "Luggage storage and breakfast"
+        ],
+        "answer": 0
+      },
+      {
+        "question": "Why might the original booking details not have been transferred?",
+        "choices": [
+          "The guest changed their name",
+          "The guest did not pay",
+          "The guest changed rooms after arriving"
+        ],
+        "answer": 2
+      },
+      {
+        "question": "How much does the guest finally need to pay?",
+        "choices": [
+          "Eight pounds",
+          "Twelve pounds",
+          "Twenty-four pounds"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "When does the guest plan to collect the bags?",
+        "choices": [
+          "At half past two in the afternoon",
+          "At four o'clock in the afternoon",
+          "At eight o'clock in the evening"
+        ],
+        "answer": 0
+      },
+      {
+        "question": "What is needed to collect the bags?",
+        "choices": [
+          "A new key card",
+          "A breakfast voucher",
+          "The two luggage tickets"
+        ],
+        "answer": 2
+      }
+    ],
+    "task": "说明收费异议、引用预订依据，并确认更正后的金额。"
+  },
+  {
+    "id": "restaurant-dinner-v2",
+    "title": "餐厅晚餐：订位、饮食需求与结账",
+    "level": "A2–B1",
+    "scene": "restaurant",
+    "turns": [
+      {
+        "speaker": "Server",
+        "text": "Good evening. Welcome to River Kitchen. Do you have a reservation? We have a few tables available, but the area by the window is reserved for a group arriving later tonight."
+      },
+      {
+        "speaker": "Customer",
+        "text": "Yes, I booked a table for two under Jamie Chen at seven thirty. We arrived ten minutes early. If possible, we would prefer a quiet table, because we have not seen each other for a long time."
+      },
+      {
+        "speaker": "Server",
+        "text": "Your table is ready in the corner, away from the door. Here are the menus. Tonight's soup is tomato, and the special is grilled fish with potatoes. Both specials can take around twenty minutes to prepare."
+      },
+      {
+        "speaker": "Customer",
+        "text": "My friend does not eat meat or fish. Is there a vegetarian main course that is also made without cheese? She avoids dairy products, so we would appreciate a clear answer before we order."
+      },
+      {
+        "speaker": "Server",
+        "text": "The vegetable curry is made with coconut milk and has no cheese or butter. I will still ask the kitchen to confirm the ingredients. The salad can also be served without its usual yoghurt dressing."
+      },
+      {
+        "speaker": "Customer",
+        "text": "The curry sounds good for her. I will have the grilled fish. Could I change the potatoes to rice? We would like tap water for the table, and I will have a small apple juice as well."
+      },
+      {
+        "speaker": "Server",
+        "text": "That change is possible at no extra charge. I have a curry, fish with rice, tap water, and a small apple juice. The curry is mildly spicy. Would your friend like the chilli sauce served separately?"
+      },
+      {
+        "speaker": "Customer",
+        "text": "Yes, please keep it on the side. We are going to a performance at nine, so we hope to finish by eight thirty. If the food takes longer than expected, could you let us know?"
+      },
+      {
+        "speaker": "Server",
+        "text": "Of course. It is only seven forty now, so there should be enough time. I will check with the kitchen. When you are ready to pay, please note that a service charge is optional and appears separately on the bill."
+      },
+      {
+        "speaker": "Customer",
+        "text": "Thank you. We would prefer separate bills, one for each main course and drink. Please put the apple juice on my bill with the fish. We will check everything before paying by card at the table."
+      }
+    ],
+    "transcript": "Server: Good evening. Welcome to River Kitchen. Do you have a reservation? We have a few tables available, but the area by the window is reserved for a group arriving later tonight.\nCustomer: Yes, I booked a table for two under Jamie Chen at seven thirty. We arrived ten minutes early. If possible, we would prefer a quiet table, because we have not seen each other for a long time.\nServer: Your table is ready in the corner, away from the door. Here are the menus. Tonight's soup is tomato, and the special is grilled fish with potatoes. Both specials can take around twenty minutes to prepare.\nCustomer: My friend does not eat meat or fish. Is there a vegetarian main course that is also made without cheese? She avoids dairy products, so we would appreciate a clear answer before we order.\nServer: The vegetable curry is made with coconut milk and has no cheese or butter. I will still ask the kitchen to confirm the ingredients. The salad can also be served without its usual yoghurt dressing.\nCustomer: The curry sounds good for her. I will have the grilled fish. Could I change the potatoes to rice? We would like tap water for the table, and I will have a small apple juice as well.\nServer: That change is possible at no extra charge. I have a curry, fish with rice, tap water, and a small apple juice. The curry is mildly spicy. Would your friend like the chilli sauce served separately?\nCustomer: Yes, please keep it on the side. We are going to a performance at nine, so we hope to finish by eight thirty. If the food takes longer than expected, could you let us know?\nServer: Of course. It is only seven forty now, so there should be enough time. I will check with the kitchen. When you are ready to pay, please note that a service charge is optional and appears separately on the bill.\nCustomer: Thank you. We would prefer separate bills, one for each main course and drink. Please put the apple juice on my bill with the fish. We will check everything before paying by card at the table.",
+    "questions": [
+      {
+        "question": "What time is the table reservation?",
+        "choices": [
+          "Seven twenty",
+          "Seven thirty",
+          "Eight thirty"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "What are the friend's dietary requirements?",
+        "choices": [
+          "No meat or fish, and no dairy products",
+          "Fish only",
+          "No spicy food, with no other restrictions"
+        ],
+        "answer": 0
+      },
+      {
+        "question": "What does the customer choose instead of potatoes?",
+        "choices": [
+          "Salad",
+          "Bread",
+          "Rice"
+        ],
+        "answer": 2
+      },
+      {
+        "question": "How should the chilli sauce be served?",
+        "choices": [
+          "Mixed into the curry",
+          "Separately on the side",
+          "Not provided at all"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "When do the customers hope to finish their meal?",
+        "choices": [
+          "By eight thirty",
+          "By nine o'clock",
+          "By nine thirty"
+        ],
+        "answer": 0
+      },
+      {
+        "question": "What does the customer request about payment?",
+        "choices": [
+          "The friend should pay for everything",
+          "Separate bills, with the apple juice on the fish bill",
+          "Payment without checking the bill"
+        ],
+        "answer": 1
+      }
+    ],
+    "task": "完整点一份餐，说明饮食限制、时间要求与付款安排。"
+  },
+  {
+    "id": "airport-departure-v2",
+    "title": "机场出行：行李、登机口与航班变更",
+    "level": "A2–B1",
+    "scene": "airport",
+    "turns": [
+      {
+        "speaker": "Agent",
+        "text": "Good morning. Which flight are you checking in for today? Please have your passport ready. If you checked in online, you can show me the boarding pass on your phone as well."
+      },
+      {
+        "speaker": "Traveller",
+        "text": "I am flying to Manchester on flight AB two one four. The departure time on my booking is ten forty. I checked in online, but I need to drop off this suitcase and confirm the gate."
+      },
+      {
+        "speaker": "Agent",
+        "text": "Thank you. Please place the suitcase on the scale. It weighs twenty-one kilos, which is below your twenty-three-kilo allowance. Your small backpack can go with you as cabin luggage, so there is no extra baggage charge."
+      },
+      {
+        "speaker": "Traveller",
+        "text": "That is good. Does the boarding pass still show the correct gate? When I looked at the airport screen a few minutes ago, I thought I saw a different gate number beside my flight."
+      },
+      {
+        "speaker": "Agent",
+        "text": "The gate changed this morning. Your printed confirmation shows gate twelve, but the current gate is twenty-six. Please follow the signs for the east terminal after security. Keep checking the screens in case it changes again."
+      },
+      {
+        "speaker": "Traveller",
+        "text": "Thank you for checking. How long does it take to reach that gate? I would like to buy some water after security, but I do not want to miss boarding while I am in a shop."
+      },
+      {
+        "speaker": "Agent",
+        "text": "Allow about fifteen minutes to walk there. Boarding is due to start at ten ten, and the gate closes at ten twenty-five. The flight itself is now expected to leave twenty minutes later than originally planned."
+      },
+      {
+        "speaker": "Traveller",
+        "text": "So the departure has moved to eleven, but I should still be at gate twenty-six for boarding at ten ten. Is that right? I will go through security now rather than wait near the check-in desks."
+      },
+      {
+        "speaker": "Agent",
+        "text": "Exactly. Do not wait until the new departure time. You can refill an empty water bottle after security. At the gate, staff may ask you to show both your passport and your boarding pass again."
+      },
+      {
+        "speaker": "Traveller",
+        "text": "Understood. Could you give me the baggage receipt, please? I will keep it until I collect my suitcase at Manchester. Thank you for explaining the change and the different times; that makes the plan much clearer."
+      }
+    ],
+    "transcript": "Agent: Good morning. Which flight are you checking in for today? Please have your passport ready. If you checked in online, you can show me the boarding pass on your phone as well.\nTraveller: I am flying to Manchester on flight AB two one four. The departure time on my booking is ten forty. I checked in online, but I need to drop off this suitcase and confirm the gate.\nAgent: Thank you. Please place the suitcase on the scale. It weighs twenty-one kilos, which is below your twenty-three-kilo allowance. Your small backpack can go with you as cabin luggage, so there is no extra baggage charge.\nTraveller: That is good. Does the boarding pass still show the correct gate? When I looked at the airport screen a few minutes ago, I thought I saw a different gate number beside my flight.\nAgent: The gate changed this morning. Your printed confirmation shows gate twelve, but the current gate is twenty-six. Please follow the signs for the east terminal after security. Keep checking the screens in case it changes again.\nTraveller: Thank you for checking. How long does it take to reach that gate? I would like to buy some water after security, but I do not want to miss boarding while I am in a shop.\nAgent: Allow about fifteen minutes to walk there. Boarding is due to start at ten ten, and the gate closes at ten twenty-five. The flight itself is now expected to leave twenty minutes later than originally planned.\nTraveller: So the departure has moved to eleven, but I should still be at gate twenty-six for boarding at ten ten. Is that right? I will go through security now rather than wait near the check-in desks.\nAgent: Exactly. Do not wait until the new departure time. You can refill an empty water bottle after security. At the gate, staff may ask you to show both your passport and your boarding pass again.\nTraveller: Understood. Could you give me the baggage receipt, please? I will keep it until I collect my suitcase at Manchester. Thank you for explaining the change and the different times; that makes the plan much clearer.",
+    "questions": [
+      {
+        "question": "What is the checked-baggage allowance?",
+        "choices": [
+          "Twenty-one kilos",
+          "Twenty-three kilos",
+          "Twenty-six kilos"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "Which gate should the traveller go to now?",
+        "choices": [
+          "Gate twelve",
+          "Gate twenty-one",
+          "Gate twenty-six"
+        ],
+        "answer": 2
+      },
+      {
+        "question": "How much walking time should the traveller allow?",
+        "choices": [
+          "Five minutes",
+          "Fifteen minutes",
+          "Forty minutes"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "When does the gate close?",
+        "choices": [
+          "At ten ten",
+          "At ten twenty-five",
+          "At eleven o'clock"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "What is the new expected departure time?",
+        "choices": [
+          "Ten forty",
+          "Eleven o'clock",
+          "Eleven twenty"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "What does the traveller understand they should do?",
+        "choices": [
+          "Go to the new gate for the original boarding time",
+          "Leave the airport to go shopping",
+          "Put the passport in the checked suitcase"
+        ],
+        "answer": 0
+      }
+    ],
+    "task": "分别复述登机开始、登机口关闭和起飞时间，再处理一次登机口变更。"
+  },
+  {
+    "id": "shopping-return-v2",
+    "title": "服装购物：尺码、价格与退换条件",
+    "level": "A2–B1",
+    "scene": "shopping",
+    "turns": [
+      {
+        "speaker": "Assistant",
+        "text": "Hello. Can I help you find anything today? The new jackets are on the wall near the fitting rooms. If you cannot see your size, I can check whether we have more in the stockroom."
+      },
+      {
+        "speaker": "Customer",
+        "text": "I need a light jacket for a weekend trip. My budget is about fifty pounds. I usually wear a medium, but I want enough room for a jumper underneath. Do you have something suitable for light rain?"
+      },
+      {
+        "speaker": "Assistant",
+        "text": "This blue jacket is water-resistant, though it is not designed for very heavy rain. It costs forty-eight pounds. The green one is warmer but costs sixty-five, so the blue one is closer to your budget."
+      },
+      {
+        "speaker": "Customer",
+        "text": "I will try the blue one first. The medium feels a little tight across my shoulders when I move my arms. Could I compare it with a large? I do not mind if the sleeves are slightly longer."
+      },
+      {
+        "speaker": "Assistant",
+        "text": "Certainly. Here is a large in blue. Please try it over your jumper so you can judge the fit properly. The mirror outside the fitting room will let you see the back as well."
+      },
+      {
+        "speaker": "Customer",
+        "text": "The large is much more comfortable. I think I will take it. Before I pay, could you explain the returns policy? I leave tomorrow and may not have time to come back until next week."
+      },
+      {
+        "speaker": "Assistant",
+        "text": "For a full refund, return it within twenty-eight days with the receipt and the labels still attached. It must not have been worn outside. If you only need a different size, we can exchange it under the same conditions."
+      },
+      {
+        "speaker": "Customer",
+        "text": "That makes sense. If the jacket turns out to have a faulty zip, should I follow exactly the same procedure, or should I tell the customer service desk that there is a problem with it?"
+      },
+      {
+        "speaker": "Assistant",
+        "text": "Please tell customer service about any fault, so they can inspect it and explain the options. The ordinary change-of-mind policy is separate. Keep the paper receipt, and I can email a copy as a useful backup."
+      },
+      {
+        "speaker": "Customer",
+        "text": "Please send the copy as well. I will pay by card and keep the labels on until I have checked the jacket at home. Thank you for helping me compare the sizes without going over my budget."
+      }
+    ],
+    "transcript": "Assistant: Hello. Can I help you find anything today? The new jackets are on the wall near the fitting rooms. If you cannot see your size, I can check whether we have more in the stockroom.\nCustomer: I need a light jacket for a weekend trip. My budget is about fifty pounds. I usually wear a medium, but I want enough room for a jumper underneath. Do you have something suitable for light rain?\nAssistant: This blue jacket is water-resistant, though it is not designed for very heavy rain. It costs forty-eight pounds. The green one is warmer but costs sixty-five, so the blue one is closer to your budget.\nCustomer: I will try the blue one first. The medium feels a little tight across my shoulders when I move my arms. Could I compare it with a large? I do not mind if the sleeves are slightly longer.\nAssistant: Certainly. Here is a large in blue. Please try it over your jumper so you can judge the fit properly. The mirror outside the fitting room will let you see the back as well.\nCustomer: The large is much more comfortable. I think I will take it. Before I pay, could you explain the returns policy? I leave tomorrow and may not have time to come back until next week.\nAssistant: For a full refund, return it within twenty-eight days with the receipt and the labels still attached. It must not have been worn outside. If you only need a different size, we can exchange it under the same conditions.\nCustomer: That makes sense. If the jacket turns out to have a faulty zip, should I follow exactly the same procedure, or should I tell the customer service desk that there is a problem with it?\nAssistant: Please tell customer service about any fault, so they can inspect it and explain the options. The ordinary change-of-mind policy is separate. Keep the paper receipt, and I can email a copy as a useful backup.\nCustomer: Please send the copy as well. I will pay by card and keep the labels on until I have checked the jacket at home. Thank you for helping me compare the sizes without going over my budget.",
+    "questions": [
+      {
+        "question": "What is the customer's approximate budget?",
+        "choices": [
+          "Forty-eight pounds",
+          "Fifty pounds",
+          "Sixty-five pounds"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "Why does the customer not choose the green jacket first?",
+        "choices": [
+          "It is over the budget",
+          "No sizes are available",
+          "It cannot be tried on"
+        ],
+        "answer": 0
+      },
+      {
+        "question": "Which size does the customer finally choose?",
+        "choices": [
+          "Small",
+          "Medium",
+          "Large"
+        ],
+        "answer": 2
+      },
+      {
+        "question": "How long is the ordinary refund period?",
+        "choices": [
+          "Seven days",
+          "Fourteen days",
+          "Twenty-eight days"
+        ],
+        "answer": 2
+      },
+      {
+        "question": "Which conditions apply to an ordinary return?",
+        "choices": [
+          "The receipt and attached labels are needed, and it must not have been worn outside",
+          "Only a spoken explanation is needed",
+          "It can always be returned after being worn outside"
+        ],
+        "answer": 0
+      },
+      {
+        "question": "What should the customer do if the zip is faulty?",
+        "choices": [
+          "Ask only for a different colour",
+          "Tell customer service about the fault so it can be inspected",
+          "Throw away the receipt"
+        ],
+        "answer": 1
+      }
+    ],
+    "task": "用自己的话比较尺码，并分别询问普通退换和商品故障的处理。"
+  },
+  {
+    "id": "library-borrow-v2",
+    "title": "图书馆借阅：办卡、续借与预约",
+    "level": "A2–B1",
+    "scene": "library",
+    "turns": [
+      {
+        "speaker": "Librarian",
+        "text": "Hello. Welcome to the town library. Are you looking for a particular book, or would you like some help finding something to read? We also have study spaces upstairs if you need a quiet place."
+      },
+      {
+        "speaker": "Reader",
+        "text": "I have recently moved nearby and would like to join the library. I am interested in English novels, especially short mysteries. What do I need to bring before I can take books home?"
+      },
+      {
+        "speaker": "Librarian",
+        "text": "Please show one photo ID and something with your current address, such as a recent utility bill. Membership is free. You can complete the form here today, and we can issue your card straight away."
+      },
+      {
+        "speaker": "Reader",
+        "text": "I have my ID, but the bill on my phone still shows my old address. Can I start reading here while I arrange a new proof of address? I would rather not make another trip just to look around."
+      },
+      {
+        "speaker": "Librarian",
+        "text": "Yes, anyone can read in the building. We just need the address document before you borrow items. Once your card is active, you can borrow up to six books for three weeks at a time."
+      },
+      {
+        "speaker": "Reader",
+        "text": "That is useful. I found a mystery novel in the catalogue, but its status says it is on loan. Could I reserve it, or should I keep checking the shelf until someone returns it?"
+      },
+      {
+        "speaker": "Librarian",
+        "text": "You can place a free reservation when your membership is ready. We will email you when the book arrives. You then have five days to collect it from this desk before it is offered to the next reader."
+      },
+      {
+        "speaker": "Reader",
+        "text": "If I do not finish a book within three weeks, how do I renew it? I work on weekdays, so using the website would be much easier than coming in during opening hours."
+      },
+      {
+        "speaker": "Librarian",
+        "text": "You can renew online using your card number and PIN, unless another reader has reserved that book. We also have a return box by the main entrance for times when the library is closed."
+      },
+      {
+        "speaker": "Reader",
+        "text": "Great. I will read a few pages here today and bring the new address document tomorrow. Then I can borrow a short story collection while I wait for the reserved novel. Thank you for explaining the different steps."
+      }
+    ],
+    "transcript": "Librarian: Hello. Welcome to the town library. Are you looking for a particular book, or would you like some help finding something to read? We also have study spaces upstairs if you need a quiet place.\nReader: I have recently moved nearby and would like to join the library. I am interested in English novels, especially short mysteries. What do I need to bring before I can take books home?\nLibrarian: Please show one photo ID and something with your current address, such as a recent utility bill. Membership is free. You can complete the form here today, and we can issue your card straight away.\nReader: I have my ID, but the bill on my phone still shows my old address. Can I start reading here while I arrange a new proof of address? I would rather not make another trip just to look around.\nLibrarian: Yes, anyone can read in the building. We just need the address document before you borrow items. Once your card is active, you can borrow up to six books for three weeks at a time.\nReader: That is useful. I found a mystery novel in the catalogue, but its status says it is on loan. Could I reserve it, or should I keep checking the shelf until someone returns it?\nLibrarian: You can place a free reservation when your membership is ready. We will email you when the book arrives. You then have five days to collect it from this desk before it is offered to the next reader.\nReader: If I do not finish a book within three weeks, how do I renew it? I work on weekdays, so using the website would be much easier than coming in during opening hours.\nLibrarian: You can renew online using your card number and PIN, unless another reader has reserved that book. We also have a return box by the main entrance for times when the library is closed.\nReader: Great. I will read a few pages here today and bring the new address document tomorrow. Then I can borrow a short story collection while I wait for the reserved novel. Thank you for explaining the different steps.",
+    "questions": [
+      {
+        "question": "Which documents are needed to join the library?",
+        "choices": [
+          "A photo ID and proof of the current address",
+          "A passport and a flight ticket",
+          "No documents; giving a name is enough to borrow books"
+        ],
+        "answer": 0
+      },
+      {
+        "question": "What can the reader do before the membership is ready?",
+        "choices": [
+          "Read inside the library",
+          "Take six books home",
+          "Use another person's card"
+        ],
+        "answer": 0
+      },
+      {
+        "question": "How many books can a member borrow at one time?",
+        "choices": [
+          "Three",
+          "Five",
+          "Six"
+        ],
+        "answer": 2
+      },
+      {
+        "question": "How long is the usual loan period?",
+        "choices": [
+          "Three days",
+          "Three weeks",
+          "Five weeks"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "How long does the reader have to collect a reserved book after it arrives?",
+        "choices": [
+          "Three days",
+          "Five days",
+          "Twenty-one days"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "When is online renewal unavailable for a book?",
+        "choices": [
+          "When another reader has reserved it",
+          "Whenever the library building is closed",
+          "Whenever the reader works on weekdays"
+        ],
+        "answer": 0
+      }
+    ],
+    "task": "复述办卡、借阅、预约和续借条件，再尝试预约另一本书。"
+  },
+  {
+    "id": "campus-project-v2",
+    "title": "小组合作：分工、截止时间与方案调整",
+    "level": "A2–B1",
+    "scene": "campus",
+    "turns": [
+      {
+        "speaker": "Student A",
+        "text": "Thanks for meeting today. We need to prepare a presentation about reducing waste on campus. The teacher wants practical ideas, not just a list of problems. Can we agree on our main question before we divide the work?"
+      },
+      {
+        "speaker": "Student B",
+        "text": "How about asking how students can waste less food in the dining hall? It is specific enough for a ten-minute presentation. We could collect a few opinions and compare them with the information on the university website."
+      },
+      {
+        "speaker": "Student A",
+        "text": "I like that focus. I can design a short questionnaire, but I will need help checking whether the questions are clear. Could you review the draft tomorrow morning before I send it to the group?"
+      },
+      {
+        "speaker": "Student B",
+        "text": "Yes. I have a class until ten, but I can look at it after that. Please keep it to five questions so people can finish it quickly. We should not ask for names or private information."
+      },
+      {
+        "speaker": "Student A",
+        "text": "Agreed. We can ask students to answer voluntarily during lunch on Wednesday. I will handle the questionnaire and the results chart. Would you be happy to research the existing dining hall policies and suggest two possible improvements?"
+      },
+      {
+        "speaker": "Student B",
+        "text": "That works. I will use the official website first and note where each fact comes from. We should also mention the limits of our small survey rather than claim that it represents every student on campus."
+      },
+      {
+        "speaker": "Student A",
+        "text": "The final slides are due on Friday at noon. Could we finish our first draft by Thursday evening? That would give us time to check the numbers, remove repeated points, and practise the presentation together."
+      },
+      {
+        "speaker": "Student B",
+        "text": "I cannot meet on Thursday evening because I work at the cafe. Could we rehearse online at five on Thursday afternoon instead? I can upload my part to our shared folder by Wednesday night."
+      },
+      {
+        "speaker": "Student A",
+        "text": "Five on Thursday is fine. I will combine the slides before then and send everyone the meeting link. If we do not collect enough responses on Wednesday, we can describe the survey as an initial observation."
+      },
+      {
+        "speaker": "Student B",
+        "text": "Great. We have a clear question, separate tasks, and time to rehearse. Please send a short written summary after this meeting so we can check that we understood the same deadlines and bring up any problems early."
+      }
+    ],
+    "transcript": "Student A: Thanks for meeting today. We need to prepare a presentation about reducing waste on campus. The teacher wants practical ideas, not just a list of problems. Can we agree on our main question before we divide the work?\nStudent B: How about asking how students can waste less food in the dining hall? It is specific enough for a ten-minute presentation. We could collect a few opinions and compare them with the information on the university website.\nStudent A: I like that focus. I can design a short questionnaire, but I will need help checking whether the questions are clear. Could you review the draft tomorrow morning before I send it to the group?\nStudent B: Yes. I have a class until ten, but I can look at it after that. Please keep it to five questions so people can finish it quickly. We should not ask for names or private information.\nStudent A: Agreed. We can ask students to answer voluntarily during lunch on Wednesday. I will handle the questionnaire and the results chart. Would you be happy to research the existing dining hall policies and suggest two possible improvements?\nStudent B: That works. I will use the official website first and note where each fact comes from. We should also mention the limits of our small survey rather than claim that it represents every student on campus.\nStudent A: The final slides are due on Friday at noon. Could we finish our first draft by Thursday evening? That would give us time to check the numbers, remove repeated points, and practise the presentation together.\nStudent B: I cannot meet on Thursday evening because I work at the cafe. Could we rehearse online at five on Thursday afternoon instead? I can upload my part to our shared folder by Wednesday night.\nStudent A: Five on Thursday is fine. I will combine the slides before then and send everyone the meeting link. If we do not collect enough responses on Wednesday, we can describe the survey as an initial observation.\nStudent B: Great. We have a clear question, separate tasks, and time to rehearse. Please send a short written summary after this meeting so we can check that we understood the same deadlines and bring up any problems early.",
+    "questions": [
+      {
+        "question": "What question does the group decide to focus on?",
+        "choices": [
+          "How to reduce food waste in the dining hall",
+          "How to provide more parking spaces",
+          "How to extend the cafe's opening hours"
+        ],
+        "answer": 0
+      },
+      {
+        "question": "How many questions should the questionnaire have?",
+        "choices": [
+          "Five",
+          "Ten",
+          "Twenty"
+        ],
+        "answer": 0
+      },
+      {
+        "question": "What is Student B mainly responsible for?",
+        "choices": [
+          "Only making the survey chart",
+          "Researching existing policies and suggesting improvements",
+          "Giving the entire presentation alone"
+        ],
+        "answer": 1
+      },
+      {
+        "question": "When are the final slides due?",
+        "choices": [
+          "Wednesday night",
+          "Thursday at five",
+          "Friday at noon"
+        ],
+        "answer": 2
+      },
+      {
+        "question": "When will the group rehearse?",
+        "choices": [
+          "Online at five on Thursday afternoon",
+          "In person on Thursday evening",
+          "At noon on Friday"
+        ],
+        "answer": 0
+      },
+      {
+        "question": "What should the group say if it collects too few responses?",
+        "choices": [
+          "The results still represent every student",
+          "The survey is an initial observation with limitations",
+          "Extra responses should be invented"
+        ],
+        "answer": 1
+      }
+    ],
+    "task": "口头总结本人的任务、交付时间和排练安排，并应对一次临时改期。"
+  }
+]

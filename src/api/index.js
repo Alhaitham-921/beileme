@@ -28,6 +28,10 @@ export const practice = {
   retryReport: (id) => http.post(`/practice/sessions/${encodeURIComponent(id)}/retry-report`, { timeoutMs: 150000 }),
 }
 export const library={
+  readingCompanion:(id,chapter)=>http.get(`/library/books/${id}/translation`,{query:chapter?{chapter}:{}}),
+  importCompanion:(id,body)=>http.put(`/library/books/${id}/translation`,{body,timeoutMs:60000}),
+  mapCompanion:(id,body)=>http.put(`/library/books/${id}/translation/chapter`,{body}),
+  removeCompanion:id=>http.del(`/library/books/${id}/translation`),
   importBook:body=>http.post('/library/books/import',{body,timeoutMs:60000}),
   removeBook:id=>http.del(`/library/books/${id}`),
   preferences:()=>http.get('/library/preferences'),
